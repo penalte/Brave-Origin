@@ -13,17 +13,17 @@ Report suspected vulnerabilities privately through [GitHub security reporting](h
 
 ## Release checks
 
-### Known issues in 1.0.1-beta.1
+### Known issues in 1.0.1-beta.2
 
 This beta contains the saved-file and cross-site session protections, plus automatic display resizing. It is available for testing with known dependency vulnerabilities; it is not a security-cleared stable release. Use a separate appdata folder on a trusted network or VPN.
 
-Examples from the September 8 scan:
+The September 8 scan of `1.0.1-beta.2` returned 31 critical and 249 high-severity package vulnerability matches. Stable publication remains blocked. Examples include:
 
 - **nginx — CVE-2026-42533:** a memory-safety issue can crash the web proxy and, under additional conditions, allow code execution. Exploitability depends on nginx configuration. Debian still lists the supplied Trixie package as affected and plans a point-release fix. [Debian advisory](https://security-tracker.debian.org/tracker/CVE-2026-42533).
 - **libxml2 — CVE-2026-86140:** a stack buffer overflow in an XML validation function. The supplied version remains affected. [Debian advisory](https://security-tracker.debian.org/tracker/CVE-2026-86140).
-- **FFmpeg — CVE-2026-70628 and CVE-2026-70632:** crafted media can trigger memory corruption in particular subtitle and video decoders. The image includes affected distribution libraries and libraries bundled with PyAV. Whether these decoder paths are reachable through this application has not been cleared. [Subtitle advisory](https://security-tracker.debian.org/tracker/CVE-2026-70628), [video advisory](https://security-tracker.debian.org/tracker/CVE-2026-70632).
+- **FFmpeg — CVE-2026-70628 and CVE-2026-70632:** crafted media can trigger memory corruption in particular subtitle and video decoders. The image includes affected distribution libraries and libraries bundled with PyAV. We have not established whether this application can reach the affected decoders. [Subtitle advisory](https://security-tracker.debian.org/tracker/CVE-2026-70628), [video advisory](https://security-tracker.debian.org/tracker/CVE-2026-70632).
 
-These examples are not the complete finding list. The prerelease includes the dependency report. Scanner matches identify affected packages; they do not establish that every issue is exploitable in this deployment. No blanket suppression or clean-scan claim is used for this beta.
+These examples are not the complete finding list. The [prerelease](https://github.com/shoyrock/Brave-Origin/releases/tag/v1.0.1-beta.2) includes the dependency report. Scanner matches identify affected packages; they do not establish that every issue is exploitable in this deployment. This beta leaves all findings in the report and does not claim a clean scan.
 
 Review changes to downloaded dependencies and pinned checksums. Run the container smoke tests, including hostile-storage and updater tests, before publishing. Scan the final image for known dependency vulnerabilities and malware, and scan Git history for secrets. Investigate scanner findings and record unresolved risks; a clean scan is not proof that software is safe.
 

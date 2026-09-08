@@ -8,7 +8,7 @@ Release builds refresh the base image and package installation instead of reusin
 
 The image scan uses a pinned Grype container with no Docker socket or credentials. High and critical findings block publishing until investigated and resolved. Scan the final image for malware with current definitions as well; dependency scanning does not detect all malicious code. See [security guidance](SECURITY.md).
 
-An explicitly authorized testing beta may be published manually with known dependency findings. This is a recorded risk decision, not a passing security check: keep the scanner's failure and attach its report to the prerelease, disclose the unresolved issues, and publish only numbered beta, `beta`, and commit tags. Scanner errors, detected malware, and failing application tests still block it. The automatic workflow and the stable release gate remain unchanged. The `1.0.1-beta.1` testing release uses this exception for the documented September 8 dependency findings.
+An explicitly authorized testing beta may be published manually with known dependency findings. This is a recorded risk decision, not a passing security check: keep the scanner's failure and attach its report to the prerelease, disclose the unresolved issues, and publish only numbered beta, `beta`, and commit tags. Scanner errors, detected malware, and failing application tests still block it. The automatic workflow and the stable release gate remain unchanged. The `1.0.1-beta.1` and `1.0.1-beta.2` testing releases use this exception for the documented September 8 dependency findings.
 
 Before tagging a release:
 
