@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>
+Brave Origin in Docker, with an Unraid template for remote browser access over HTTPS. Keep bookmarks, settings, extensions, and downloads in a persistent appdata folder. Includes password protection, copy and paste, audio, and automatic browser updates.
+
+See the [setup instructions](https://github.com/shoyrock/Brave-Origin#readme) for installation help. Report problems or request features through [GitHub issues](https://github.com/shoyrock/Brave-Origin/issues).
+  </Profile>
+  <WebPage>https://github.com/shoyrock/Brave-Origin</WebPage>
+</CommunityApplications>

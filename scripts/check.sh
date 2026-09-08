@@ -6,6 +6,9 @@ git --no-pager diff --check
 python3 - <<'PY'
 from pathlib import Path
 import subprocess, xml.etree.ElementTree as ET
+profile = ET.parse('ca_profile.xml').getroot()
+assert profile.tag == 'CommunityApplications', 'Invalid Community Applications profile root'
+assert (profile.findtext('Profile') or '').strip(), 'Community Applications requires a non-empty Profile'
 root = ET.parse('templates/brave-origin.xml').getroot()
 assert root.tag == 'Container' and root.attrib['version'] == '2'
 config = {x.attrib['Target']: x for x in root.findall('Config')}
@@ -21,7 +24,7 @@ tracked = subprocess.check_output(['git','ls-files'], text=True).splitlines()
 for p in tracked:
     assert p not in ('AGENTS.md','CLAUDE.md','.env') and not p.startswith(('skills/','.agents/','appdata/','scratch/')), p
 assert 'FROM debian:trixie-slim\n' in Path('Dockerfile').read_text()
-print('Shell syntax, whitespace, distribution rules, and Unraid template passed.')
+print('Shell syntax, whitespace, distribution rules, Unraid template, and Community Applications profile passed.')
 PY
 python3 -m py_compile scripts/prepare-storage.py scripts/security-scan.py tests/storage.py
 python3 tests/release.py
