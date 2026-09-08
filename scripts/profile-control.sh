@@ -24,7 +24,7 @@ set_status_atomic() {
 
 get_current_status() {
     if [ -f "${QUIESCE_FLAG}" ]; then
-        echo "QUIESCED"
+        if [ "$(cat "$STATUS_FILE" 2>/dev/null)" = QUIESCED ]; then echo QUIESCED; else echo QUIESCING; fi
     elif [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}" 2>/dev/null)" 2>/dev/null; then
         # A live browser is authoritative: never mask it with a stale status file
         echo "RUNNING"
@@ -42,8 +42,13 @@ case "${ACTION}" in
         TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
         echo "[supervisor] [${TIMESTAMP}] Quiesce requested: preparing /config for backup/snapshot..."
 
+        exec 8>/run/lock/brave-origin-launch.lock
+        flock 8
         # Set quiesce flag to prevent supervisor from automatically relaunching Brave
         touch "${QUIESCE_FLAG}"
+        set_status_atomic "QUIESCING"
+        flock -u 8
+        exec 8>&-
 
         # 1. Gracefully stop running Brave process
         if [ -f "${PID_FILE}" ]; then
@@ -68,6 +73,10 @@ case "${ACTION}" in
             fi
         fi
 
+        # The session releases this only after all its processes have exited.
+        exec 9>"${STATE_DIR}/profile.lock"
+        flock -w 40 9 || { echo 'Profile is still in use; backup refused.' >&2; exit 1; }
+
         # 2. Flush and synchronize filesystem writes to disk
         echo "[supervisor] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Flushing filesystem writes to persistent storage..."
         if ! sync -f /config 2>/dev/null && ! sync; then
@@ -91,12 +100,10 @@ case "${ACTION}" in
         rm -f "${QUIESCE_FLAG}"
         set_status_atomic "STARTING"
 
-        # Signal supervisor to resume
-        touch /tmp/brave-restart.flag
 
         # Wait for Brave to reach running status
         SUCCESS=false
-        for i in $(seq 1 "${STARTUP_TIMEOUT}"); do
+        for ((i=0; i<STARTUP_TIMEOUT; i++)); do
             if [ -f "${PID_FILE}" ]; then
                 BRAVE_PID="$(cat "${PID_FILE}" 2>/dev/null || echo "")"
                 if [ -n "${BRAVE_PID}" ] && kill -0 "${BRAVE_PID}" 2>/dev/null; then

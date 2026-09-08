@@ -1,283 +1,82 @@
 #!/usr/bin/env bash
-set -eo pipefail
+# Download while running, then stop the browser and install from the cache.
+set -euo pipefail
+STATE_DIR=/config/state
+mkdir -p /run/lock "$STATE_DIR"
+exec 200>/run/lock/brave-origin-update.lock
+flock -n 200 || { echo '[updater] An update is already running.'; exit 0; }
 
-# ==============================================================================
-# In-Container Automatic Brave Origin Update Script
-# Explicit 2-Stage (Download-First -> No-Download Install) Update Transaction
-# ==============================================================================
+# Only the owner of the update lock may remove its transaction marker.
+trap 'rm -f /tmp/brave-update-in-progress' EXIT
+[ ! -f "$STATE_DIR/quiesce.flag" ] || { echo '[updater] Backup hold is active.'; exit 0; }
+minimum="${MIN_UPDATE_FREE_SPACE_MB:-1024}"
+[[ "$minimum" =~ ^[1-9][0-9]*$ ]] && (( ${#minimum} <= 9 )) || exit 1
+available=$(df -Pk / | awk 'NR==2 {print $4}')
+(( available >= minimum * 1024 )) || { echo '[updater] Not enough free space; keeping the installed browser.'; exit 0; }
 
-LOCK_FILE="/run/lock/brave-origin-update.lock"
-FLAG_RESTART="/tmp/brave-restart.flag"
-PID_FILE="/tmp/brave.pid"
-STATE_DIR="/config/state"
-LAST_VERSION_FILE="${STATE_DIR}/last-brave-version"
-MIN_FREE_MB="${MIN_UPDATE_FREE_SPACE_MB:-1024}"
-# Session-visible transaction marker: start-session.sh waits for this to clear
-# before exec'ing Brave (dpkg lock files are not readable by the session user)
-UPDATE_IN_PROGRESS_MARKER="/tmp/brave-update-in-progress"
-trap 'rm -f "${UPDATE_IN_PROGRESS_MARKER}" 2>/dev/null || true' EXIT
-
-mkdir -p /run/lock "${STATE_DIR}" 2>/dev/null || true
-
-# Atomic status writer (best-effort; never clobbers an active backup quiesce)
-set_state_atomic() {
-    local state="$1"
-    if [ -f "/config/state/quiesce.flag" ]; then
-        return 0
-    fi
-    local tmp="${STATE_DIR}/.status.tmp.$$"
-    printf '%s\n' "${state}" > "${tmp}" 2>/dev/null || return 0
-    chmod 644 "${tmp}" 2>/dev/null || true
-    mv -f "${tmp}" "${STATE_DIR}/status" 2>/dev/null || true
-}
-
-# Wait until a relaunched session has written a live PID to /tmp/brave.pid
-wait_for_browser() {
-    local timeout="${BRAVE_STARTUP_TIMEOUT:-15}"
-    local i bp
-    for i in $(seq 1 "${timeout}"); do
-        if [ -f "${PID_FILE}" ]; then
-            bp="$(cat "${PID_FILE}" 2>/dev/null || echo "")"
-            if [ -n "${bp}" ] && kill -0 "${bp}" 2>/dev/null; then
-                return 0
-            fi
-        fi
-        sleep 1
-    done
-    return 1
-}
-
-resume_browser_status() {
-    if wait_for_browser; then
-        set_state_atomic "RUNNING"
-    else
-        set_state_atomic "STARTING"
-    fi
-}
-
-# 1. Acquire Shared Non-Blocking Update Lock
-exec 200>"${LOCK_FILE}"
-if ! flock -n 200; then
-    echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Another update process is currently active. Skipping."
+# Treat repository failures as failures even when apt can use stale metadata.
+if ! apt-get update -o APT::Update::Error-Mode=any -qq; then
+    echo '[updater] Repository unavailable; keeping the installed browser.'
     exit 0
 fi
-
-MODE="${1:---manual}"
-TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-echo "========================================================"
-echo "[updater] [${TIMESTAMP}] Update check initiated (Mode: ${MODE})"
-echo "========================================================"
-
-# 2. Conservative Root Filesystem Space Pre-Check
-MIN_FREE_KB=$(( MIN_FREE_MB * 1024 ))
-ROOT_FREE_KB=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
-
-if [ "${ROOT_FREE_KB}" -lt "${MIN_FREE_KB}" ]; then
-    echo "[updater] [${TIMESTAMP}] Warning: Insufficient root disk space (${ROOT_FREE_KB} KB available, ${MIN_FREE_KB} KB required). Aborting upgrade."
-    exit 0
+installed=$(dpkg-query -W -f='${Version}' brave-origin)
+target="${BRAVE_ORIGIN_VERSION:-latest}"
+if [ "$target" = latest ]; then
+    target=$(apt-cache policy brave-origin | awk '/Candidate:/ {print $2}')
 fi
-
-# 3. Read Last Successfully Used Profile Version
-LAST_USED_VER=""
-if [ -f "${LAST_VERSION_FILE}" ]; then
-    LAST_USED_VER="$(tr -d '[:space:]' < "${LAST_VERSION_FILE}")"
-elif [ -f "/config/.last-brave-version" ]; then
-    LAST_USED_VER="$(tr -d '[:space:]' < "/config/.last-brave-version")"
-fi
-
-if [ -n "${LAST_USED_VER}" ]; then
-    echo "[updater] [${TIMESTAMP}] Profile last recorded version: ${LAST_USED_VER}"
-fi
-
-# 4. Verify Official Brave APT Repository Configuration (paths must mirror the Dockerfile)
-KEYRING_PATH="/etc/apt/keyrings/brave-browser-archive-keyring.gpg"
-SOURCES_PATH="/etc/apt/sources.list.d/brave-browser-release.list"
-
-if [ ! -f "${KEYRING_PATH}" ]; then
-    echo "[updater] [${TIMESTAMP}] Restoring official Brave archive keyring..."
-    mkdir -p /etc/apt/keyrings
-    curl -fsSLo "${KEYRING_PATH}" \
-        https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg 2>/dev/null || {
-        echo "[updater] [${TIMESTAMP}] Warning: Unable to download Brave keyring."
-    }
-    chmod 644 "${KEYRING_PATH}" 2>/dev/null || true
-fi
-
-if [ ! -f "${SOURCES_PATH}" ]; then
-    echo "[updater] [${TIMESTAMP}] Restoring official Brave repository sources..."
-    printf '%s\n' "deb [signed-by=${KEYRING_PATH} arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" \
-        > "${SOURCES_PATH}" 2>/dev/null || {
-        echo "[updater] [${TIMESTAMP}] Warning: Unable to write Brave sources file."
-    }
-fi
-
-# 5. Refresh APT Repository Metadata
-echo "[updater] [${TIMESTAMP}] Refreshing package metadata from official Brave repository..."
-REPO_AVAILABLE=true
-if ! apt-get update -o Dir::Etc::sourcelist="sources.list.d/brave-browser-release.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" -qq 2>/dev/null; then
-    if ! apt-get update -qq 2>/dev/null; then
-        echo "[updater] [${TIMESTAMP}] Warning: APT repository refresh failed (network offline or repository unreachable)."
-        REPO_AVAILABLE=false
-    fi
-fi
-
-# 6. Determine Current Installed Version
-INSTALLED_VER=$(dpkg-query -W -f='${Version}' brave-origin 2>/dev/null || echo "none")
-echo "[updater] [${TIMESTAMP}] Installed version: ${INSTALLED_VER}"
-
-# 7. Determine Available Candidate Version & Respect Version Pinning
-PINNED_VER="${BRAVE_ORIGIN_VERSION:-latest}"
-CANDIDATE_VER=""
-if [ "${REPO_AVAILABLE}" = "true" ]; then
-    CANDIDATE_VER=$(apt-cache policy brave-origin 2>/dev/null | grep 'Candidate:' | awk '{print $2}' || echo "")
-    if [ -n "${CANDIDATE_VER}" ]; then
-        echo "[updater] [${TIMESTAMP}] Available repository candidate: ${CANDIDATE_VER}"
-    fi
-fi
-
-TARGET_VER=""
-if [ "${PINNED_VER}" = "latest" ] || [ -z "${PINNED_VER}" ]; then
-    TARGET_VER="${CANDIDATE_VER}"
-else
-    TARGET_VER="${PINNED_VER}"
-    echo "[updater] [${TIMESTAMP}] Version pinning active: ${TARGET_VER}"
-fi
-
-# 8. Evaluate Target Version with Debian-Semantics Downgrade Check
-if [ -n "${LAST_USED_VER}" ] && [ -n "${TARGET_VER}" ] && [ "${TARGET_VER}" != "none" ]; then
-    if dpkg --compare-versions "${TARGET_VER}" "lt" "${LAST_USED_VER}"; then
-        echo "[updater] [${TIMESTAMP}] Downgrade protection: Target version (${TARGET_VER}) is older than profile version (${LAST_USED_VER}). Prohibiting install."
-        TARGET_VER=""
-    fi
-fi
-
-# 9. Two-Stage Update Execution
-if [ -n "${TARGET_VER}" ] && [ "${TARGET_VER}" != "none" ]; then
-    UPGRADE_NEEDED=false
-    if [ "${INSTALLED_VER}" = "none" ]; then
-        UPGRADE_NEEDED=true
-    elif dpkg --compare-versions "${TARGET_VER}" "gt" "${INSTALLED_VER}"; then
-        UPGRADE_NEEDED=true
-    fi
-
-    if [ "${UPGRADE_NEEDED}" = "true" ]; then
-        echo "[updater] [${TIMESTAMP}] Update available: ${INSTALLED_VER} -> ${TARGET_VER}"
-        export DEBIAN_FRONTEND=noninteractive
-
-        # ----------------------------------------------------------------------
-        # STAGE 1: Download packages while Brave remains actively running
-        # ----------------------------------------------------------------------
-        echo "[updater] [${TIMESTAMP}] Stage 1/2: Pre-downloading package archives (Brave remains online)..."
-        DOWNLOAD_SUCCESS=false
-        DOWNLOAD_ERR=""
-
-        if [ "${PINNED_VER}" != "latest" ] && [ -n "${PINNED_VER}" ]; then
-            if apt-get install -y --download-only --no-install-recommends "brave-origin=${TARGET_VER}" >/dev/null 2>&1; then
-                DOWNLOAD_SUCCESS=true
-            fi
-        else
-            if apt-get install -y --download-only --no-install-recommends brave-origin >/dev/null 2>&1; then
-                DOWNLOAD_SUCCESS=true
-            fi
-        fi
-
-        if [ "${DOWNLOAD_SUCCESS}" != "true" ]; then
-            echo "[updater] [${TIMESTAMP}] Package download failed (network or repository unreachable). Existing browser remains running safely."
-            exit 0
-        fi
-
-        echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Pre-download verified. All required archives are cached locally."
-        set_state_atomic "UPDATING"
-        touch "${UPDATE_IN_PROGRESS_MARKER}"
-
-        # ----------------------------------------------------------------------
-        # STAGE 2: Gracefully stop Brave, then install strictly offline (--no-download)
-        # ----------------------------------------------------------------------
-        if [ -f "${PID_FILE}" ]; then
-            BRAVE_PID=$(cat "${PID_FILE}" 2>/dev/null || echo "")
-            if [ -n "${BRAVE_PID}" ] && kill -0 "${BRAVE_PID}" 2>/dev/null; then
-                echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Stopping Brave process (PID ${BRAVE_PID}) for offline package installation..."
-                kill -TERM "${BRAVE_PID}" 2>/dev/null || true
-
-                for i in $(seq 1 15); do
-                    if ! kill -0 "${BRAVE_PID}" 2>/dev/null; then
-                        break
-                    fi
-                    sleep 1
-                done
-
-                if kill -0 "${BRAVE_PID}" 2>/dev/null; then
-                    echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Escalating to SIGKILL..."
-                    kill -KILL "${BRAVE_PID}" 2>/dev/null || true
-                fi
-            fi
-        fi
-
-        echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Stage 2/2: Installing strictly from local cache (--no-download)..."
-        INSTALL_SUCCESS=false
-
-        if [ "${PINNED_VER}" != "latest" ] && [ -n "${PINNED_VER}" ]; then
-            if apt-get install -y --no-download --no-install-recommends "brave-origin=${TARGET_VER}" >/dev/null 2>&1; then
-                INSTALL_SUCCESS=true
-            fi
-        else
-            if apt-get install -y --no-download --no-install-recommends brave-origin >/dev/null 2>&1; then
-                INSTALL_SUCCESS=true
-            fi
-        fi
-
-        if [ "${INSTALL_SUCCESS}" = "true" ]; then
-            NEW_INSTALLED_VER=$(dpkg-query -W -f='${Version}' brave-origin 2>/dev/null || echo "unknown")
-            echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Upgrade complete. Installed version: ${NEW_INSTALLED_VER}"
-            INSTALLED_VER="${NEW_INSTALLED_VER}"
-
-            # Restore SUID sandbox permissions if replaced by upgrade
-            if [ -f "/opt/brave.com/brave-origin/chrome-sandbox" ]; then
-                chown root:root /opt/brave.com/brave-origin/chrome-sandbox 2>/dev/null || true
-                chmod 4755 /opt/brave.com/brave-origin/chrome-sandbox 2>/dev/null || true
-            fi
-
-            # Clean cached package archives
-            apt-get clean 2>/dev/null || true
-
-            # Signal supervisor to launch updated browser
-            touch "${FLAG_RESTART}"
-            resume_browser_status
-        else
-            echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Offline install encountered error. Performing automatic recovery..."
-            dpkg --configure -a >/dev/null 2>&1 || true
-            apt-get -f install -y >/dev/null 2>&1 || true
-
-            # Check if working binary remains
-            CURRENT_BIN_VER=$(dpkg-query -W -f='${Version}' brave-origin 2>/dev/null || echo "none")
-            if [ "${CURRENT_BIN_VER}" != "none" ]; then
-                echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Package consistency restored. Relaunching version: ${CURRENT_BIN_VER}"
-                touch "${FLAG_RESTART}"
-                resume_browser_status
-            else
-                echo "[updater] [$(date -u +'%Y-%m-%d %H:%M:%S UTC')] Critical: brave-origin package missing after install attempt."
-                set_state_atomic "ERROR"
-                exit 1
-            fi
-        fi
-    else
-        if [ "${INSTALLED_VER}" = "${TARGET_VER}" ]; then
-            echo "[updater] [${TIMESTAMP}] Brave Origin is up to date (${INSTALLED_VER})."
-        fi
-    fi
-else
-    if [ "${REPO_AVAILABLE}" = "false" ]; then
-        echo "[updater] [${TIMESTAMP}] Repository unavailable. Keeping currently installed version (${INSTALLED_VER})."
-    fi
-fi
-
-# 10. Final Downgrade Condition Status
-if [ -n "${LAST_USED_VER}" ] && [ "${INSTALLED_VER}" != "none" ]; then
-    if dpkg --compare-versions "${INSTALLED_VER}" "lt" "${LAST_USED_VER}"; then
-        echo "[updater] [${TIMESTAMP}] Downgrade protection active: Installed (${INSTALLED_VER}) < Profile (${LAST_USED_VER})."
+[ -n "$target" ] && [ "$target" != '(none)' ] || exit 0
+dpkg --validate-version "$target" || exit 1
+last=$(cat "$STATE_DIR/last-brave-version" 2>/dev/null || cat /config/.last-brave-version 2>/dev/null || true)
+if [ -n "$last" ]; then
+    dpkg --validate-version "$last" || exit 1
+    if dpkg --compare-versions "$target" lt "$last"; then
+        echo '[updater] The requested version is older than this profile; update refused.'
         exit 2
     fi
 fi
+dpkg --compare-versions "$target" gt "$installed" || { echo "[updater] Keeping version $installed."; exit 0; }
+export DEBIAN_FRONTEND=noninteractive
+echo "[updater] Downloading Brave Origin $target while the browser stays open."
+if ! apt-get install -y --download-only --no-install-recommends "brave-origin=$target"; then
+    echo '[updater] Download failed; the running browser was left open.'
+    exit 1
+fi
 
-echo "========================================================"
-exit 0
+exec 8>/run/lock/brave-origin-launch.lock
+flock 8
+[ ! -f "$STATE_DIR/quiesce.flag" ] || exit 0
+touch /tmp/brave-update-in-progress
+echo UPDATING > "$STATE_DIR/status"
+if [ -f /tmp/brave.pid ]; then
+    pid=$(cat /tmp/brave.pid)
+    # Match the executable as well as the PID; never signal a reused PID.
+    if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = brave ] && [ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = "$(id -u braveuser)" ]; then
+        kill -TERM "$pid" 2>/dev/null || true
+        for ((i=0; i<20; i++)); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+        done
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+fi
+# Verify the complete browser process tree has stopped before replacing files.
+for ((i=0; i<10; i++)); do
+    pgrep -x brave >/dev/null || break
+    sleep 1
+done
+if pgrep -x brave >/dev/null; then
+    echo '[updater] Browser processes are still running; installation refused.' >&2
+    exit 1
+fi
+echo '[updater] Installing downloaded packages. The browser will reopen afterward.'
+if ! apt-get install -y --no-download --no-install-recommends "brave-origin=$target"; then
+    echo '[updater] Installation failed; attempting repair using cached packages only.' >&2
+    if ! { dpkg --configure -a && apt-get -f install -y --no-download; }; then
+        echo ERROR > "$STATE_DIR/status"
+        exit 1
+    fi
+fi
+[ "$(dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ] || { echo ERROR > "$STATE_DIR/status"; exit 1; }
+apt-get clean
+echo STARTING > "$STATE_DIR/status"
+echo "[updater] Installed $(dpkg-query -W -f='${Version}' brave-origin)."

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+for file in entrypoint.sh scripts/*.sh; do bash -n "$file"; done
+git diff --check
+python3 - <<'PY'
+from pathlib import Path
+import subprocess, xml.etree.ElementTree as ET
+root = ET.parse('templates/brave-origin.xml').getroot()
+assert root.tag == 'Container' and root.attrib['version'] == '2'
+config = {x.attrib['Target']: x for x in root.findall('Config')}
+assert config['/config'].attrib['Default'] == '/mnt/user/appdata/brave-origin'
+assert config['8443'].attrib['Mode'] == 'tcp'
+assert config['AUTH_ENABLED'].text == 'true'
+assert root.findtext('Privileged') == 'false'
+assert root.findtext('WebUI') == 'https://[IP]:[PORT:8443]/'
+assert root.findtext('Project') == 'https://github.com/shoyrock/Brave-Origin'
+assert root.findtext('Support').endswith('/issues')
+tracked = subprocess.check_output(['git','ls-files'], text=True).splitlines()
+for p in tracked:
+    assert p not in ('AGENTS.md','CLAUDE.md','.env') and not p.startswith(('skills/','.agents/','appdata/','scratch/')), p
+assert 'FROM debian:trixie-slim\n' in Path('Dockerfile').read_text()
+print('Shell syntax, whitespace, distribution rules, and Unraid template passed.')
+PY
+python3 tests/release.py
+docker compose config --quiet
+docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+if command -v shellcheck >/dev/null; then shellcheck entrypoint.sh scripts/*.sh; fi

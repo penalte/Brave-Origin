@@ -1,5 +1,5 @@
 diff --git a/addons/selkies-web-core/selkies-ws-core.js b/addons/selkies-web-core/selkies-ws-core.js
-index ed3c7c9..af8d545 100644
+index ed3c7c9f..af8d545e 100644
 --- a/addons/selkies-web-core/selkies-ws-core.js
 +++ b/addons/selkies-web-core/selkies-ws-core.js
 @@ -3603,6 +3603,9 @@ function initWebsockets() {
@@ -45,10 +45,10 @@ index ed3c7c9..af8d545 100644
  
    if (isSharedMode) {
 diff --git a/src/selkies/input_handler.py b/src/selkies/input_handler.py
-index e745f81..64fa92f 100644
+index e745f812..c0228d78 100644
 --- a/src/selkies/input_handler.py
 +++ b/src/selkies/input_handler.py
-@@ -4934,35 +4934,49 @@ class WebRTCInput:
+@@ -4934,35 +4934,60 @@ class WebRTCInput:
      async def _app_clipboard_read(self, use_binary: bool) -> tuple:
          """Read the selection of the compositor the apps use over the pixelflux
          data-control ABI; (None, None) when it is empty or unreadable."""
@@ -84,11 +84,14 @@ index e745f81..64fa92f 100644
 +            except Exception as e:
 +                logger_webrtc_input.warning(f"data-control clipboard read failed: {e}")
 +
-+        # Fallback to wl-paste when C-ABI is unavailable in ScreenCapture
++        # Fall back to wl-clipboard when the native data-control ABI is absent.
++        env = os.environ.copy()
++        env["WAYLAND_DISPLAY"] = wl_target_display
++        env.setdefault("XDG_RUNTIME_DIR", "/tmp/runtime-braveuser")
          try:
 -            available_types = await loop.run_in_executor(
 -                None, types_fn, display)
--            if use_binary:
+             if use_binary:
 -                image_mimes = ['image/png', 'image/jpeg', 'image/bmp', 'image/webp',
 -                               'image/svg+xml', 'image/svg']
 -                target_mime = next((m for m in image_mimes if m in available_types), None)
@@ -104,25 +107,32 @@ index e745f81..64fa92f 100644
 -                data = await loop.run_in_executor(None, read_fn, display, source_mime)
 -                if data is not None:
 -                    return data.decode('utf-8', errors='replace'), 'text/plain'
-+            env = os.environ.copy()
-+            env["WAYLAND_DISPLAY"] = wl_target_display
-+            if "XDG_RUNTIME_DIR" not in env:
-+                env["XDG_RUNTIME_DIR"] = "/tmp/runtime-braveuser"
-+            proc_r = await subprocess.create_subprocess_exec(
-+                "wl-paste", "--type", "text/plain;charset=utf-8", "--no-newline",
-+                stdout=subprocess.PIPE,
-+                env=env
-+            )
-+            stdout, _ = await self._communicate_or_kill(proc_r, 1, "wl-paste")
-+            if proc_r.returncode == 0 and stdout is not None:
-+                return stdout.decode("utf-8", errors="replace"), "text/plain"
++                proc = await subprocess.create_subprocess_exec(
++                    "wl-paste", "--list-types", stdout=subprocess.PIPE,
++                    stderr=subprocess.DEVNULL, env=env)
++                output, _ = await self._communicate_or_kill(proc, 1, "wl-paste types")
++                types = output.decode("utf-8", errors="replace").splitlines() if proc.returncode == 0 else []
++                for mime in ("image/png", "image/jpeg", "image/webp", "image/bmp"):
++                    if mime in types:
++                        proc = await subprocess.create_subprocess_exec(
++                            "wl-paste", "--no-newline", "--type", mime,
++                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
++                        output, _ = await self._communicate_or_kill(proc, 2, "wl-paste image")
++                        if proc.returncode == 0:
++                            return output, mime
++            proc = await subprocess.create_subprocess_exec(
++                "wl-paste", "--type", "text", "--no-newline",
++                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
++            output, _ = await self._communicate_or_kill(proc, 1, "wl-paste text")
++            if proc.returncode == 0:
++                return output.decode("utf-8", errors="replace"), "text/plain"
          except Exception as e:
 -            logger_webrtc_input.warning(f"data-control clipboard read failed: {e}")
 +            logger_webrtc_input.debug(f"wl-paste fallback read failed: {e}")
          return None, None
  
      async def read_clipboard(self, use_binary: bool = False) -> tuple:
-@@ -5090,6 +5104,7 @@ class WebRTCInput:
+@@ -5090,6 +5115,7 @@ class WebRTCInput:
          self._clipboard_last_bytes = input_bytes
  
          if self.is_wayland:
@@ -130,7 +140,7 @@ index e745f81..64fa92f 100644
              # pixelflux's own selection is set in-process; a separate app
              # compositor's through the data-control client.
              if not self._has_separate_app_compositor():
-@@ -5101,20 +5116,39 @@ class WebRTCInput:
+@@ -5101,20 +5127,41 @@ class WebRTCInput:
                      return False
              # Apps paste whichever mime they prefer, so text is offered under
              # every conventional text target.
@@ -169,6 +179,8 @@ index e745f81..64fa92f 100644
 +                proc_w = await subprocess.create_subprocess_exec(
 +                    "wl-copy", "--type", target_type,
 +                    stdin=subprocess.PIPE,
++                    stdout=subprocess.DEVNULL,
++                    stderr=subprocess.DEVNULL,
 +                    env=env
 +                )
 +                await self._communicate_or_kill(proc_w, 2, "wl-copy", input=input_bytes)
@@ -182,8 +194,25 @@ index e745f81..64fa92f 100644
  
          env = os.environ.copy()
          if 'LANG' not in env or env['LANG'] == 'C':
+@@ -5367,6 +5414,16 @@ class WebRTCInput:
+                             changed = True
+                         except asyncio.TimeoutError:
+                             changed = False
++                    elif self.is_wayland and self._has_separate_app_compositor():
++                        # Nested session on a pixelflux build without the
++                        # data-control watch ABI: arming can never succeed, so
++                        # waiting for it would silence outbound clipboard
++                        # forever. Poll the app selection on this tick instead;
++                        # the baseline compare below suppresses no-op
++                        # broadcasts, and the consumers gate above keeps the
++                        # poll from forking wl-paste with no client attached.
++                        await asyncio.sleep(1.0)
++                        changed = True
+                     elif self.is_wayland:
+                         # Neither watch armed yet (compositor briefly absent);
+                         # the arming above retries on the next tick.
 diff --git a/src/selkies/selkies.py b/src/selkies/selkies.py
-index f256be3..677b09d 100644
+index f256be33..c5ccc37b 100644
 --- a/src/selkies/selkies.py
 +++ b/src/selkies/selkies.py
 @@ -1781,7 +1781,7 @@ class DataStreamingServer(BaseStreamingService):
@@ -199,13 +228,13 @@ index f256be3..677b09d 100644
                                  # resurrect a stream the user stopped with STOP_VIDEO.
                                  if not initial_settings_processed:
                                      display_state['video_active'] = True
-+                            if self.pcmflux_audio_queue is not None:
-+                                while not self.pcmflux_audio_queue.empty():
-+                                    try:
-+                                        self.pcmflux_audio_queue.get_nowait()
-+                                        self.pcmflux_audio_queue.task_done()
-+                                    except (asyncio.QueueEmpty, ValueError):
-+                                        break
++                                if self.pcmflux_audio_queue is not None:
++                                    while not self.pcmflux_audio_queue.empty():
++                                        try:
++                                            self.pcmflux_audio_queue.get_nowait()
++                                            self.pcmflux_audio_queue.task_done()
++                                        except (asyncio.QueueEmpty, ValueError):
++                                            break
                                  display_state['acknowledged_frame_id'] = -1
                                  display_state['last_ack_update_time'] = time.monotonic()
                                  display_state['sent_timestamps'].clear()

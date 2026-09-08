@@ -1,273 +1,159 @@
-# Brave Origin in Docker (Native Wayland / Selkies Web Access)
+# Brave Origin in Docker
 
-A production-grade, lightweight Docker appliance for **Brave Origin** built on **Debian 13 Trixie Slim** and accessed remotely from any modern web browser via **Native Wayland / Selkies** over HTTPS. Designed for normal Unraid Docker deployment and standard Linux hosts, featuring native Chromium Ozone Wayland rendering, VAAPI hardware acceleration, atomic profile state tracking, application-level profile locking, safe backup quiescing, unprivileged execution, preserved Chromium sandboxing, and two-stage transaction-safe browser updates.
+Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ Client Device (Firefox / Chrome / Safari / Edge / Mobile)   │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               │ HTTPS / WSS (Port 8443)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Docker Container (Debian 13 Trixie Slim)                    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Nginx TLS Ingress Proxy (Single-Origin Port 8443)       │ │
-│ └────────────────────────────┬────────────────────────────┘ │
-│                              │ Proxy to 127.0.0.1:8082      │
-│                              ▼                              │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Selkies Streaming Server + Dashboard (WebSockets)       │ │
-│ ├────────────────────────────┬────────────────────────────┤ │
-│ │ Pixelflux (VAAPI H.264)    │ pcmflux (Opus Audio)       │ │
-│ └────────────────────────────┴────────────────────────────┘ │
-│                              │                              │
-│ ┌────────────────────────────▼────────────────────────────┐ │
-│ │ Smithay Root Compositor (wayland-1)                     │ │
-│ └────────────────────────────┬────────────────────────────┘ │
-│                              ▼                              │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Labwc Application Window Manager (wayland-0)            │ │
-│ └────────────────────────────┬────────────────────────────┘ │
-│                              ▼                              │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Official Brave Origin Browser (brave-origin)            │ │
-│ │ Running Natively on Ozone Wayland (No Xwayland)         │ │
-│ └───────────────┬─────────────────────────┬───────────────┘ │
-│                 │                         │                 │
-│                 ▼                         ▼                 │
-│       /config/profile           /config/downloads           │
-│       (Browser Profile)         (Persistent Files)          │
-│                 │                                           │
-│                 ▼                                           │
-│       /config/state/                                        │
-│       ├── profile.lock (Authoritative flock)                │
-│       ├── last-brave-version (Atomic)                       │
-│       └── status (RUNNING, UPDATING, QUIESCED...)           │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ In-Container Supervisor, Watchdog & Update Daemon       │ │
-│ └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+**Status: beta.** The container is still being tested before its first stable release. The browser package itself uses Brave's stable channel. Use a separate profile when testing this container; never share a live profile between stable and beta instances.
 
----
+## Get started
 
-## Features
-
-- **Native Wayland & Ozone**: Pure Wayland architecture running without X11 or Xwayland overhead. Brave Origin connects directly to Labwc/Smithay using native Ozone.
-- **Zero Xwayland Overhead**: No X11 libraries, Xwayland processes, or legacy VNC servers run in the appliance.
-- **Official Brave Origin Only**: Installed exclusively from Brave's official APT repository (`brave-origin` package). Build verification strictly prohibits standard Brave packages (`brave-browser`).
-- **Debian 13 Trixie Slim Base**: Minimal footprint without unnecessary desktop environments, terminals, or background daemons.
-- **Hardware Acceleration**: Automatic Intel/AMD GPU detection via `/dev/dri/renderD128` with VAAPI H.264 zero-copy DMA-BUF capture and encoding. Software rasterization fallback when no GPU is present.
-- **Unified Audio Streaming**: PulseAudio virtual sink with Rust `pcmflux` Opus audio capture streamed synchronously over the WebSocket connection.
-- **Single-Origin TLS (Port 8443)**: Nginx reverse proxy handles TLS termination, static asset delivery, and WebSocket upgrades while Selkies is strictly bound to loopback `127.0.0.1:8082`.
-- **Fast Startup & Optimized Ownership**: Verifies `PUID`/`PGID` ownership instantly without performing slow recursive `chown -R` scans across large profile databases on restart.
-- **Application Profile Locking**: Uses an exclusive kernel `flock` on `/config/state/profile.lock` held for the lifetime of the browser process to prevent concurrent instances on the same profile.
-- **Safe Singleton Recovery**: Removes stale Chromium `SingletonLock` artifacts only after the authoritative `flock` is acquired.
-- **Debian-Semantic Downgrade Protection**: Evaluates versions using `dpkg --compare-versions` and prevents launching older binaries against profiles modified by newer versions.
-- **Atomic State Tracking**: Updates `/config/state/last-brave-version` only after a verified successful launch using atomic file replacement with `0600` permissions.
-- **Backup Consistency Hooks**: Includes `profile-control.sh` to cleanly flush profile databases and suspend browser operations during external filesystem backups or snapshots without stopping the container.
-- **Two-Stage Offline Updates**: Pre-downloads package archives in Stage 1 while Brave Origin is running, and installs strictly offline (`--no-download`) in Stage 2 only after downloads succeed.
-- **Locked Kiosk Session**: Brave Origin runs maximized with its full browser UI (tab strip, address bar, bookmarks bar) under a locked-down Labwc configuration - the window cannot be closed, minimized, resized, or un-maximized, there are no window-switching shortcuts, and the underlying desktop is unreachable. The remote session is a browser, not a desktop. Fresh profiles skip Brave's one-time welcome modal and start directly in the browser.
-- **Preserved Chromium Sandboxing**: Runs unprivileged (`braveuser`) with full Chromium user-namespace sandboxing enabled under Docker's standard security model (no `--privileged`, no `--no-sandbox`).
-
----
-
-## Known Limitations & Security Notes
-
-> [!NOTE]
-> **Clipboard Synchronization**:  
-> Bidirectional text clipboard sync between the client browser and the remote session is enabled. Copying inside the remote Brave (Ctrl+C) is delivered to the client, and copying on the client machine is applied to the remote session when the session page regains focus (the client pushes on focus; browsers gate host-clipboard writes on focus and permission). Text is synced in both directions; the server additionally supports image clipboard when enabled.
-
-> [!NOTE]
-> **Docker Seccomp Profile**:  
-> Running with `--security-opt seccomp=unconfined` is required on Linux/Unraid hosts because Docker's default seccomp profile filters `clone(CLONE_NEWUSER)` and `unshare(CLONE_NEWUSER)` syscalls inside unprivileged containers. Brave Origin itself continues to execute strictly as an unprivileged user (`braveuser`, UID/GID 1000 or custom PUID/PGID) with full Chromium user-namespace sandboxing active.
-
----
-
-## Requirements
-
-- [Docker](https://docs.docker.com/engine/install/) (v20.10 or later)
-- [Docker Compose](https://docs.docker.com/compose/) (v2.0 or later)
-- GPU Device (Optional): Intel or AMD GPU with `/dev/dri` passed through for hardware acceleration.
-
----
-
-## Deployment
-
-### Docker Compose (Recommended)
-
-```yaml
-services:
-  brave-origin:
-    image: ghcr.io/shoyrock/brave-origin:wayland
-    container_name: brave-origin
-    hostname: brave-origin
-    restart: unless-stopped
-    shm_size: "1gb"
-    security_opt:
-      - seccomp:unconfined
-    devices:
-      - /dev/dri:/dev/dri
-    ports:
-      - "8443:8443"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=America/New_York
-      - AUTH_ENABLED=false
-      - AUTO_UPDATE=true
-      - ENABLE_AUDIO=true
-    volumes:
-      - ./appdata:/config
-```
-
-### Docker CLI Run Command
+You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is optional.
 
 ```bash
-docker run -d \
-  --name brave-origin \
-  --restart unless-stopped \
-  --shm-size 1g \
-  --security-opt seccomp=unconfined \
-  --device /dev/dri:/dev/dri \
-  -p 8443:8443 \
-  -e PUID=1000 \
-  -e PGID=1000 \
-  -e TZ=America/New_York \
-  -e AUTH_ENABLED=false \
-  -e AUTO_UPDATE=true \
-  -e ENABLE_AUDIO=true \
-  -v /mnt/user/appdata/brave-origin:/config \
-  ghcr.io/shoyrock/brave-origin:wayland
+git clone https://github.com/shoyrock/Brave-Origin.git
+cd Brave-Origin
+cp .env.example .env
 ```
 
----
-
-## Persistent Storage (`/config`) Layout
-
-| Path | Purpose |
-|---|---|
-| `/config/profile/` | Persistent Brave Origin user profile (bookmarks, history, extensions, preferences). |
-| `/config/downloads/` | Default browser download directory. |
-| `/config/state/` | Runtime state tracking (`profile.lock`, `last-brave-version`, `status`, logs). |
-| `/config/ssl/` | Generated or user-provided SSL/TLS certificates (`cert.pem`, `cert.key`). |
-| `/config/.passwd` | HTTP Basic Authentication credentials (when `AUTH_ENABLED=true`). |
-
----
-
-## Environment Variables & Authentication Precedence
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `PUID` | `1000` | User ID for container process execution and file permissions. |
-| `PGID` | `1000` | Group ID for container process execution and file permissions. |
-| `UMASK` | `022` | File creation permission mask for downloads and config files. |
-| `TZ` | `Etc/UTC` | Timezone setting for container logs and browser clock. |
-| `AUTH_ENABLED` | `false` | Enable HTTP Basic Authentication on ingress port 8443 (supports legacy `KASM_AUTH_ENABLED`). |
-| `AUTH_USER` | `brave` | Username when `AUTH_ENABLED=true` (supports legacy `KASM_USER`). |
-| `AUTH_PASSWORD` | *(empty)* | Initial plaintext password when `AUTH_ENABLED=true` (supports legacy `KASM_PASSWORD`). |
-| `AUTH_PASSWORD_FILE`| *(empty)* | Path to mounted secret file containing password (supports legacy `KASM_PASSWORD_FILE`). Preferred for secrets. |
-| `ENABLE_AUDIO` | `true` | Enable PulseAudio virtual sink and WebSocket Opus streaming. |
-| `AUTO_UPDATE` | `true` | Enable automated two-stage offline updates for Brave Origin. |
-| `UPDATE_INTERVAL` | `21600` | Update verification interval in seconds (default: 6 hours). |
-| `MIN_UPDATE_FREE_SPACE_MB`| `1024` | Minimum free disk space on root filesystem required to initiate an update. |
-
-### Canonical Authentication Precedence
-
-When `AUTH_ENABLED=true` (or `KASM_AUTH_ENABLED=true`):
-
-1. **Existing `/config/.passwd` (Highest Precedence)**: If a persistent credentials file exists on disk (e.g. generated on first boot or configured via `reset-password.sh`), it takes precedence and is never overwritten by container restarts.
-2. **`AUTH_PASSWORD_FILE` / `KASM_PASSWORD_FILE`**: If `/config/.passwd` does not exist, the initial password is read from the mounted Docker secret file. **(Recommended for secrets)**.
-3. **`AUTH_PASSWORD` / `KASM_PASSWORD`**: If no secret file is specified, the initial password is read from the environment variable.
-4. **Interactive Utility**: Use `/usr/local/bin/reset-password.sh` to update or regenerate credentials at any time.
-
----
-
-## Password Management
-
-To change or generate authentication credentials on a running container:
+Edit `.env` and set `AUTH_PASSWORD` to a password of your choice. Then start the container:
 
 ```bash
-# Set a specific password:
-docker exec brave-origin /usr/local/bin/reset-password.sh "YourNewPassword123!"
+docker compose pull
+docker compose up -d --no-build
+```
 
-# Generate a random secure password:
+Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates a self-signed certificate, so your browser will show a certificate warning. For a trusted connection, supply your own certificate as described below.
+
+Images are available from both registries:
+
+- `ghcr.io/shoyrock/brave-origin:beta`
+- `forgejo.foss.homes/shoy/brave-origin:beta`
+
+Set `IMAGE_NAME` in `.env` to choose a registry or a specific version. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
+
+## Unraid
+
+The [Unraid template](templates/brave-origin.xml) uses bridge networking, HTTPS port 8443, and `/mnt/user/appdata/brave-origin` for persistent storage. It defaults to Unraid's user ID 99 and group ID 100.
+
+To install the template from the Unraid terminal:
+
+```bash
+mkdir -p /boot/config/plugins/dockerMan/templates-user
+curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml \
+  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
+```
+
+In **Docker → Add Container**, select **Brave-Origin**. Set a password, review the appdata path and port, then apply. Use the container's **WebUI** menu to open it.
+
+For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. GPU behavior and installation on a physical Unraid host still need verification before the stable release.
+
+## Copy and paste
+
+Use Ctrl+C and Ctrl+V inside the remote session. On macOS, use the shortcuts supported by your client browser. Text can move in both directions, including Unicode and multiple lines. The server also supports image clipboard transfer when the client enables it.
+
+Clipboard access depends on your client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. If automatic clipboard access is blocked, use the clipboard controls in the session sidebar. End-to-end clipboard behavior across client browsers is still being verified.
+
+## Settings
+
+Set these values in `.env`, the Unraid template, or your container's environment.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `CONFIG_PATH` | `./appdata` | Compose host folder mounted at `/config`. |
+| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:beta` | Compose image and release channel. |
+| `WEB_PORT` | `8443` | Compose host port. The container always listens on 8443. |
+| `PUID` / `PGID` | `1000` / `1000` | Nonzero user and group IDs for browser files. |
+| `UMASK` | `022` | File creation permissions. |
+| `TZ` | `Etc/UTC` | Timezone. |
+| `AUTH_ENABLED` | `true` | Require a login. Disable only when access is already restricted by your network or proxy. |
+| `AUTH_USER` | `brave` | Initial login username. |
+| `AUTH_PASSWORD` | Empty | Initial password; required unless a password file or saved credentials exist. |
+| `AUTH_PASSWORD_FILE` | Empty | Path inside the container to a mounted password file. |
+| `AUTO_UPDATE` | `true` | Update the browser inside the running container. |
+| `UPDATE_INTERVAL` | `21600` | Seconds between update checks (six hours). |
+| `MIN_UPDATE_FREE_SPACE_MB` | `1024` | Free disk space required before downloading an update. |
+| `BRAVE_ORIGIN_VERSION` | `latest` | Browser package version to request. Older versions are never installed over newer ones. |
+| `DOWNGRADE_RETRY_INTERVAL` | `300` | Seconds before retrying a session blocked by an older browser. |
+| `BRAVE_STARTUP_TIMEOUT` | `15` | Seconds the resume command waits before reporting that startup is pending. |
+| `ENABLE_AUDIO` | `true` | Stream session audio. |
+| `ENABLE_GPU` | `true` | Use available GPU hardware for browser rendering. |
+| `DRI_NODE` | `/dev/dri/renderD128` | Render device when a GPU is passed through. |
+| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed remote display size in pixels. |
+| `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
+| `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
+
+The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
+
+Saved credentials take precedence over password environment variables. On first setup, a password file takes precedence over `AUTH_PASSWORD`; an unreadable or empty file stops startup. Passwords are stored as bcrypt hashes.
+
+To change a saved password:
+
+```bash
 docker exec brave-origin /usr/local/bin/reset-password.sh --generate
 ```
 
----
+The generated password is printed to that command's output. Save it securely. You can also pass a chosen password as the argument, but doing so can leave it in your shell history. Resetting a password does not enable authentication if you explicitly disabled it.
 
-## Backup Consistency Hooks (`profile-control.sh`)
+## Storage and backups
 
-For consistent snapshots or appdata backups without stopping the container:
+| Container path | Contents |
+| --- | --- |
+| `/config/profile` | Browser profile, bookmarks, history, and extensions. |
+| `/config/downloads` | Downloads and files transferred through the session. |
+| `/config/state` | Locks, version records, status, and logs. |
+| `/config/ssl` | HTTPS certificate and private key. |
+| `/config/.passwd` | Saved login credentials. |
+
+Back up the entire appdata folder while the container is stopped. For backups without stopping the container, pause the browser first:
 
 ```bash
-# Pre-backup: flush SQLite databases and suspend browser
 docker exec brave-origin /usr/local/bin/profile-control.sh quiesce
-
-# (Perform your backup / snapshot of /config here)
-
-# Post-backup: resume normal browser operations
+# Back up your appdata folder after the command succeeds.
 docker exec brave-origin /usr/local/bin/profile-control.sh resume
 ```
 
-To query container state:
+The backup command waits for the profile lock and flushes writes before reporting success. A failed command means the profile is not ready for backup. A backup hold persists across container restarts until you run `resume`.
 
-```bash
-docker exec brave-origin /usr/local/bin/profile-control.sh status
-# Returns: RUNNING, UPDATING, QUIESCED, STARTING, or ERROR
-```
+Run `docker exec brave-origin /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
 
----
+Changing `PUID` or `PGID` repairs profile ownership at the next startup. This can take time for a large profile. Do not run two containers against the same appdata folder.
 
-## Automatic Brave Origin Updates
+## Updates and release channels
 
-Brave Origin updates automatically inside the container without rebuilding the Docker image:
+Browser updates download first while the browser stays open. After the download succeeds, the browser closes, the package installs from the local cache, and the session restarts. Expect a brief interruption. A download failure leaves the browser running. Failed installation recovery also uses cached packages only.
 
-1. **Space Pre-Check**: Verifies that root partition `/` has at least `MIN_UPDATE_FREE_SPACE_MB` (default: 1024MB) available before downloading packages.
-2. **Stage 1 (Pre-Download)**: Downloads package archives into local cache while Brave Origin remains running online. If network/download fails, the browser is untouched.
-3. **Stage 2 (Offline Install)**: Stops Brave Origin to flush databases, installs strictly from local cache using `--no-download`, and relaunches the upgraded binary without dropping your remote session.
-4. **Lock Coordination**: All update modes share `/config/state/profile.lock` and update locks using non-blocking `flock`.
-
-### Triggering a Manual Update Check
+To check for a browser update manually:
 
 ```bash
 docker exec brave-origin /usr/local/bin/update-brave.sh
 ```
 
----
+Container updates are separate: use `docker compose pull` and `docker compose up -d --no-build`, or Unraid's container update controls.
 
-## Custom SSL / TLS Certificates
+- `beta` is the development branch and image tag. It receives tested development builds.
+- `main` holds release preparation and stable code. A push to `main` builds and tests but does not publish images.
+- A tag such as `v1.0.0-beta.1` publishes a beta version. It does not change `latest`.
+- A stable tag such as `v1.0.0`, created from `main`, publishes the version and updates `latest` in both registries.
 
-To use custom SSL/TLS certificates (e.g. from Let's Encrypt), place your PEM-formatted certificate and private key in `/config/ssl/`:
+No stable version has been approved yet. Older `wayland` and `latest` images predate this release process; use the documented beta tag for current testing. See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md) for maintainer steps.
 
-- `/config/ssl/cert.pem` (Certificate chain)
-- `/config/ssl/cert.key` (Private key)
+## HTTPS and access
 
-Restart the container or reload Nginx with `docker exec brave-origin nginx -s reload`.
+The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default.
 
----
+Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
 
-## GPU Acceleration & Rendering Options
+To use your own TLS certificate, place its certificate chain at `/config/ssl/cert.pem` and its private key at `/config/ssl/cert.key`, then restart the container. A simple nginx reload does not copy newly supplied files into place.
 
-### Software Rendering (Default Fallback)
-When `/dev/dri` is not mounted, the container automatically selects the `Pixman` software rasterizer and OpenH264 encoder with `--disable-gpu --disable-gpu-compositing`.
+## GPU support
 
-### Intel / AMD Graphics Passthrough (Linux / Unraid)
-On Linux or Unraid hosts with `/dev/dri` available, pass the GPU device using `compose.gpu.yaml` or `--device /dev/dri:/dev/dri` to enable zero-copy DMA-BUF VAAPI H.264 encoding:
+Without a GPU mapping, the container uses software rendering. With an Intel or AMD GPU available, start Compose with:
 
 ```bash
-docker compose -f compose.yaml -f compose.gpu.yaml up -d
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
----
+Support depends on the host driver and device. Passing a GPU does not guarantee that every page or video uses hardware acceleration. `ENABLE_GPU=false` disables browser GPU rendering.
 
 ## License
 
-This Docker deployment is provided under the [MIT License](LICENSE). Brave Origin and the Brave logo are trademarks of Brave Software, Inc. Selkies is an open-source project by the Selkies Project contributors.
-
-Brave Browser is licensed separately by Brave Software, Inc. This project is unofficial and is not affiliated with or endorsed by Brave Software, Inc.
-
+This container project uses the [MIT License](LICENSE). Brave Origin, Selkies, and the other included components retain their own licenses. Brave Origin and the Brave logo are trademarks of Brave Software, Inc. This project is unofficial and is not affiliated with or endorsed by Brave Software, Inc.

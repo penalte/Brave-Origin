@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+image="${1:?Usage: scripts/smoke-test.sh IMAGE}"
+name="brave-test-$$"
+volume="${name}-config"
+cleanup() {
+    result=$?
+    if (( result )); then
+        docker logs --tail 60 "$name" 2>/dev/null || true
+        docker exec "$name" tail -50 /config/state/session.log 2>/dev/null || true
+    fi
+    docker rm -fv "$name" "${name}-conflict" "${name}-invalid" "${name}-updates" >/dev/null 2>&1 || true
+    docker volume rm "$volume" >/dev/null 2>&1 || true
+    exit "$result"
+}
+trap cleanup EXIT
+wait_ready() {
+    for ((i=0; i<60; i++)); do
+        if docker exec "$name" bash /usr/local/bin/healthcheck.sh >/dev/null 2>&1; then return; fi
+        sleep 1
+    done
+    echo 'Container did not become ready.' >&2; return 1
+}
+http_code() {
+    docker exec "$name" curl -k -s -o /dev/null -w '%{http_code}' "$@" https://127.0.0.1:8443/
+}
+docker volume create "$volume" >/dev/null
+docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
+    -v "$volume:/config" -e PUID=99 -e PGID=100 -e AUTO_UPDATE=false \
+    -e ENABLE_GPU=false -e AUTH_ENABLED=true -e AUTH_PASSWORD=smoke-test-only \
+    -e DISPLAY_WIDTH=1280 -e DISPLAY_HEIGHT=720 -e "BRAVE_FLAGS=--user-agent=smoke'quoted" "$image" >/dev/null
+wait_ready
+[ "$(http_code)" = 401 ]
+[ "$(http_code -u brave:smoke-test-only)" = 200 ]
+[ "$(docker exec "$name" dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ]
+docker exec "$name" sh -c '! pgrep -x Xwayland && ! pgrep -x Xvnc && ! pgrep -x openbox'
+docker exec "$name" sh -c 'test "$(awk "/^Uid:/ {print \$2}" /proc/$(cat /tmp/brave.pid)/status)" = 99'
+docker exec "$name" sh -c 'tr "\0" " " < /proc/$(cat /tmp/brave.pid)/cmdline' | python3 -c 'import sys; s=sys.stdin.read(); assert "--ozone-platform=wayland" in s and "--no-sandbox" not in s'
+docker exec "$name" runuser -u braveuser -- test ! -r /config/.passwd
+# Verify session settings survived privilege dropping, with no login secrets.
+docker exec "$name" runuser -u braveuser -- sh -c 'tr "\0" "\n" < /proc/$(cat /config/state/selkies.pid)/environ' | python3 -c 'import sys; s=sys.stdin.read(); assert "AUTH_PASSWORD=" not in s and "SELKIES_MANUAL_WIDTH=1280" in s and "SELKIES_MANUAL_HEIGHT=720" in s'
+# Verify Chromium actually created its namespace sandbox.
+docker exec -i "$name" python3 - <<'PYTEST'
+from pathlib import Path
+browser = Path('/tmp/brave.pid').read_text().strip()
+status = Path('/proc') / browser / 'status'
+root_ids = next(x for x in status.read_text().splitlines() if x.startswith('NSpid:')).split()[1:]
+sandboxed = []
+for p in Path('/proc').glob('[0-9]*/status'):
+    try:
+        fields = dict(x.split(':', 1) for x in p.read_text().splitlines() if ':' in x)
+        if fields.get('Name', '').strip() == 'brave' and len(fields.get('NSpid', '').split()) > len(root_ids):
+            sandboxed.append(p.parent.name)
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+assert sandboxed, 'No Brave child process has a nested PID namespace'
+print('Chromium namespace sandbox verified.')
+PYTEST
+# Real compositor clipboard, including fallback code used on older libraries.
+docker cp tests/clipboard.py "$name:/tmp/clipboard-test.py"
+docker exec "$name" runuser -u braveuser -- env XDG_RUNTIME_DIR=/tmp/runtime-braveuser WAYLAND_DISPLAY=wayland-0 python3 /tmp/clipboard-test.py
+# Second container must fail before touching the shared profile.
+docker run -d --name "${name}-conflict" -v "$volume:/config" -e AUTO_UPDATE=false -e AUTH_ENABLED=false "$image" >/dev/null
+[ "$(docker wait "${name}-conflict")" != 0 ]
+wait_ready
+# Credentials survive restarts and reset without exposing hashes to Brave.
+docker exec "$name" /usr/local/bin/reset-password.sh replacement-test-password >/dev/null
+[ "$(http_code -u brave:smoke-test-only)" = 401 ]
+[ "$(http_code -u brave:replacement-test-password)" = 200 ]
+docker restart -t 30 "$name" >/dev/null
+wait_ready
+[ "$(http_code -u brave:replacement-test-password)" = 200 ]
+# Backup state must stop profile writes, then resume the session.
+docker exec "$name" /usr/local/bin/profile-control.sh quiesce
+test "$(docker exec "$name" /usr/local/bin/profile-control.sh status)" = QUIESCED
+docker exec "$name" sh -c '! pgrep -x brave'
+docker exec "$name" /usr/local/bin/profile-control.sh resume
+wait_ready
+# Downgrade must stay blocked when AUTO_UPDATE=false.
+docker exec "$name" /usr/local/bin/profile-control.sh quiesce
+docker exec "$name" sh -c 'printf "999.0.0\n" > /config/state/last-brave-version'
+docker exec "$name" /usr/local/bin/profile-control.sh resume >/dev/null
+sleep 6
+docker exec "$name" sh -c '! pgrep -x brave && test "$(cat /config/state/status)" = DOWNGRADE_BLOCKED && test "$(cat /config/state/last-brave-version)" = 999.0.0'
+# Invalid root user configuration must fail closed.
+docker run -d --name "${name}-invalid" -e PUID=0 -e AUTO_UPDATE=false "$image" >/dev/null
+[ "$(docker wait "${name}-invalid")" != 0 ]
+# Simulate update failure modes without contacting package servers or changing packages.
+docker run --name "${name}-updates" --entrypoint python3 -v "$PWD/tests/update.py:/tmp/update-test.py:ro" "$image" /tmp/update-test.py
+echo 'All container smoke tests passed.'

@@ -2,7 +2,7 @@
 # ==============================================================================
 # Brave Origin Native Wayland Docker Appliance (Selkies + Pixelflux + Labwc)
 # ==============================================================================
-set -e
+set -eo pipefail
 
 echo "========================================================"
 echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Starting Brave Origin in Docker (Native Wayland / Selkies)"
@@ -20,8 +20,11 @@ cleanup() {
     # The profile lock (/config/state/profile.lock) is released automatically
     # when the session processes exit
     
-    # Wait up to 3 seconds for processes to exit cleanly
-    sleep 2
+    # Give the browser time to flush its profile.
+    for ((i=0; i<20; i++)); do
+        pgrep -u braveuser -x brave >/dev/null || break
+        sleep 1
+    done
     pkill -KILL -u braveuser 2>/dev/null || true
     echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Container stopped."
     exit 0
@@ -34,7 +37,28 @@ TARGET_UID="${PUID:-1000}"
 TARGET_GID="${PGID:-1000}"
 TARGET_UMASK="${UMASK:-022}"
 
+if ! [[ "${TARGET_UID}" =~ ^[1-9][0-9]{0,9}$ ]] || (( TARGET_UID > 2147483647 )); then
+    echo 'PUID must be a nonzero user ID.' >&2
+    exit 1
+fi
+if ! [[ "${TARGET_GID}" =~ ^[1-9][0-9]{0,9}$ ]] || (( TARGET_GID > 2147483647 )); then
+    echo 'PGID must be a nonzero group ID.' >&2
+    exit 1
+fi
+[[ "${TARGET_UMASK}" =~ ^0?[0-7]{3}$ ]] || { echo 'UMASK must be an octal permissions mask.' >&2; exit 1; }
+for setting in UPDATE_INTERVAL DOWNGRADE_RETRY_INTERVAL MIN_UPDATE_FREE_SPACE_MB BRAVE_STARTUP_TIMEOUT DISPLAY_WIDTH DISPLAY_HEIGHT; do
+    value="${!setting}"
+    if [ -n "$value" ] && { [[ ! "$value" =~ ^[1-9][0-9]*$ ]] || (( ${#value} > 9 )); }; then
+        echo "$setting must be a positive integer." >&2; exit 1
+    fi
+done
 umask "${TARGET_UMASK}"
+
+# Claim this storage before changing credentials, certificates, or profile files.
+mkdir -p /config/state
+exec 7>/config/state/instance.lock
+flock -n 7 || { echo 'Another container is using this /config directory.' >&2; exit 1; }
+install -m 0666 /dev/null /run/lock/brave-origin-launch.lock
 
 echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Configuring container user permissions (UID: ${TARGET_UID}, GID: ${TARGET_GID}, UMASK: ${TARGET_UMASK})..."
 
@@ -45,13 +69,13 @@ if [ "${CURRENT_GID}" -ne "${TARGET_GID}" ]; then
     groupmod -o -g "${TARGET_GID}" braveuser
 fi
 
-if [ "${CURRENT_UID}" -ne "${TARGET_UID}" ]; then
+if [ "${CURRENT_UID}" -ne "${TARGET_UID}" ] || [ "${CURRENT_GID}" -ne "${TARGET_GID}" ]; then
     usermod -o -u "${TARGET_UID}" -g "${TARGET_GID}" braveuser
 fi
 
 # Ensure render and video group access for hardware acceleration
-if [ -e "/dev/dri/renderD128" ]; then
-    RENDER_GID=$(stat -c '%g' /dev/dri/renderD128 2>/dev/null || echo "")
+if [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
+    RENDER_GID=$(stat -c '%g' "${DRI_NODE:-/dev/dri/renderD128}" 2>/dev/null || echo "")
     if [ -n "${RENDER_GID}" ] && [ "${RENDER_GID}" -ne 0 ]; then
         groupadd -g "${RENDER_GID}" hostrender 2>/dev/null || true
         usermod -aG "${RENDER_GID}" braveuser 2>/dev/null || true
@@ -79,7 +103,15 @@ chmod 700 /tmp/runtime-braveuser
 
 # Fast non-recursive ownership configuration for runtime directories
 chown "${TARGET_UID}:${TARGET_GID}" /config /config/profile /config/downloads /config/state /config/ssl /tmp/runtime-braveuser /tmp/brave-cache
-chown "${TARGET_UID}:${TARGET_GID}" /config/state/* 2>/dev/null || true
+touch /config/state/profile.lock
+chown "${TARGET_UID}:${TARGET_GID}" /config/state/profile.lock
+chmod 600 /config/state/profile.lock
+# Repair ownership only when the configured IDs change, including restored profiles.
+if [ "$(cat /config/state/owner 2>/dev/null)" != "${TARGET_UID}:${TARGET_GID}" ]; then
+    mkdir -p /config/.config
+    chown -R "${TARGET_UID}:${TARGET_GID}" /config/profile /config/downloads /config/state /config/.config
+    printf '%s\n' "${TARGET_UID}:${TARGET_GID}" > /config/state/owner
+fi
 
 # 4. Generate Self-Signed SSL/TLS Certificates for HTTPS
 if [ ! -f "/config/ssl/cert.pem" ] || [ ! -f "/config/ssl/cert.key" ]; then
@@ -100,7 +132,7 @@ chmod 600 /etc/nginx/ssl/nginx.key
 rm -f /etc/nginx/conf.d/auth.conf
 
 # Support both AUTH_ENABLED and legacy KASM_AUTH_ENABLED
-RAW_AUTH="${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-false}}"
+RAW_AUTH="${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-true}}"
 AUTH_ENABLED_LOWER="$(echo "${RAW_AUTH}" | tr '[:upper:]' '[:lower:]')"
 
 if [ "${AUTH_ENABLED_LOWER}" != "true" ] && [ "${AUTH_ENABLED_LOWER}" != "false" ]; then
@@ -117,23 +149,27 @@ if [ "${AUTH_ENABLED_LOWER}" = "true" ]; then
     
     if [ ! -f "${PASSWD_FILE}" ]; then
         AUTH_PASS_FILE_VAL="${AUTH_PASSWORD_FILE:-${KASM_PASSWORD_FILE:-}}"
-        if [ -n "${AUTH_PASS_FILE_VAL}" ] && [ -f "${AUTH_PASS_FILE_VAL}" ]; then
+        if [ -n "${AUTH_PASS_FILE_VAL}" ]; then
+            [ -r "${AUTH_PASS_FILE_VAL}" ] || { echo 'Password file is unreadable.' >&2; exit 1; }
             SECRET_PASS="$(tr -d '\r\n' < "${AUTH_PASS_FILE_VAL}")"
+            [ -n "${SECRET_PASS}" ] || { echo 'Password file is empty.' >&2; exit 1; }
             echo "[nginx] Creating initial credentials from mounted secret file for user '${AUTH_USER_VAL}'..."
-            htpasswd -bc "${PASSWD_FILE}" "${AUTH_USER_VAL}" "${SECRET_PASS}" >/dev/null 2>&1
-            chmod 644 "${PASSWD_FILE}"
-            chown "${TARGET_UID}:${TARGET_GID}" "${PASSWD_FILE}"
+            printf '%s\n' "${SECRET_PASS}" | htpasswd -iBc "${PASSWD_FILE}" "${AUTH_USER_VAL}" >/dev/null 2>&1
+            chmod 640 "${PASSWD_FILE}"
+            chown root:www-data "${PASSWD_FILE}"
         elif [ -n "${AUTH_PASS_VAL}" ]; then
             echo "[nginx] Creating initial credentials from environment variables for user '${AUTH_USER_VAL}'..."
-            htpasswd -bc "${PASSWD_FILE}" "${AUTH_USER_VAL}" "${AUTH_PASS_VAL}" >/dev/null 2>&1
-            chmod 644 "${PASSWD_FILE}"
-            chown "${TARGET_UID}:${TARGET_GID}" "${PASSWD_FILE}"
+            printf '%s\n' "${AUTH_PASS_VAL}" | htpasswd -iBc "${PASSWD_FILE}" "${AUTH_USER_VAL}" >/dev/null 2>&1
+            chmod 640 "${PASSWD_FILE}"
+            chown root:www-data "${PASSWD_FILE}"
         else
             echo "[nginx] ERROR: AUTH_ENABLED=true but no authentication credentials exist!" >&2
             echo "[nginx] Provide AUTH_PASSWORD_FILE, AUTH_PASSWORD, or run reset-password.sh." >&2
             exit 1
         fi
     fi
+    chmod 640 "${PASSWD_FILE}"
+    chown root:www-data "${PASSWD_FILE}"
     echo 'auth_basic "Brave Origin Authentication Required";' > /etc/nginx/conf.d/auth.conf
     echo "auth_basic_user_file ${PASSWD_FILE};" >> /etc/nginx/conf.d/auth.conf
     echo "[nginx] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Authentication mode: ENABLED"
@@ -166,10 +202,22 @@ echo " Profile Version:     ${PROFILE_VER}"
 echo " Update Interval:     ${UPDATE_INTERVAL:-21600}s"
 echo "========================================================"
 
-# 8. Launch Native Wayland Session under Unprivileged User with Profile Lock
-# NOTE: `su -` strips the environment, so session-relevant variables must be passed explicitly.
-su - braveuser -c "ENABLE_AUDIO=${ENABLE_AUDIO:-true} ENABLE_GPU=${ENABLE_GPU:-true} BRAVE_FLAGS='${BRAVE_FLAGS:-}' /usr/local/bin/start-session.sh" >> /config/state/session.log 2>&1 &
-SESSION_PID=$!
+# Pass settings as environment entries, never as shell source. Credentials stay
+# in the supervisor and nginx; the browser receives only session settings.
+launch_session() {
+    local name
+    local -a session_env=("HOME=/config" "USER=braveuser" "LOGNAME=braveuser" "PATH=/usr/local/bin:/usr/bin:/bin" "LANG=C.UTF-8")
+    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
+        [ -z "${!name}" ] || session_env+=("${name}=${!name}")
+    done
+    runuser -u braveuser -- env -i "${session_env[@]}" /usr/local/bin/start-session.sh 7>&- >> /config/state/session.log 2>&1 &
+    SESSION_PID=$!
+}
+if [ ! -f /config/state/quiesce.flag ]; then
+    launch_session
+else
+    SESSION_PID=0
+fi
 
 # 9. Background Watchdog and Periodic Updater Loop
 LAST_UPDATE_CHECK=$(date +%s)
@@ -178,15 +226,14 @@ UPDATE_INTERVAL="${UPDATE_INTERVAL:-21600}"
 while true; do
     sleep 5
 
-    # Check if main session process has terminated unexpectedly
-    if ! kill -0 "${SESSION_PID}" 2>/dev/null; then
+    # Check if the session stopped or a backup hold was released
+    if [ "${SESSION_PID}" = 0 ] || ! kill -0 "${SESSION_PID}" 2>/dev/null; then
         if [ -f /config/state/quiesce.flag ]; then
             # profile-control.sh quiesce is active (backup in progress); do not relaunch
-            echo "[watchdog] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Session terminated but quiesce flag is set - waiting for resume."
+            : # Stay paused without repeating a message on every watchdog tick.
         else
             echo "[watchdog] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Session process terminated! Restarting session..."
-            su - braveuser -c "ENABLE_AUDIO=${ENABLE_AUDIO:-true} ENABLE_GPU=${ENABLE_GPU:-true} BRAVE_FLAGS='${BRAVE_FLAGS:-}' /usr/local/bin/start-session.sh" >> /config/state/session.log 2>&1 &
-            SESSION_PID=$!
+            launch_session
         fi
     fi
     

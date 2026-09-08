@@ -1,8 +1,13 @@
-.git
-.env
-config/profile/
-config/downloads/
-config/kasmvnc/
-config/state/
-appdata/
-*.log
+# Only build inputs may enter the Docker context.
+*
+!Dockerfile
+!.dockerignore
+!entrypoint.sh
+!scripts/
+!scripts/*.sh
+!config/
+!config/nginx.conf
+!patches/
+!patches/*.patch
+!dependencies/
+!dependencies/*.package-lock.json

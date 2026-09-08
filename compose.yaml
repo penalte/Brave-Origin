@@ -3,10 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${IMAGE_NAME:-ghcr.io/shoyrock/brave-origin:wayland}
+    image: ${IMAGE_NAME:-ghcr.io/shoyrock/brave-origin:beta}
     container_name: brave-origin
     hostname: ${CONTAINER_HOSTNAME:-brave-origin}
     restart: unless-stopped
+    stop_grace_period: 30s
     shm_size: "1gb"
     security_opt:
       - seccomp:unconfined
@@ -20,7 +21,7 @@ services:
       - TZ=${TZ:-UTC}
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1920}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-1080}
-      - AUTH_ENABLED=${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-false}}
+      - AUTH_ENABLED=${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-true}}
       - AUTH_USER=${AUTH_USER:-${KASM_USER:-brave}}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-${KASM_PASSWORD:-}}
       - AUTH_PASSWORD_FILE=${AUTH_PASSWORD_FILE:-${KASM_PASSWORD_FILE:-}}
@@ -37,8 +38,8 @@ services:
     volumes:
       - ${CONFIG_PATH:-./appdata}:/config
     healthcheck:
-      test: ["CMD-SHELL", "curl -k -fsS https://127.0.0.1:8443/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD", "bash", "/usr/local/bin/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 60s

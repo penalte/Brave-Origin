@@ -10,7 +10,7 @@ PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 PASSWD_FILE="/config/.passwd"
 
-ARG="$1"
+ARG="${1:-}"
 
 if [ -z "${ARG}" ] || [ "${ARG}" = "--generate" ]; then
     PASSWORD="$(openssl rand -base64 12)"
@@ -20,13 +20,14 @@ else
     GENERATED=false
 fi
 
-# Clean existing credentials file before creating new password
-rm -f "${PASSWD_FILE}" /config/.kasmpasswd 2>/dev/null || true
-
-# Configure credentials via htpasswd
-htpasswd -bc "${PASSWD_FILE}" "${AUTH_USER}" "${PASSWORD}" >/dev/null 2>&1
-chmod 644 "${PASSWD_FILE}" 2>/dev/null || true
-chown "${PUID}:${PGID}" "${PASSWD_FILE}" 2>/dev/null || true
+# Replace credentials atomically, preserving the old password if creation fails.
+tmp=$(mktemp /config/.passwd.XXXXXX)
+trap 'rm -f "$tmp"' EXIT
+printf '%s\n' "$PASSWORD" | htpasswd -iBc "$tmp" "$AUTH_USER" >/dev/null 2>&1
+chmod 640 "$tmp"
+chown root:www-data "$tmp"
+mv -f "$tmp" "$PASSWD_FILE"
+rm -f /config/.kasmpasswd
 
 # Reload Nginx if running
 if pgrep -x nginx >/dev/null 2>&1; then
@@ -40,7 +41,7 @@ if [ "${GENERATED}" = "true" ]; then
     echo ""
     echo " NOTICE: This password will NOT be displayed in container logs."
     echo " Store it securely. To change it later, run:"
-    echo "   docker exec Brave-Origin /usr/local/bin/reset-password.sh <new_password>"
+    echo "   docker exec brave-origin /usr/local/bin/reset-password.sh <new_password>"
 else
     echo " Password successfully updated to user-provided value."
 fi

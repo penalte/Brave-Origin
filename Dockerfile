@@ -1,28 +1,30 @@
 # syntax=docker/dockerfile:1
-FROM ghcr.io/linuxserver/baseimage-selkies:debiantrixie AS selkies-upstream
+FROM ghcr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:7f4f69e5184e3e1876e96ca0c5d66bc3ef5ffe3d47a910cbf6366fe59db3e972 AS selkies-upstream
 
 # Pinned Selkies Source & Web Dashboard Build at exact commit 92dea42fc70bfcb52e6d98c4e6854872badfe621
-FROM node:20-bookworm-slim AS selkies-build
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 patch && \
-    git clone https://github.com/selkies-project/selkies.git /selkies-src && \
-    cd /selkies-src && \
-    git checkout 92dea42fc70bfcb52e6d98c4e6854872badfe621
+FROM node:22-trixie-slim AS selkies-build
+RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf /var/lib/apt/lists/*
+ADD --checksum=sha256:9065cea8eeea43942f1ac513a92b51d669031a4a4ec9907356471eff14e05d4a \
+    https://codeload.github.com/selkies-project/selkies/tar.gz/92dea42fc70bfcb52e6d98c4e6854872badfe621 /tmp/selkies.tar.gz
+RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-components=1 && rm /tmp/selkies.tar.gz
 COPY patches /selkies-src/patches
+COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies-web-core/package-lock.json
+COPY dependencies/selkies-dashboard.package-lock.json /selkies-src/addons/selkies-dashboard/package-lock.json
 RUN cd /selkies-src && \
     for p in patches/*.patch; do [ -f "$p" ] && patch -p1 < "$p"; done && \
     cd /selkies-src/addons/selkies-web-core && \
-    npm install && \
+    npm ci && \
     npm run build && \
     cd /selkies-src/addons/selkies-dashboard && \
-    npm install && \
+    npm ci && \
     npm run build && \
+    mkdir /selkies-package && \
+    cp /selkies-src/pyproject.toml /selkies-src/README.md /selkies-src/LICENSE /selkies-package/ && \
+    cp -r /selkies-src/src /selkies-package/ && \
     rm -rf /selkies-src/.git /selkies-src/patches
 
 FROM debian:trixie-slim
 
-LABEL maintainer="shoy" \
-      description="Brave Origin Native Wayland Appliance with Selkies, Pixelflux, and Labwc" \
-      version="1.93.136"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PUID=1000 \
@@ -120,20 +122,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     brave-origin \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y --no-install-recommends tini tzdata util-linux && rm -rf /var/lib/apt/lists/*
+
 # 2.5 Brave managed policy: bookmarks bar always visible in the locked session
 RUN mkdir -p /etc/brave/policies/managed && \
-    printf '%s\n' '{"BookmarkBarEnabled": true}' > /etc/brave/policies/managed/policies.json && \
+    printf '%s\n' '{"BookmarkBarEnabled": true, "DownloadDirectory": "/config/downloads"}' > /etc/brave/policies/managed/policies.json && \
     chmod 644 /etc/brave/policies/managed/policies.json
 
-# 3. Ingest Pinned Upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
+# 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
-COPY --from=selkies-upstream /usr/bin/selkies-desktop /usr/local/bin/selkies-desktop
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
 # Install matching Selkies Python backend and web dashboard built at 92dea42f
-COPY --from=selkies-build /selkies-src /tmp/selkies-src
+COPY --from=selkies-build /selkies-package /tmp/selkies-src
+COPY --from=selkies-build /selkies-src/addons/selkies-dashboard/dist/ /usr/share/selkies/web/
 RUN pip install --no-deps /tmp/selkies-src --break-system-packages && \
     mkdir -p /usr/share/selkies/web && \
-    cp -r /tmp/selkies-src/addons/selkies-dashboard/dist/* /usr/share/selkies/web/ && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon.png && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon-512.png && \
     grep -rl "Selkies" /usr/share/selkies/web/index.html /usr/share/selkies/web/assets/ /usr/share/selkies/web/manifest.json 2>/dev/null | \
@@ -156,7 +159,18 @@ COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh
 COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
 
+# Keep release metadata after dependency installation to reuse build layers.
+ARG VERSION=1.0.0-beta.1
 ARG BUILD_COMMIT=dev
+LABEL org.opencontainers.image.title="Brave Origin" \
+      org.opencontainers.image.description="Brave Origin browser with remote HTTPS access" \
+      org.opencontainers.image.source="https://github.com/shoyrock/Brave-Origin" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}"
+
+# Entrypoint supplies the secure default while honoring legacy auth variables.
+ENV AUTH_ENABLED=""
 RUN echo "${BUILD_COMMIT}" > /etc/brave-origin-build
 
 RUN chmod +x /usr/local/bin/entrypoint.sh \
@@ -167,5 +181,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 
 VOLUME ["/config"]
 EXPOSE 8443
+COPY scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD ["bash", "/usr/local/bin/healthcheck.sh"]
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

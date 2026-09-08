@@ -17,3 +17,17 @@ skills/
 # Local-only agent/tooling files (not for distribution)
 AGENTS.md
 CLAUDE.md
+
+# Local credentials, certificates, caches, and editor files
+.env.*
+!.env.example
+*.pem
+*.key
+.passwd*
+.kasmpasswd
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+.DS_Store
