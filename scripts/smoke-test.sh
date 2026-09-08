@@ -46,7 +46,10 @@ docker exec "$name" sh -c 'test "$(awk "/^Uid:/ {print \$2}" /proc/$(cat /tmp/br
 docker exec "$name" sh -c 'tr "\0" " " < /proc/$(cat /tmp/brave.pid)/cmdline' | python3 -c 'import sys; s=sys.stdin.read(); assert "--ozone-platform=wayland" in s and "--no-sandbox" not in s'
 docker exec "$name" runuser -u braveuser -- test ! -r /config/.passwd
 # Verify session settings survived privilege dropping, with no login secrets.
-docker exec "$name" runuser -u braveuser -- sh -c 'tr "\0" "\n" < /proc/$(cat /config/state/selkies.pid)/environ' | python3 -c 'import sys; s=sys.stdin.read(); assert "AUTH_PASSWORD=" not in s and "SELKIES_MANUAL_WIDTH=1280" in s and "SELKIES_MANUAL_HEIGHT=720" in s'
+docker exec "$name" runuser -u braveuser -- sh -c 'tr "\0" "\n" < /proc/$(cat /config/state/selkies.pid)/environ' | python3 -c 'import sys; s=sys.stdin.read(); assert "AUTH_PASSWORD=" not in s and "DISPLAY_WIDTH=1280" in s and "DISPLAY_HEIGHT=720" in s and "SELKIES_MANUAL_WIDTH=" not in s and "SELKIES_MANUAL_HEIGHT=" not in s'
+# Verify display resizing using decoded frames from the live compositor.
+docker cp tests/display.py "$name:/tmp/test-display.py"
+docker exec "$name" runuser -u braveuser -- python3 /tmp/test-display.py
 # Verify Chromium actually created its namespace sandbox.
 docker exec -i "$name" python3 - <<'PYTEST'
 from pathlib import Path

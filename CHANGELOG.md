@@ -1,7 +1,8 @@
 # Release notes
 
-## Unreleased security updates
+## Unreleased updates
 
+- Fixed black bars by automatically resizing the desktop to fit the browser window.
 - Improved protection for saved browser data, login details, and certificates.
 - Blocked remote-session requests from unrelated websites.
 - Added security checks before publishing images.

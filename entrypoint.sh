@@ -62,6 +62,10 @@ for setting in UPDATE_INTERVAL DOWNGRADE_RETRY_INTERVAL MIN_UPDATE_FREE_SPACE_MB
         echo "$setting must be a positive integer." >&2; exit 1
     fi
 done
+case "${DISPLAY_AUTO_RESIZE:-true}" in
+    true|false) ;;
+    *) echo 'DISPLAY_AUTO_RESIZE must be true or false.' >&2; exit 1 ;;
+esac
 umask "${TARGET_UMASK}"
 
 # Storage preparation holds the instance lock on descriptor 7.
@@ -192,7 +196,7 @@ echo "========================================================"
 launch_session() {
     local name
     local -a session_env=("HOME=/config" "USER=braveuser" "LOGNAME=braveuser" "PATH=/usr/local/bin:/usr/bin:/bin" "LANG=C.UTF-8")
-    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
+    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ DISPLAY_AUTO_RESIZE DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
         [ -z "${!name}" ] || session_env+=("${name}=${!name}")
     done
     runuser -u braveuser -- env -i "${session_env[@]}" bash -c 'exec /usr/local/bin/start-session.sh >> /config/state/session.log 2>&1' 7>&- &

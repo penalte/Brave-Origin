@@ -81,9 +81,12 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | `ENABLE_AUDIO` | `true` | Stream session audio. |
 | `ENABLE_GPU` | `true` | Use available GPU hardware for browser rendering. |
 | `DRI_NODE` | `/dev/dri/renderD128` | Render device when a GPU is passed through. |
-| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed remote display size in pixels. |
+| `DISPLAY_AUTO_RESIZE` | `true` | Automatically resize the desktop to the browser window, including 1440p, 4K, and ultrawide displays. |
+| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed desktop size, used only when `DISPLAY_AUTO_RESIZE=false`. |
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
+
+Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. This fix is on the development branch and is not included in the published 1.0.0 images.
 
 The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
 
