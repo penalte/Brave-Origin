@@ -1,5 +1,15 @@
 # Release notes
 
+## 1.0.0
+
+First stable release.
+
+- Run Brave Origin remotely with saved profiles, password protection, and audio.
+- Fixed native copy and paste, and added a **Send to session** clipboard button.
+- Fixed audio after stopping and restarting the stream.
+- Improved shutdown so browser profiles are saved before the container stops.
+- Corrected the Unraid template and kept development builds separate from stable updates.
+
 ## 1.0.0-beta.1
 
 - Added password protection by default and improved password storage.
@@ -9,4 +19,4 @@
 - Corrected the Unraid setup template and simplified the setup instructions.
 - Separated beta builds from stable releases.
 
-This is a beta release. Testing on Unraid, GPU acceleration, and clipboard behavior across client browsers must be completed before the first stable release.
+This earlier prerelease has been superseded by 1.0.0.

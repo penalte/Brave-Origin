@@ -9,6 +9,7 @@ import subprocess, xml.etree.ElementTree as ET
 root = ET.parse('templates/brave-origin.xml').getroot()
 assert root.tag == 'Container' and root.attrib['version'] == '2'
 config = {x.attrib['Target']: x for x in root.findall('Config')}
+assert len(config) == len(root.findall('Config')), 'Duplicate Unraid configuration targets'
 assert config['/config'].attrib['Default'] == '/mnt/user/appdata/brave-origin'
 assert config['8443'].attrib['Mode'] == 'tcp'
 assert config['AUTH_ENABLED'].text == 'true'

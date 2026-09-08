@@ -2,7 +2,7 @@
 
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
-**Status: beta.** The container is still being tested before its first stable release. The browser package itself uses Brave's stable channel. Use a separate profile when testing this container; never share a live profile between stable and beta instances.
+**Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
 
 ## Get started
 
@@ -25,8 +25,8 @@ Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates
 
 Images are available from both registries:
 
-- `ghcr.io/shoyrock/brave-origin:beta`
-- `forgejo.foss.homes/shoy/brave-origin:beta`
+- `ghcr.io/shoyrock/brave-origin:latest`
+- `forgejo.foss.homes/shoy/brave-origin:latest`
 
 Set `IMAGE_NAME` in `.env` to choose a registry or a specific version. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
 
@@ -44,13 +44,13 @@ curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/
 
 In **Docker → Add Container**, select **Brave-Origin**. Set a password, review the appdata path and port, then apply. Use the container's **WebUI** menu to open it.
 
-For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. GPU behavior and installation on a physical Unraid host still need verification before the stable release.
+For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. The template settings are checked automatically and tested with Unraid's user and group IDs. Installation through the Unraid web interface has not been verified on this development host.
 
 ## Copy and paste
 
 Use Ctrl+C and Ctrl+V inside the remote session. On macOS, use the shortcuts supported by your client browser. Text can move in both directions, including Unicode and multiple lines. The server also supports image clipboard transfer when the client enables it.
 
-Clipboard access depends on your client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. If automatic clipboard access is blocked, use the clipboard controls in the session sidebar. End-to-end clipboard behavior across client browsers is still being verified.
+Clipboard access depends on your client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. If automatic clipboard access is blocked, open **Clipboard** in the sidebar, enter your text, click **Send to session**, then paste inside Brave. Chromium-based clients also support native paste events, including paste from the browser menu. Clipboard permissions and image support vary by client browser.
 
 ## Settings
 
@@ -59,7 +59,7 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `CONFIG_PATH` | `./appdata` | Compose host folder mounted at `/config`. |
-| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:beta` | Compose image and release channel. |
+| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:latest` | Compose image and release channel. |
 | `WEB_PORT` | `8443` | Compose host port. The container always listens on 8443. |
 | `PUID` / `PGID` | `1000` / `1000` | Nonzero user and group IDs for browser files. |
 | `UMASK` | `022` | File creation permissions. |
@@ -134,7 +134,7 @@ Container updates are separate: use `docker compose pull` and `docker compose up
 - A tag such as `v1.0.0-beta.1` publishes a beta version. It does not change `latest`.
 - A stable tag such as `v1.0.0`, created from `main`, publishes the version and updates `latest` in both registries.
 
-No stable version has been approved yet. Older `wayland` and `latest` images predate this release process; use the documented beta tag for current testing. See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md) for maintainer steps.
+The first stable container release is `1.0.0`. Back up appdata before moving from older `wayland` images. Never run stable and beta containers against the same live profile. See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md) for maintainer steps.
 
 ## HTTPS and access
 
@@ -152,7 +152,7 @@ Without a GPU mapping, the container uses software rendering. With an Intel or A
 docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
-Support depends on the host driver and device. Passing a GPU does not guarantee that every page or video uses hardware acceleration. `ENABLE_GPU=false` disables browser GPU rendering.
+Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering.
 
 ## License
 

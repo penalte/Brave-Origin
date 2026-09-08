@@ -30,13 +30,21 @@ set_status() {
 SELKIES_PID='' LABWC_PID='' BRAVE_PID='' DBUS_PID=''
 cleanup() {
     trap - EXIT TERM INT HUP
-    for pid in "${BRAVE_PID}" "${LABWC_PID}" "${SELKIES_PID}" "${DBUS_PID}"; do
+    # Keep Wayland and D-Bus alive while Chromium flushes its profile.
+    if [ -n "$BRAVE_PID" ]; then
+        kill -TERM "$BRAVE_PID" 2>/dev/null || true
+        for ((i=0; i<15; i++)); do
+            kill -0 "$BRAVE_PID" 2>/dev/null || break
+            sleep 1
+        done
+    fi
+    # Reap the whole browser tree before releasing the profile lock.
+    pkill -KILL -u "$(id -u)" -x brave 2>/dev/null || true
+    for pid in "${LABWC_PID}" "${SELKIES_PID}" "${DBUS_PID}"; do
         [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
     done
     pulseaudio --kill 2>/dev/null || true
     sleep 1
-    # Reap the whole browser tree before releasing the profile lock.
-    pkill -KILL -u "$(id -u)" -x brave 2>/dev/null || true
     for pid in "${BRAVE_PID}" "${LABWC_PID}" "${SELKIES_PID}" "${DBUS_PID}"; do
         [ -z "$pid" ] || kill -KILL "$pid" 2>/dev/null || true
     done
@@ -91,6 +99,7 @@ fi
 # 3. Start Selkies Streaming Server (Smithay Wayland Display on 127.0.0.1:8082)
 echo "[start-session] Starting Selkies Wayland display & streaming server on 127.0.0.1:8082..."
 export SELKIES_AUDIO_ENABLED="${AUDIO_ENABLED}"
+export SELKIES_UI_TITLE="Brave Origin"
 export SELKIES_MANUAL_WIDTH="${DISPLAY_WIDTH:-1920}"
 export SELKIES_MANUAL_HEIGHT="${DISPLAY_HEIGHT:-1080}"
 export SELKIES_AUDIO_DEVICE_NAME="output.monitor"
@@ -212,7 +221,7 @@ GPU_FLAGS=""
 if [ "${ENABLE_GPU:-true}" = "false" ]; then
     echo "[start-session] ENABLE_GPU=false - forcing software rasterization"
 elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
-    echo "[start-session] GPU /dev/dri/renderD128 detected - enabling hardware acceleration"
+    echo "[start-session] GPU ${DRI_NODE:-/dev/dri/renderD128} detected - enabling hardware acceleration"
     export LIBVA_DRIVER_NAME_OVERRIDE=""
     GPU_FLAGS="--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan"
 else

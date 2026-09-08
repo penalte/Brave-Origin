@@ -10,11 +10,14 @@ echo "========================================================"
 
 # Trap termination signals for clean shutdown
 cleanup() {
+    trap - SIGINT SIGTERM SIGHUP
     echo ""
     echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Caught shutdown signal, initiating graceful stop..."
     
-    # Terminate session and background processes
-    pkill -TERM -u braveuser || true
+    # Let the session close Brave before stopping its display and audio servers.
+    if [ "${SESSION_PID:-0}" -gt 0 ]; then
+        pkill -TERM -P "$SESSION_PID" -u braveuser 2>/dev/null || true
+    fi
     nginx -s stop 2>/dev/null || true
 
     # The profile lock (/config/state/profile.lock) is released automatically
@@ -22,7 +25,9 @@ cleanup() {
     
     # Give the browser time to flush its profile.
     for ((i=0; i<20; i++)); do
-        pgrep -u braveuser -x brave >/dev/null || break
+        if [ "${SESSION_PID:-0}" -eq 0 ] || ! kill -0 "$SESSION_PID" 2>/dev/null; then
+            break
+        fi
         sleep 1
     done
     pkill -KILL -u braveuser 2>/dev/null || true

@@ -1,0 +1,36 @@
+diff --git a/addons/selkies-dashboard/src/components/Sidebar.jsx b/addons/selkies-dashboard/src/components/Sidebar.jsx
+--- a/addons/selkies-dashboard/src/components/Sidebar.jsx
++++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
+@@ -2043,10 +2043,10 @@
+     // Allow re-uploading the same file.
+     event.target.value = "";
+   };
+-  const handleClipboardBlur = (event) => {
++  const sendClipboardToSession = () => {
+     if (dashboardClipboardTruncated) return;
+     window.postMessage(
+-      { type: "clipboardUpdateFromUI", text: event.target.value },
++      { type: "clipboardUpdateFromUI", text: dashboardClipboardContent },
+       window.location.origin
+     );
+   };
+@@ -3954,11 +3954,18 @@
+                         id="dashboardClipboardTextarea"
+                         value={dashboardClipboardContent}
+                         onChange={handleClipboardChange}
+-                        onBlur={handleClipboardBlur}
++                        onBlur={sendClipboardToSession}
+                         readOnly={dashboardClipboardTruncated}
+                         rows="5"
+                         placeholder={t("sections.clipboard.placeholder")}
+                       />
++                      <button
++                        className="app-action-button install"
++                        onClick={sendClipboardToSession}
++                        disabled={dashboardClipboardTruncated}
++                      >
++                        {t("sections.clipboard.sendToSession", "Send to session")}
++                      </button>
+                     </div>
+                     {(renderableSettings.binaryClipboard ?? true) &&
+                       enableBinaryClipboard && (

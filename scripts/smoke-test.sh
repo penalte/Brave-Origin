@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 image="${1:?Usage: scripts/smoke-test.sh IMAGE}"
 name="brave-test-$$"
 volume="${name}-config"
+test_files=$(mktemp -d)
 cleanup() {
     result=$?
     if (( result )); then
@@ -12,6 +13,7 @@ cleanup() {
     fi
     docker rm -fv "$name" "${name}-conflict" "${name}-invalid" "${name}-updates" >/dev/null 2>&1 || true
     docker volume rm "$volume" >/dev/null 2>&1 || true
+    rm -rf "$test_files"
     exit "$result"
 }
 trap cleanup EXIT
@@ -69,13 +71,23 @@ wait_ready
 docker exec "$name" /usr/local/bin/reset-password.sh replacement-test-password >/dev/null
 [ "$(http_code -u brave:smoke-test-only)" = 401 ]
 [ "$(http_code -u brave:replacement-test-password)" = 200 ]
-docker restart -t 30 "$name" >/dev/null
+docker stop -t 30 "$name" >/dev/null
+docker cp "$name:/config/profile/Default/Preferences" "$test_files/Preferences"
+python3 - "$test_files/Preferences" <<'PYTEST'
+import json, sys
+profile = json.load(open(sys.argv[1]))['profile']
+# SIGTERM is a session-ending shutdown, distinct from closing the last window.
+assert profile['exit_type'] in ('Normal', 'SessionEnded'), profile['exit_type']
+print('Container stop saved a clean browser profile.')
+PYTEST
+docker start "$name" >/dev/null
 wait_ready
 [ "$(http_code -u brave:replacement-test-password)" = 200 ]
 # Backup state must stop profile writes, then resume the session.
 docker exec "$name" /usr/local/bin/profile-control.sh quiesce
 test "$(docker exec "$name" /usr/local/bin/profile-control.sh status)" = QUIESCED
 docker exec "$name" sh -c '! pgrep -x brave'
+docker exec "$name" python3 -c 'import json; p=json.load(open("/config/profile/Default/Preferences"))["profile"]; assert p["exit_type"] in ("Normal", "SessionEnded")'
 docker exec "$name" /usr/local/bin/profile-control.sh resume
 wait_ready
 # Downgrade must stay blocked when AUTO_UPDATE=false.

@@ -12,3 +12,6 @@
 !dependencies/
 !dependencies/*.package-lock.json
 !dependencies/runtime.txt
+!tests/
+!tests/client-clipboard.mjs
+!tests/client-audio.mjs

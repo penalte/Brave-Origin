@@ -1,0 +1,60 @@
+diff --git a/addons/selkies-web-core/lib/clipboard-sync.js b/addons/selkies-web-core/lib/clipboard-sync.js
+--- a/addons/selkies-web-core/lib/clipboard-sync.js
++++ b/addons/selkies-web-core/lib/clipboard-sync.js
+@@ -625,2 +625,3 @@
+     getDeferredWriteInFlight,
++    pasteRemote = null,
+ }) {
+@@ -758,2 +759,9 @@
+         if (!cd) return;
++        if (isChromium && !pasteRemote) return;
++        // Chromium menu/native paste has no forwarded Ctrl+V key event.
++        // Consume it here and inject the chord only after clipboard transfer.
++        const transfer = (data, mime) => Promise.resolve()
++            .then(() => sendClipboardData(data, mime))
++            .then(() => { if (isChromium && pasteRemote) pasteRemote(); })
++            .catch((err) => console.warn(`Paste transfer failed: ${err && err.name}`));
+         // Prefer an image when binary clipboard is on and the payload carries one.
+@@ -765,4 +773,5 @@
+                     if (file) {
++                        if (isChromium) event.preventDefault();
+                         file.arrayBuffer()
+-                            .then((buf) => sendClipboardData(buf, it.type))
++                            .then((buf) => transfer(buf, it.type))
+                             .catch((err) => console.warn(`Paste image read failed: ${err && err.name}`));
+@@ -774,3 +783,6 @@
+         const text = cd.getData('text/plain');
+-        if (text) sendClipboardData(text);
++        if (text) {
++            if (isChromium) event.preventDefault();
++            transfer(text, 'text/plain');
++        }
+     }
+@@ -784,4 +796,4 @@
+             window.addEventListener('keydown', onCopyKeydown, true);
+-            window.addEventListener('paste', onPaste, true);
+-        }
++        }
++        window.addEventListener('paste', onPaste, true);
+     }
+@@ -793,4 +805,4 @@
+             window.removeEventListener('keydown', onCopyKeydown, true);
+-            window.removeEventListener('paste', onPaste, true);
+-        }
++        }
++        window.removeEventListener('paste', onPaste, true);
+     }
+diff --git a/addons/selkies-web-core/selkies-ws-core.js b/addons/selkies-web-core/selkies-ws-core.js
+--- a/addons/selkies-web-core/selkies-ws-core.js
++++ b/addons/selkies-web-core/selkies-ws-core.js
+@@ -3521,2 +3521,10 @@
+     getDeferredWriteInFlight: () => deferredClipboardWriter.getInFlight(),
++    pasteRemote: () => {
++      const input = window.webrtcInput;
++      if (!input) return;
++      input.resetKeyboard();
++      for (const message of ['kd,65507', 'kd,118', 'ku,118', 'ku,65507']) {
++        input.send(message);
++      }
++    },
+   });

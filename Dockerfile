@@ -10,8 +10,12 @@ RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-c
 COPY patches /selkies-src/patches
 COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies-web-core/package-lock.json
 COPY dependencies/selkies-dashboard.package-lock.json /selkies-src/addons/selkies-dashboard/package-lock.json
+COPY tests/client-clipboard.mjs /tmp/client-clipboard.mjs
+COPY tests/client-audio.mjs /tmp/client-audio.mjs
 RUN cd /selkies-src && \
     for p in patches/*.patch; do [ -f "$p" ] && patch -p1 < "$p"; done && \
+    node /tmp/client-clipboard.mjs /selkies-src/addons/selkies-web-core/lib/clipboard-sync.js && \
+    node /tmp/client-audio.mjs /selkies-src/addons/selkies-web-core/selkies-ws-core.js && \
     cd /selkies-src/addons/selkies-web-core && \
     npm ci && \
     npm run build && \
