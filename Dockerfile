@@ -132,16 +132,22 @@ RUN mkdir -p /etc/brave/policies/managed && \
 # 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
+COPY dependencies/runtime.txt /tmp/runtime-requirements.txt
+# Pelorus is the donor desktop's launcher; it is not used by this browser image.
+RUN rm -rf /usr/local/lib/python3.13/dist-packages/pelorus /usr/local/lib/python3.13/dist-packages/pelorus-*.dist-info && \
+    pip install --break-system-packages --no-cache-dir --no-deps --require-hashes -r /tmp/runtime-requirements.txt && \
+    rm /tmp/runtime-requirements.txt
 # Install matching Selkies Python backend and web dashboard built at 92dea42f
 COPY --from=selkies-build /selkies-package /tmp/selkies-src
 COPY --from=selkies-build /selkies-src/addons/selkies-dashboard/dist/ /usr/share/selkies/web/
-RUN pip install --no-deps /tmp/selkies-src --break-system-packages && \
+RUN pip install --no-deps --no-build-isolation /tmp/selkies-src --break-system-packages && \
     mkdir -p /usr/share/selkies/web && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon.png && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon-512.png && \
     grep -rl "Selkies" /usr/share/selkies/web/index.html /usr/share/selkies/web/assets/ /usr/share/selkies/web/manifest.json 2>/dev/null | \
         xargs -r sed -i 's/Selkies/Brave Origin/g' && \
-    rm -rf /tmp/selkies-src /root/.cache
+    rm -rf /tmp/selkies-src /root/.cache && \
+    python3 -m pip check
 
 # 4. Create Unprivileged Non-Root User (braveuser)
 RUN groupadd -r render 2>/dev/null || true && \

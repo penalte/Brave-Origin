@@ -11,3 +11,4 @@
 !patches/*.patch
 !dependencies/
 !dependencies/*.package-lock.json
+!dependencies/runtime.txt

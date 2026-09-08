@@ -31,6 +31,7 @@ docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
     -e ENABLE_GPU=false -e AUTH_ENABLED=true -e AUTH_PASSWORD=smoke-test-only \
     -e DISPLAY_WIDTH=1280 -e DISPLAY_HEIGHT=720 -e "BRAVE_FLAGS=--user-agent=smoke'quoted" "$image" >/dev/null
 wait_ready
+docker exec "$name" python3 -m pip check
 [ "$(http_code)" = 401 ]
 [ "$(http_code -u brave:smoke-test-only)" = 200 ]
 [ "$(docker exec "$name" dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ]

@@ -83,7 +83,7 @@ Set these values in `.env`, the Unraid template, or your container's environment
 
 The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
 
-Saved credentials take precedence over password environment variables. On first setup, a password file takes precedence over `AUTH_PASSWORD`; an unreadable or empty file stops startup. Passwords are stored as bcrypt hashes.
+Saved credentials take precedence over password environment variables. On first setup, a password file takes precedence over `AUTH_PASSWORD`; an unreadable or empty file stops startup. New and reset passwords use bcrypt hashes. Existing saved credentials are retained.
 
 To change a saved password:
 

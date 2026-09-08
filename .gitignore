@@ -31,3 +31,7 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+# Source configuration is separate from old runtime data.
+config/*
+!config/nginx.conf

@@ -22,6 +22,6 @@ Keep releases short: what users can do now, what was fixed, and any remaining li
 
 ## Dependency updates
 
-The final image is based on `debian:trixie-slim`. Brave comes from the official stable `brave-origin` package. Selkies is pinned to a source commit; the LinuxServer library donor is pinned by digest. JavaScript dependency versions are recorded in `dependencies/` and installed with `npm ci`.
+The final image is based on `debian:trixie-slim`. Brave comes from the official stable `brave-origin` package. Selkies is pinned to a source commit; the LinuxServer library donor is pinned by digest. JavaScript dependency versions are recorded in `dependencies/` and installed with `npm ci`. Supplemental Python packages are pinned with hashes in `dependencies/runtime.txt`; the build runs `pip check`.
 
 When updating Selkies, review the patches, regenerate both lockfiles from the matching upstream package files, and rerun the clipboard and container tests. The host needs only Bash, Python 3, Git, and Docker/Compose for the repository checks; ShellCheck runs too when installed.
