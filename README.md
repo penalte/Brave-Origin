@@ -1,5 +1,7 @@
 # Brave Origin in Docker
 
+> Testing release: `1.0.1-beta.2` fixes automatic resizing, keeps Brave maximized, and includes application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).
+
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
 **Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
@@ -79,9 +81,17 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | `ENABLE_AUDIO` | `true` | Stream session audio. |
 | `ENABLE_GPU` | `true` | Use available GPU hardware for browser rendering. |
 | `DRI_NODE` | `/dev/dri/renderD128` | Render device when a GPU is passed through. |
-| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed remote display size in pixels. |
+| `DISPLAY_AUTO_RESIZE` | `true` | Automatically resize the desktop to the browser window, including 1440p, 4K, and ultrawide displays. |
+| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed desktop size, used only when `DISPLAY_AUTO_RESIZE=false`. |
+| `BROWSER_LOCK_MAXIMIZED` | `true` | Keep Brave maximized. Set to `false` to allow minimizing, restoring, and dragging its windows. |
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
+
+Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. Use `beta` or `1.0.1-beta.2` for this fix; it is not included in the stable 1.0.0 images.
+
+Starting with `1.0.1-beta.2`, Brave stays maximized: minimize, restore, and window dragging cannot take it off screen or make it smaller. Its title-bar buttons remain visible. Tabs, the address bar, and automatic display resizing continue to work. Set `BROWSER_LOCK_MAXIMIZED=false` and recreate the container to restore the previous window controls. In Unraid, this is **Keep Browser Maximized**.
+
+This behavior belongs to the container's window manager. Brave remains the official, unmodified package and can receive browser updates independently. The image includes the modified Labwc 0.8.3 source at `/usr/local/share/brave-origin/labwc-source.tar.xz`; its build recipe is in `Dockerfile` and its changes are in `patches/labwc/lock-maximized.patch`.
 
 The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
 
@@ -117,6 +127,8 @@ The backup command waits for the profile lock and flushes writes before reportin
 
 Run `docker exec brave-origin /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
 
+The `/config` mount root, login file, TLS directory, and lifetime locks belong to root. Browser data directories remain writable by `PUID` and `PGID`. Do not recursively change ownership of the whole appdata folder. Nginx access and error logs are available through `docker logs`.
+
 Changing `PUID` or `PGID` repairs profile ownership at the next startup. This can take time for a large profile. Do not run two containers against the same appdata folder.
 
 ## Updates and release channels
@@ -140,9 +152,9 @@ The first stable container release is `1.0.0`. Back up appdata before moving fro
 
 ## HTTPS and access
 
-The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default.
+The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default. A reverse proxy must preserve the original `Host` header, including a nonstandard port. Requests from unrelated website origins are rejected.
 
-Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
+Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. `no-new-privileges` prevents child processes from gaining permissions through setuid programs. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
 
 To use your own TLS certificate, place its certificate chain at `/config/ssl/cert.pem` and its private key at `/config/ssl/cert.key`, then restart the container. A simple nginx reload does not copy newly supplied files into place.
 

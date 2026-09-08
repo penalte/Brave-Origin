@@ -100,8 +100,13 @@ fi
 echo "[start-session] Starting Selkies Wayland display & streaming server on 127.0.0.1:8082..."
 export SELKIES_AUDIO_ENABLED="${AUDIO_ENABLED}"
 export SELKIES_UI_TITLE="Brave Origin"
-export SELKIES_MANUAL_WIDTH="${DISPLAY_WIDTH:-1920}"
-export SELKIES_MANUAL_HEIGHT="${DISPLAY_HEIGHT:-1080}"
+# Positive manual dimensions force Selkies to lock the desktop size. Leave them
+# unset by default so the client can resize both axes to its current viewport.
+unset SELKIES_MANUAL_WIDTH SELKIES_MANUAL_HEIGHT
+if [ "${DISPLAY_AUTO_RESIZE:-true}" = false ]; then
+    export SELKIES_MANUAL_WIDTH="${DISPLAY_WIDTH:-1920}"
+    export SELKIES_MANUAL_HEIGHT="${DISPLAY_HEIGHT:-1080}"
+fi
 export SELKIES_AUDIO_DEVICE_NAME="output.monitor"
 export FILE_MANAGER_PATH=/config/downloads
 export SELKIES_ENABLE_BASIC_AUTH=false
@@ -185,7 +190,11 @@ cat << 'EOF' > /config/.config/labwc/rc.xml
 </labwc_config>
 EOF
 
-labwc -c /config/.config/labwc/rc.xml 9>&- > /config/state/labwc.log 2>&1 &
+LABWC_COMMAND=labwc-browser
+if [ "${BROWSER_LOCK_MAXIMIZED:-true}" = false ]; then
+    LABWC_COMMAND=labwc
+fi
+"$LABWC_COMMAND" -c /config/.config/labwc/rc.xml 9>&- > /config/state/labwc.log 2>&1 &
 LABWC_PID=$!
 echo "${LABWC_PID}" > /config/state/labwc.pid
 

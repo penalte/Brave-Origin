@@ -4,6 +4,11 @@
 # ==============================================================================
 set -eo pipefail
 
+if [ "${BRAVE_STORAGE_READY:-}" != 1 ]; then
+    exec python3 /usr/local/bin/prepare-storage.py "$@"
+fi
+unset BRAVE_STORAGE_READY
+
 echo "========================================================"
 echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Starting Brave Origin in Docker (Native Wayland / Selkies)"
 echo "========================================================"
@@ -57,12 +62,17 @@ for setting in UPDATE_INTERVAL DOWNGRADE_RETRY_INTERVAL MIN_UPDATE_FREE_SPACE_MB
         echo "$setting must be a positive integer." >&2; exit 1
     fi
 done
+case "${DISPLAY_AUTO_RESIZE:-true}" in
+    true|false) ;;
+    *) echo 'DISPLAY_AUTO_RESIZE must be true or false.' >&2; exit 1 ;;
+esac
+case "${BROWSER_LOCK_MAXIMIZED:-true}" in
+    true|false) ;;
+    *) echo 'BROWSER_LOCK_MAXIMIZED must be true or false.' >&2; exit 1 ;;
+esac
 umask "${TARGET_UMASK}"
 
-# Claim this storage before changing credentials, certificates, or profile files.
-mkdir -p /config/state
-exec 7>/config/state/instance.lock
-flock -n 7 || { echo 'Another container is using this /config directory.' >&2; exit 1; }
+# Storage preparation holds the instance lock on descriptor 7.
 install -m 0666 /dev/null /run/lock/brave-origin-launch.lock
 
 echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Configuring container user permissions (UID: ${TARGET_UID}, GID: ${TARGET_GID}, UMASK: ${TARGET_UMASK})..."
@@ -94,29 +104,8 @@ if [ -n "${TZ}" ] && [ -f "/usr/share/zoneinfo/${TZ}" ]; then
     echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Timezone configured: ${TZ}"
 fi
 
-# 3. Persistent Directory Structure
-mkdir -p /config/profile \
-         /config/downloads \
-         /config/state \
-         /config/ssl \
-         /etc/nginx/ssl \
-         /etc/nginx/conf.d \
-         /tmp/runtime-braveuser \
-         /tmp/brave-cache
-
-chmod 700 /tmp/runtime-braveuser
-
-# Fast non-recursive ownership configuration for runtime directories
-chown "${TARGET_UID}:${TARGET_GID}" /config /config/profile /config/downloads /config/state /config/ssl /tmp/runtime-braveuser /tmp/brave-cache
-touch /config/state/profile.lock
-chown "${TARGET_UID}:${TARGET_GID}" /config/state/profile.lock
-chmod 600 /config/state/profile.lock
-# Repair ownership only when the configured IDs change, including restored profiles.
-if [ "$(cat /config/state/owner 2>/dev/null)" != "${TARGET_UID}:${TARGET_GID}" ]; then
-    mkdir -p /config/.config
-    chown -R "${TARGET_UID}:${TARGET_GID}" /config/profile /config/downloads /config/state /config/.config
-    printf '%s\n' "${TARGET_UID}:${TARGET_GID}" > /config/state/owner
-fi
+# Persistent paths and ownership were validated before the supervisor started.
+mkdir -p /etc/nginx/ssl /etc/nginx/conf.d
 
 # 4. Generate Self-Signed SSL/TLS Certificates for HTTPS
 if [ ! -f "/config/ssl/cert.pem" ] || [ ! -f "/config/ssl/cert.key" ]; then
@@ -147,7 +136,6 @@ fi
 
 if [ "${AUTH_ENABLED_LOWER}" = "true" ]; then
     PASSWD_FILE="/config/.passwd"
-    [ -f "/config/.kasmpasswd" ] && [ ! -f "${PASSWD_FILE}" ] && cp /config/.kasmpasswd "${PASSWD_FILE}"
     
     AUTH_USER_VAL="${AUTH_USER:-${KASM_USER:-brave}}"
     AUTH_PASS_VAL="${AUTH_PASSWORD:-${KASM_PASSWORD:-}}"
@@ -212,10 +200,10 @@ echo "========================================================"
 launch_session() {
     local name
     local -a session_env=("HOME=/config" "USER=braveuser" "LOGNAME=braveuser" "PATH=/usr/local/bin:/usr/bin:/bin" "LANG=C.UTF-8")
-    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
+    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ BROWSER_LOCK_MAXIMIZED DISPLAY_AUTO_RESIZE DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
         [ -z "${!name}" ] || session_env+=("${name}=${!name}")
     done
-    runuser -u braveuser -- env -i "${session_env[@]}" /usr/local/bin/start-session.sh 7>&- >> /config/state/session.log 2>&1 &
+    runuser -u braveuser -- env -i "${session_env[@]}" bash -c 'exec /usr/local/bin/start-session.sh >> /config/state/session.log 2>&1' 7>&- &
     SESSION_PID=$!
 }
 if [ ! -f /config/state/quiesce.flag ]; then

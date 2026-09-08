@@ -11,6 +11,7 @@ services:
     shm_size: "1gb"
     security_opt:
       - seccomp:unconfined
+      - no-new-privileges:true
     ports:
       # Container always listens on 8443 (nginx.conf); WEB_PORT only selects the host-side port.
       - "${WEB_PORT:-8443}:8443"
@@ -19,6 +20,8 @@ services:
       - PGID=${PGID:-1000}
       - UMASK=${UMASK:-022}
       - TZ=${TZ:-UTC}
+      - DISPLAY_AUTO_RESIZE=${DISPLAY_AUTO_RESIZE:-true}
+      - BROWSER_LOCK_MAXIMIZED=${BROWSER_LOCK_MAXIMIZED:-true}
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1920}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-1080}
       - AUTH_ENABLED=${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-true}}

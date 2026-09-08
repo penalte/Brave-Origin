@@ -9,9 +9,14 @@
 !config/nginx.conf
 !patches/
 !patches/*.patch
+!patches/labwc/
+!patches/labwc/*.patch
+!patches/labwc/README.md
 !dependencies/
 !dependencies/*.package-lock.json
 !dependencies/runtime.txt
 !tests/
 !tests/client-clipboard.mjs
 !tests/client-audio.mjs
+
+!scripts/prepare-storage.py

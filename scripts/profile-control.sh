@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+# State files and recorded PIDs are controlled by the browser user.
+if [ "$(id -u)" = 0 ]; then
+    exec runuser -u braveuser -- "$0" "$@"
+fi
+
 # ==============================================================================
 # Brave Origin Profile Backup Consistency Hook
 # Provides quiesce, resume, and status operations for external backup/snapshot tools

@@ -1,4 +1,6 @@
-# Supplemental Selkies dependencies missing from the pinned library donor.
+# Supplemental dependencies and security updates for the pinned library donor.
+pip==26.2.1 \
+    --hash=sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e
 aitop==0.16.10 \
     --hash=sha256:4218d598161d65a8474caa00234a240ddd5ecfecbae5765735538a912a023dff \
     --hash=sha256:b9a2d7ff31c1c8bb1b23f8ffd126edbbd6bdab2931ad8c031bbbac60f59e48de
