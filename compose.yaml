@@ -11,6 +11,7 @@ services:
     shm_size: "1gb"
     security_opt:
       - seccomp:unconfined
+      - no-new-privileges:true
     ports:
       # Container always listens on 8443 (nginx.conf); WEB_PORT only selects the host-side port.
       - "${WEB_PORT:-8443}:8443"

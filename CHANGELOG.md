@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased security updates
+
+- Improved protection for saved browser data, login details, and certificates.
+- Blocked remote-session requests from unrelated websites.
+- Added security checks before publishing images.
+
+Stable publication is on hold while dependency security findings remain unresolved.
+
 ## 1.0.0
 
 First stable release.

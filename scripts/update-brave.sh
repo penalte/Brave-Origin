@@ -2,12 +2,15 @@
 # Download while running, then stop the browser and install from the cache.
 set -euo pipefail
 STATE_DIR=/config/state
-mkdir -p /run/lock "$STATE_DIR"
+mkdir -p /run/lock /run/brave-origin "$STATE_DIR"
+set_status() {
+    runuser -u braveuser -- bash -c 'printf "%s\n" "$1" > /config/state/status' -- "$1"
+}
 exec 200>/run/lock/brave-origin-update.lock
 flock -n 200 || { echo '[updater] An update is already running.'; exit 0; }
 
 # Only the owner of the update lock may remove its transaction marker.
-trap 'rm -f /tmp/brave-update-in-progress' EXIT
+trap 'rm -f /run/brave-origin/update-in-progress' EXIT
 [ ! -f "$STATE_DIR/quiesce.flag" ] || { echo '[updater] Backup hold is active.'; exit 0; }
 minimum="${MIN_UPDATE_FREE_SPACE_MB:-1024}"
 [[ "$minimum" =~ ^[1-9][0-9]*$ ]] && (( ${#minimum} <= 9 )) || exit 1
@@ -45,8 +48,8 @@ fi
 exec 8>/run/lock/brave-origin-launch.lock
 flock 8
 [ ! -f "$STATE_DIR/quiesce.flag" ] || exit 0
-touch /tmp/brave-update-in-progress
-echo UPDATING > "$STATE_DIR/status"
+touch /run/brave-origin/update-in-progress
+set_status UPDATING
 if [ -f /tmp/brave.pid ]; then
     pid=$(cat /tmp/brave.pid)
     # Match the executable as well as the PID; never signal a reused PID.
@@ -72,11 +75,11 @@ echo '[updater] Installing downloaded packages. The browser will reopen afterwar
 if ! apt-get install -y --no-download --no-install-recommends "brave-origin=$target"; then
     echo '[updater] Installation failed; attempting repair using cached packages only.' >&2
     if ! { dpkg --configure -a && apt-get -f install -y --no-download; }; then
-        echo ERROR > "$STATE_DIR/status"
+        set_status ERROR
         exit 1
     fi
 fi
-[ "$(dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ] || { echo ERROR > "$STATE_DIR/status"; exit 1; }
+[ "$(dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ] || { set_status ERROR; exit 1; }
 apt-get clean
-echo STARTING > "$STATE_DIR/status"
+set_status STARTING
 echo "[updater] Installed $(dpkg-query -W -f='${Version}' brave-origin)."

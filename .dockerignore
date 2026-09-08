@@ -15,3 +15,5 @@
 !tests/
 !tests/client-clipboard.mjs
 !tests/client-audio.mjs
+
+!scripts/prepare-storage.py

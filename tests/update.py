@@ -3,10 +3,13 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import pwd
 
 assert Path('/etc/brave-origin-build').exists(), 'Run this test inside the image'
 state = Path('/config/state')
 state.mkdir(parents=True, exist_ok=True)
+user = pwd.getpwnam('braveuser')
+os.chown(state, user.pw_uid, user.pw_gid)
 bin_dir = Path(tempfile.mkdtemp())
 log = bin_dir / 'calls'
 
@@ -33,7 +36,7 @@ esac
 ''')
 stub('pgrep', 'exit 1\n')
 stub('df', "printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\nroot 99999999 1 99999998 1%% /\\n'\n")
-env = dict(os.environ, PATH=f'{bin_dir}:/usr/bin:/bin', TEST_LOG=str(log), MIN_UPDATE_FREE_SPACE_MB='1')
+env = dict(os.environ, PATH=f'{bin_dir}:/usr/sbin:/usr/bin:/bin', TEST_LOG=str(log), MIN_UPDATE_FREE_SPACE_MB='1')
 
 def run(scenario, expected):
     log.write_text('')
@@ -51,7 +54,16 @@ for mode, code in [('offline', 0), ('download-fail', 1), ('install-fail', 1), ('
         assert download < install
         assert 'brave-origin=2.0.0' in calls[download] and 'brave-origin=2.0.0' in calls[install]
         assert all('--no-download' in x for x in calls if '-f install' in x)
-    assert not Path('/tmp/brave-update-in-progress').exists()
+    assert not Path('/run/brave-origin/update-in-progress').exists()
+# A browser-controlled status link must never redirect a root write.
+canary = Path('/tmp/update-root-canary')
+canary.write_text('untouched\n')
+canary.chmod(0o600)
+(state / 'status').unlink()
+(state / 'status').symlink_to(canary)
+assert not any('--no-download' in x for x in run('success', 1))
+assert canary.stat().st_uid == 0 and canary.read_text() == 'untouched\n'
+(state / 'status').unlink()
 (state / 'last-brave-version').write_text('3.0.0\n')
 assert not any('install' in x for x in run('success', 2))
 (state / 'last-brave-version').unlink()
@@ -62,7 +74,7 @@ assert run('success', 0) == []
 import fcntl
 with open('/run/lock/brave-origin-update.lock', 'w') as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
-    marker = Path('/tmp/brave-update-in-progress')
+    marker = Path('/run/brave-origin/update-in-progress')
     marker.touch()
     assert run('success', 0) == [] and marker.exists()
     marker.unlink()

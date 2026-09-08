@@ -15,11 +15,13 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Validate configuration
         run: bash scripts/check.sh
+      - name: Audit web dependencies
+        run: python3 scripts/audit-web-dependencies.py
       - name: Build
         env:
           BUILD_SHA: ${{ github.sha }}
@@ -28,11 +30,15 @@ jobs:
           set -eu
           version=dev
           case "$BUILD_REF" in refs/tags/v*) version=${BUILD_REF#refs/tags/v} ;; refs/heads/beta) version=beta ;; esac
-          docker build --build-arg "BUILD_COMMIT=$BUILD_SHA" --build-arg "VERSION=$version" -t "brave-origin:ci-$BUILD_SHA" .
+          docker build --pull --no-cache --build-arg "BUILD_COMMIT=$BUILD_SHA" --build-arg "VERSION=$version" -t "brave-origin:ci-$BUILD_SHA" .
       - name: Test container
         env:
           BUILD_SHA: ${{ github.sha }}
         run: bash scripts/smoke-test.sh "brave-origin:ci-$BUILD_SHA"
+      - name: Scan image vulnerabilities
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: python3 scripts/security-scan.py "brave-origin:ci-$BUILD_SHA"
       - name: Publish both registries
         env:
           BUILD_SHA: ${{ github.sha }}

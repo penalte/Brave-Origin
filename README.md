@@ -1,5 +1,7 @@
 # Brave Origin in Docker
 
+> Security review in progress: this branch contains fixes that are not yet in the published 1.0.0 images. New stable publication is blocked by unresolved dependency findings. See [security guidance](SECURITY.md).
+
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
 **Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
@@ -117,6 +119,8 @@ The backup command waits for the profile lock and flushes writes before reportin
 
 Run `docker exec brave-origin /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
 
+The `/config` mount root, login file, TLS directory, and lifetime locks belong to root. Browser data directories remain writable by `PUID` and `PGID`. Do not recursively change ownership of the whole appdata folder. Nginx access and error logs are available through `docker logs`.
+
 Changing `PUID` or `PGID` repairs profile ownership at the next startup. This can take time for a large profile. Do not run two containers against the same appdata folder.
 
 ## Updates and release channels
@@ -140,9 +144,9 @@ The first stable container release is `1.0.0`. Back up appdata before moving fro
 
 ## HTTPS and access
 
-The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default.
+The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default. A reverse proxy must preserve the original `Host` header, including a nonstandard port. Requests from unrelated website origins are rejected.
 
-Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
+Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. `no-new-privileges` prevents child processes from gaining permissions through setuid programs. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
 
 To use your own TLS certificate, place its certificate chain at `/config/ssl/cert.pem` and its private key at `/config/ssl/cert.key`, then restart the container. A simple nginx reload does not copy newly supplied files into place.
 

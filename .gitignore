@@ -35,3 +35,6 @@ __pycache__/
 # Source configuration is separate from old runtime data.
 config/*
 !config/nginx.conf
+
+# Local dependency scan output
+/security-report.json

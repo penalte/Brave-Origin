@@ -163,6 +163,7 @@ RUN groupadd -r render 2>/dev/null || true && \
 
 # 5. Copy Configuration and Session Scripts
 COPY config/nginx.conf /etc/nginx/nginx.conf
+COPY scripts/prepare-storage.py /usr/local/bin/prepare-storage.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/start-session.sh /usr/local/bin/start-session.sh
 COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh
