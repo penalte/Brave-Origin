@@ -50,6 +50,8 @@ docker exec "$name" runuser -u braveuser -- sh -c 'tr "\0" "\n" < /proc/$(cat /c
 # Verify display resizing using decoded frames from the live compositor.
 docker cp tests/display.py "$name:/tmp/test-display.py"
 docker exec "$name" runuser -u braveuser -- python3 /tmp/test-display.py
+docker cp tests/window-lock.py "$name:/tmp/test-window-lock.py"
+docker exec "$name" runuser -u braveuser -- env XDG_RUNTIME_DIR=/tmp/runtime-braveuser WAYLAND_DISPLAY=wayland-0 python3 /tmp/test-window-lock.py
 # Verify Chromium actually created its namespace sandbox.
 docker exec -i "$name" python3 - <<'PYTEST'
 from pathlib import Path

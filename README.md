@@ -88,6 +88,10 @@ Set these values in `.env`, the Unraid template, or your container's environment
 
 Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. Use `beta` or `1.0.1-beta.1` for this fix; it is not included in the stable 1.0.0 images.
 
+Starting with `1.0.1-beta.2`, Brave stays maximized: minimize, restore, and window dragging cannot take it off screen or make it smaller. Its title-bar buttons remain visible. Tabs, the address bar, and automatic display resizing continue to work. Set `BROWSER_LOCK_MAXIMIZED=false` and recreate the container to restore the previous window controls. In Unraid, this is **Keep Browser Maximized**.
+
+This behavior belongs to the container's window manager. Brave remains the official, unmodified package and can receive browser updates independently. The image includes the modified Labwc 0.8.3 source at `/usr/local/share/brave-origin/labwc-source.tar.xz`; its build recipe is in `Dockerfile` and its changes are in `patches/labwc/lock-maximized.patch`.
+
 The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
 
 Saved credentials take precedence over password environment variables. On first setup, a password file takes precedence over `AUTH_PASSWORD`; an unreadable or empty file stops startup. New and reset passwords use bcrypt hashes. Existing saved credentials are retained.

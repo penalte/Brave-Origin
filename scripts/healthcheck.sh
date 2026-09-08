@@ -11,5 +11,5 @@ pid=$(cat /tmp/brave.pid)
 [[ "$pid" =~ ^[1-9][0-9]*$ ]]
 [ "$(cat "/proc/$pid/comm")" = brave ]
 [ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status")" = "$(id -u braveuser)" ]
-pgrep -x labwc >/dev/null
+pgrep -x 'labwc|labwc-browser' >/dev/null
 ss -ltn | awk '$4 == "127.0.0.1:8082" {found=1} END {exit !found}'

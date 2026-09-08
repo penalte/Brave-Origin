@@ -190,7 +190,11 @@ cat << 'EOF' > /config/.config/labwc/rc.xml
 </labwc_config>
 EOF
 
-labwc -c /config/.config/labwc/rc.xml 9>&- > /config/state/labwc.log 2>&1 &
+LABWC_COMMAND=labwc-browser
+if [ "${BROWSER_LOCK_MAXIMIZED:-true}" = false ]; then
+    LABWC_COMMAND=labwc
+fi
+"$LABWC_COMMAND" -c /config/.config/labwc/rc.xml 9>&- > /config/state/labwc.log 2>&1 &
 LABWC_PID=$!
 echo "${LABWC_PID}" > /config/state/labwc.pid
 

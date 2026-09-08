@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.0.1-beta.2
+
+- Brave now stays maximized when you click minimize or restore, or drag the window.
+- Added a setting to bring back the previous window controls.
+
+Testing release only. Known dependency vulnerabilities remain; use a separate profile on a trusted network. Stable publication remains on hold.
+
 ## 1.0.1-beta.1
 
 - Fixed black bars by automatically resizing the desktop to fit the browser window.

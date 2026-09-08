@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf
 ADD --checksum=sha256:9065cea8eeea43942f1ac513a92b51d669031a4a4ec9907356471eff14e05d4a \
     https://codeload.github.com/selkies-project/selkies/tar.gz/92dea42fc70bfcb52e6d98c4e6854872badfe621 /tmp/selkies.tar.gz
 RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-components=1 && rm /tmp/selkies.tar.gz
-COPY patches /selkies-src/patches
+COPY patches/*.patch /selkies-src/patches/
 COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies-web-core/package-lock.json
 COPY dependencies/selkies-dashboard.package-lock.json /selkies-src/addons/selkies-dashboard/package-lock.json
 COPY tests/client-clipboard.mjs /tmp/client-clipboard.mjs
@@ -26,6 +26,27 @@ RUN cd /selkies-src && \
     cp /selkies-src/pyproject.toml /selkies-src/README.md /selkies-src/LICENSE /selkies-package/ && \
     cp -r /selkies-src/src /selkies-package/ && \
     rm -rf /selkies-src/.git /selkies-src/patches
+
+# Build only the window manager; Brave remains the official, unmodified package.
+FROM debian:trixie-slim AS labwc-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential meson ninja-build pkg-config patch xz-utils ca-certificates \
+    libwlroots-0.18-dev libxml2-dev libglib2.0-dev libcairo2-dev \
+    libpango1.0-dev libpng-dev librsvg2-dev libcmocka-dev wayland-protocols \
+    && rm -rf /var/lib/apt/lists/*
+ADD --checksum=sha256:746be2ff2d0c0c0b795c97fa24c7058f75586685c88a1194c243b6a846f938a5 \
+    https://codeload.github.com/labwc/labwc/tar.gz/refs/tags/0.8.3 /tmp/labwc.tar.gz
+RUN mkdir /labwc && tar -xzf /tmp/labwc.tar.gz -C /labwc --strip-components=1 && rm /tmp/labwc.tar.gz
+COPY patches/labwc/lock-maximized.patch /tmp/lock-maximized.patch
+COPY patches/labwc/README.md /labwc/BRAVE-ORIGIN-CHANGES.md
+COPY Dockerfile /labwc/Brave-Origin.Dockerfile
+RUN cd /labwc && patch -p1 < /tmp/lock-maximized.patch && \
+    meson setup /labwc-build --buildtype=release --wrap-mode=nofallback \
+        -Dxwayland=disabled -Dicon=disabled -Dman-pages=disabled -Dtest=enabled \
+        -Db_pie=true -Db_lto=true -Dc_args='-fstack-protector-strong -D_FORTIFY_SOURCE=3' \
+        -Dc_link_args='-Wl,-z,relro,-z,now' && \
+    meson compile -C /labwc-build -j 2 && meson test -C /labwc-build --print-errorlogs && \
+    strip /labwc-build/labwc && tar -cJf /labwc-source.tar.xz -C / labwc
 
 FROM debian:trixie-slim
 
@@ -162,6 +183,9 @@ RUN groupadd -r render 2>/dev/null || true && \
     chown -R braveuser:braveuser /config /tmp/runtime-braveuser /tmp/brave-cache
 
 # 5. Copy Configuration and Session Scripts
+COPY --from=labwc-build /labwc-build/labwc /usr/local/bin/labwc-browser
+# Corresponding GPL source accompanies the modified compositor binary.
+COPY --from=labwc-build /labwc-source.tar.xz /usr/local/share/brave-origin/labwc-source.tar.xz
 COPY config/nginx.conf /etc/nginx/nginx.conf
 COPY scripts/prepare-storage.py /usr/local/bin/prepare-storage.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
