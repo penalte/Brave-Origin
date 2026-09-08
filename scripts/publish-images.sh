@@ -5,18 +5,18 @@ image="${1:?image required}"
 ref="${2:?git ref required}"
 sha="${3:?commit required}"
 case "$ref" in
-    refs/heads/beta) tags=(beta "sha-$sha") ;;
-    refs/tags/v*)
-        version=${ref#refs/tags/v}
+    refs/heads/x11-beta) tags=(x11-beta "x11-sha-$sha") ;;
+    refs/tags/x11-v*)
+        version=${ref#refs/tags/x11-v}
         if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            git merge-base --is-ancestor "$sha" origin/main
-            tags=("$version" latest "sha-$sha")
+            git merge-base --is-ancestor "$sha" origin/x11
+            tags=("$version-x11" x11 "x11-sha-$sha")
         elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
-            tags=("$version" beta "sha-$sha")
+            tags=("$version-x11" x11-beta "x11-sha-$sha")
         else
-            echo 'Unsupported release version.' >&2; exit 1
+            echo 'Unsupported X11 release version.' >&2; exit 1
         fi ;;
-    *) echo 'This ref does not publish images.'; exit 0 ;;
+    *) echo 'This ref does not publish X11 images.'; exit 0 ;;
 esac
 : "${REGISTRY_TOKEN:?Forgejo registry token is required}"
 : "${GHCR_TOKEN:?GitHub registry token is required}"

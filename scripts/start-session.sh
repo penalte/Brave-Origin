@@ -1,25 +1,11 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Native Wayland Desktop & Brave Origin Session Starter (Selkies + Labwc)
-# ==============================================================================
+# X11 session: hold the profile lock until all browser and desktop processes stop.
 set -eo pipefail
-
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-braveuser}"
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+export HOME=/config DISPLAY=:1 XDG_SESSION_TYPE=x11
+export XDG_RUNTIME_DIR=/tmp/runtime-braveuser
+export XAUTHORITY="${XDG_RUNTIME_DIR}/.Xauthority"
 export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
-export PIXELFLUX_WAYLAND=true
-export SELKIES_ENABLE_DUAL_MODE=false
-export SELKIES_PORT=8082
-export CUSTOM_WS_PORT=8082
-export SELKIES_ADDR=127.0.0.1
-export XCURSOR_THEME=Adwaita
-export XCURSOR_SIZE=24
-export XKB_DEFAULT_LAYOUT=us
-export XKB_DEFAULT_RULES=evdev
-
-# Explicitly UNSET DISPLAY to guarantee zero X11 / Xwayland execution
-unset DISPLAY
-
+unset WAYLAND_DISPLAY
 # The shell owns the profile lock until Brave and all session daemons stop.
 exec 9>/config/state/profile.lock
 flock -n 9 || { echo 'Profile is already in use.' >&2; exit 1; }
@@ -27,10 +13,10 @@ set_status() {
     printf '%s\n' "$1" > "/config/state/.status.$$"
     mv -f "/config/state/.status.$$" /config/state/status
 }
-SELKIES_PID='' LABWC_PID='' BRAVE_PID='' DBUS_PID=''
+VNC_PID='' OPENBOX_PID='' BRAVE_PID='' DBUS_PID='' AUDIO_PID=''
 cleanup() {
     trap - EXIT TERM INT HUP
-    # Keep Wayland and D-Bus alive while Chromium flushes its profile.
+    # Keep X11 and D-Bus alive while Chromium flushes its profile.
     if [ -n "$BRAVE_PID" ]; then
         kill -TERM "$BRAVE_PID" 2>/dev/null || true
         for ((i=0; i<15; i++)); do
@@ -40,12 +26,12 @@ cleanup() {
     fi
     # Reap the whole browser tree before releasing the profile lock.
     pkill -KILL -u "$(id -u)" -x brave 2>/dev/null || true
-    for pid in "${LABWC_PID}" "${SELKIES_PID}" "${DBUS_PID}"; do
+    for pid in "${OPENBOX_PID}" "${VNC_PID}" "${DBUS_PID}" "${AUDIO_PID}"; do
         [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
     done
     pulseaudio --kill 2>/dev/null || true
     sleep 1
-    for pid in "${BRAVE_PID}" "${LABWC_PID}" "${SELKIES_PID}" "${DBUS_PID}"; do
+    for pid in "${BRAVE_PID}" "${OPENBOX_PID}" "${VNC_PID}" "${DBUS_PID}" "${AUDIO_PID}"; do
         [ -z "$pid" ] || kill -KILL "$pid" 2>/dev/null || true
     done
     wait 2>/dev/null || true
@@ -67,155 +53,40 @@ fi
 [ ! -f /config/state/quiesce.flag ] || exit 0
 mkdir -p "${XDG_RUNTIME_DIR}" /config/downloads /config/profile
 chmod 700 "${XDG_RUNTIME_DIR}"
-rm -f "${XDG_RUNTIME_DIR}"/wayland-* "${XDG_RUNTIME_DIR}"/pulse/pid "${XDG_RUNTIME_DIR}"/dbus/session_bus_socket
+rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 "${XDG_RUNTIME_DIR}"/pulse/pid "${XDG_RUNTIME_DIR}"/dbus/session_bus_socket
 
-# Helper function to check UNIX domain socket connectivity
-check_socket_ready() {
-    local socket_path="$1"
-    python3 -c 'import socket,sys; s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(0.5); s.connect(sys.argv[1]); s.close()' "$socket_path" 2>/dev/null
-}
 
-# 1. Start D-Bus Session Daemon
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
-    mkdir -p "${XDG_RUNTIME_DIR}/dbus"
-    DBUS_PID=$(dbus-daemon --session --fork --print-pid --address="unix:path=${XDG_RUNTIME_DIR}/dbus/session_bus_socket" 9>&-)
-    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/dbus/session_bus_socket"
-fi
+mkdir -p "${XDG_RUNTIME_DIR}/dbus"
+DBUS_PID=$(dbus-daemon --session --fork --print-pid --address="unix:path=${XDG_RUNTIME_DIR}/dbus/session_bus_socket" 9>&-)
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/dbus/session_bus_socket"
 
-# 2. Start PulseAudio Virtual Sink (if ENABLE_AUDIO=true)
-if [ "${ENABLE_AUDIO:-true}" = "true" ]; then
-    echo "[start-session] Initializing PulseAudio virtual sink..."
+if [ "${ENABLE_AUDIO:-true}" = true ]; then
     mkdir -p "${XDG_RUNTIME_DIR}/pulse"
-    pulseaudio --exit-idle-time=-1 --daemonize=true 9>&- || true
-    pactl load-module module-native-protocol-unix auth-anonymous=1 socket="${XDG_RUNTIME_DIR}/pulse/native" 2>/dev/null || true
-    pactl load-module module-null-sink sink_name=output sink_properties=device.description="Default_Audio_Output" 2>/dev/null || true
-    pactl set-default-sink output 2>/dev/null || true
-    export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
-    export AUDIO_ENABLED=true
-else
-    export AUDIO_ENABLED=false
+    pulseaudio --exit-idle-time=-1 --daemonize=true 9>&-
+    pactl load-module module-null-sink sink_name=output sink_properties=device.description=Browser_Audio >/dev/null
+    pactl set-default-sink output
+    python3 /usr/local/bin/audio-server.py 9>&- > /config/state/audio-relay.log 2>&1 &
+    AUDIO_PID=$!
 fi
 
-# 3. Start Selkies Streaming Server (Smithay Wayland Display on 127.0.0.1:8082)
-echo "[start-session] Starting Selkies Wayland display & streaming server on 127.0.0.1:8082..."
-export SELKIES_AUDIO_ENABLED="${AUDIO_ENABLED}"
-export SELKIES_UI_TITLE="Brave Origin"
-export SELKIES_MANUAL_WIDTH="${DISPLAY_WIDTH:-1920}"
-export SELKIES_MANUAL_HEIGHT="${DISPLAY_HEIGHT:-1080}"
-export SELKIES_AUDIO_DEVICE_NAME="output.monitor"
-export FILE_MANAGER_PATH=/config/downloads
-export SELKIES_ENABLE_BASIC_AUTH=false
-export SELKIES_ENABLE_DUAL_MODE=false
-export SELKIES_PORT=8082
-export CUSTOM_WS_PORT=8082
-
-python3 -m selkies \
-    --addr=127.0.0.1 \
-    --port=8082 \
-    --mode=websockets \
-    --wayland=true \
-    --app-wayland-display=wayland-0 \
-    --enable-basic-auth=false \
-    9>&- > /config/state/selkies.log 2>&1 &
-SELKIES_PID=$!
-echo "${SELKIES_PID}" > /config/state/selkies.pid
-
-# 4. Wait for Wayland display socket created by Pixelflux / Smithay AND test connectable
-echo "[start-session] Waiting for root Wayland display socket (Smithay) in ${XDG_RUNTIME_DIR}..."
-TIMEOUT=30
-ELAPSED=0
-SMITHAY_SOCKET=""
-while [ -z "${SMITHAY_SOCKET}" ]; do
-    for s in "${XDG_RUNTIME_DIR}"/wayland-*; do
-        if [ -S "${s}" ]; then
-            if check_socket_ready "${s}"; then
-                SMITHAY_SOCKET="${s}"
-                export SMITHAY_DISPLAY="${s##*/}"
-                export WAYLAND_DISPLAY="${SMITHAY_DISPLAY}"
-                break
-            fi
-        fi
-    done
-    [ -n "${SMITHAY_SOCKET}" ] && break
+# The launcher requires a user record even when nginx handles authentication.
+# Keep this internal record ephemeral and separate from saved web credentials.
+internal_password=$(openssl rand -hex 16)
+printf '%s\n%s\nn\n' "$internal_password" "$internal_password" | HOME="$XDG_RUNTIME_DIR" kasmvncpasswd -u session -wo >/dev/null
+unset internal_password
+HOME="$XDG_RUNTIME_DIR" vncserver :1 -config /config/kasmvnc/kasmvnc.yaml -geometry "${DISPLAY_WIDTH:-1920}x${DISPLAY_HEIGHT:-1080}" \
+    -depth 24 -interface 127.0.0.1 -websocketPort 8444 -disableBasicAuth -SecurityTypes None \
+    -noxstartup 9>&- > /config/state/kasmvnc.log 2>&1
+VNC_PID=$(cat "$XDG_RUNTIME_DIR/.vnc/$(hostname):1.pid")
+printf '%s\n' "$VNC_PID" > /config/state/kasmvnc.pid
+for ((i=0; i<100; i++)); do
+    if xdpyinfo >/dev/null 2>&1; then break; fi
+    kill -0 "$VNC_PID" 2>/dev/null || { cat /config/state/kasmvnc.log >&2; exit 1; }
     sleep 0.2
-    ELAPSED=$((ELAPSED + 1))
-    if [ "${ELAPSED}" -ge "$((TIMEOUT * 5))" ]; then
-        echo "[start-session] ERROR: Timeout waiting for root Wayland socket in ${XDG_RUNTIME_DIR}!" >&2
-        cat /config/state/selkies.log >&2 || true
-        exit 1
-    fi
 done
-echo "[start-session] Root Wayland display ready: ${SMITHAY_SOCKET} (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
-
-# 5. Start Labwc Wayland Window Manager on root display
-echo "[start-session] Starting Labwc window manager on root display ${WAYLAND_DISPLAY}..."
-mkdir -p /config/.config/labwc
-# Keep browser windows maximized and disable desktop window-management shortcuts.
-# Brave draws its own frame so a second titlebar does not consume screen space.
-cat << 'EOF' > /config/.config/labwc/rc.xml
-<?xml version="1.0"?>
-<labwc_config>
-  <theme>
-    <name>Adwaita</name>
-    <cornerRadius>4</cornerRadius>
-  </theme>
-  <!-- Kiosk appliance policy: the browser UI (tabs, address bar, bookmarks)
-       stays visible and every window opens maximized. -->
-  <windowRules>
-    <windowRule identifier="*" serverDecoration="no">
-      <action name="Maximize" />
-    </windowRule>
-  </windowRules>
-  <!-- No default keyboard bindings: window switching, closing, and
-       un-maximization are unavailable. Swallow the escape hatches
-       (quit, close window/tab, fullscreen toggle). -->
-  <keyboard>
-    <keybind key="C-q"><action name="None" /></keybind>
-    <keybind key="C-S-q"><action name="None" /></keybind>
-    <keybind key="C-w"><action name="None" /></keybind>
-    <keybind key="C-S-w"><action name="None" /></keybind>
-    <keybind key="A-F4"><action name="None" /></keybind>
-    <keybind key="F11"><action name="None" /></keybind>
-    <keybind key="A-Tab"><action name="None" /></keybind>
-    <keybind key="S-A-Tab"><action name="None" /></keybind>
-    <keybind key="A-F10"><action name="None" /></keybind>
-  </keyboard>
-  <!-- No default mouse bindings: no root desktop menu or window gestures. -->
-  <mouse></mouse>
-</labwc_config>
-EOF
-
-labwc -c /config/.config/labwc/rc.xml 9>&- > /config/state/labwc.log 2>&1 &
-LABWC_PID=$!
-echo "${LABWC_PID}" > /config/state/labwc.pid
-
-# Wait for Labwc client-facing Wayland socket (nested compositor socket) AND verify connectable
-echo "[start-session] Waiting for Labwc application Wayland socket in ${XDG_RUNTIME_DIR}..."
-ELAPSED=0
-LABWC_SOCKET=""
-while [ -z "${LABWC_SOCKET}" ]; do
-    for s in "${XDG_RUNTIME_DIR}"/wayland-*; do
-        if [ -S "${s}" ] && [ "${s}" != "${SMITHAY_SOCKET}" ]; then
-            if check_socket_ready "${s}"; then
-                LABWC_SOCKET="${s}"
-                export LABWC_DISPLAY="${s##*/}"
-                break
-            fi
-        fi
-    done
-    [ -n "${LABWC_SOCKET}" ] && break
-    sleep 0.2
-    ELAPSED=$((ELAPSED + 1))
-    if [ "${ELAPSED}" -ge "$((TIMEOUT * 5))" ]; then
-        echo "[start-session] ERROR: Labwc application Wayland socket failed to start!" >&2
-        cat /config/state/labwc.log >&2 || true
-        exit 1
-    fi
-done
-
-export WAYLAND_DISPLAY="${LABWC_DISPLAY}"
-echo "[start-session] Labwc application Wayland socket ready: ${LABWC_SOCKET} (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
-
+xdpyinfo >/dev/null 2>&1 || { echo 'X11 display did not start.' >&2; exit 1; }
+openbox --config-file /etc/xdg/openbox/rc.xml 9>&- > /config/state/openbox.log 2>&1 &
+OPENBOX_PID=$!
 # 6. GPU Detection & Flags Configuration (ENABLE_GPU=false forces software rendering)
 GPU_FLAGS=""
 if [ "${ENABLE_GPU:-true}" = "false" ]; then
@@ -231,8 +102,8 @@ if [ -z "${GPU_FLAGS}" ]; then
     GPU_FLAGS="--disable-gpu --disable-gpu-compositing"
 fi
 
-# 7. Launch Brave Origin Natively on Wayland (Direct Process Execution)
-echo "[start-session] Starting Brave Origin with native Wayland Ozone backend..."
+# 7. Launch Brave Origin on X11 (Direct Process Execution)
+echo "[start-session] Starting Brave Origin with X11 Ozone backend..."
 
 # Serialize browser launch with offline installation and backup requests.
 exec 8>/run/lock/brave-origin-launch.lock
@@ -285,7 +156,7 @@ for flag in "${EXTRA_FLAGS[@]}"; do
 done
 read -r -a GPU_ARGS <<< "$GPU_FLAGS"
 /opt/brave.com/brave-origin/brave \
-    --ozone-platform=wayland \
+    --ozone-platform=x11 \
     --enable-features=UseOzonePlatform \
     --user-data-dir=/config/profile \
     --disk-cache-dir=/tmp/brave-cache \
@@ -306,4 +177,7 @@ flock -u 8
 exec 8>&-
 set_status RUNNING
 # A failed compositor or streaming server also requires a complete restart.
-wait -n "$BRAVE_PID" "$LABWC_PID" "$SELKIES_PID"
+while kill -0 "$BRAVE_PID" 2>/dev/null && kill -0 "$OPENBOX_PID" 2>/dev/null && kill -0 "$VNC_PID" 2>/dev/null; do
+    [ -z "$AUDIO_PID" ] || kill -0 "$AUDIO_PID" 2>/dev/null || break
+    sleep 1
+done

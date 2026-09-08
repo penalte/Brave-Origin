@@ -1,22 +1,12 @@
 # Release notes
 
-## 1.0.0
+## X11 1.0.0
 
-First stable release.
+First stable X11 edition for users who prefer KasmVNC.
 
-- Run Brave Origin remotely with saved profiles, password protection, and audio.
-- Fixed native copy and paste, and added a **Send to session** clipboard button.
-- Fixed audio after stopping and restarting the stream.
-- Improved shutdown so browser profiles are saved before the container stops.
-- Corrected the Unraid template and kept development builds separate from stable updates.
+- Browse with saved bookmarks, settings, downloads, copy and paste, and audio.
+- Fixed native paste and added a **Paste to session** button.
+- Improved login protection, browser updates, backups, and shutdown.
+- Added an X11 Unraid template and separate stable and beta update channels.
 
-## 1.0.0-beta.1
-
-- Added password protection by default and improved password storage.
-- Fixed copy and paste for more text formats, including Unicode and multiple lines.
-- Fixed browser restarts after backups and updates.
-- Added protection against opening a profile with an older browser.
-- Corrected the Unraid setup template and simplified the setup instructions.
-- Separated beta builds from stable releases.
-
-This earlier prerelease has been superseded by 1.0.0.
+Upgrading an older X11 image requires setting an initial login password. Back up appdata before upgrading.

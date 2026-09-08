@@ -1,103 +1,48 @@
-// Exercise the patched client module without a browser or clipboard permission.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-
-const source = await readFile(process.argv[2], 'utf8');
-const { createClipboardGestures } = await import(
-    `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-);
-const listeners = new Map();
-globalThis.window = {
-    addEventListener: (name, handler) => listeners.set(name, handler),
-    removeEventListener: (name) => listeners.delete(name),
-};
-globalThis.document = { activeElement: { id: 'overlayInput', tagName: 'INPUT' } };
-const tick = () => new Promise((resolve) => setImmediate(resolve));
-
-function setup(overrides = {}) {
-    const calls = [];
-    const gestures = createClipboardGestures({
-        isChromium: true,
-        clipboardSync: {},
-        canSync: () => true,
-        canRead: () => true,
-        canWrite: () => true,
-        binaryEnabled: () => true,
-        getSendInFlight: () => null,
-        sendClipboardData: async (data, mime) => calls.push(['transfer', data, mime]),
-        pasteRemote: () => calls.push(['paste']),
-        ...overrides,
-    });
-    gestures.wire();
-    return { calls, gestures };
-}
-
-function paste(text, items = []) {
-    const event = {
-        clipboardData: { getData: () => text, items },
-        prevented: false,
-        preventDefault() { this.prevented = true; },
-    };
-    listeners.get('paste')(event);
-    return event;
-}
-
-// A menu paste must wait for the actual transfer before injecting Ctrl+V.
-let release;
-const order = [];
-let run = setup({
-    sendClipboardData: (data, mime) => {
-        order.push(['transfer', data, mime]);
-        return new Promise((resolve) => { release = resolve; });
+const source = await readFile(new URL('../config/clipboard-client.js', import.meta.url), 'utf8');
+const { createClipboardHandler } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+let events = [];
+let errors = [];
+const rfb = {
+    clipboardUp: true, viewOnly: false,
+    clipboardPasteFrom(text) { events.push(['text', text]); },
+    async clipboardPasteDataFrom(items) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        events.push(['image', await items[0].getType('image/png')]);
     },
-    pasteRemote: () => order.push(['paste']),
+    sendKey(key, code, down) { events.push(['key', key, down]); }
+};
+const handler = createClipboardHandler(() => rfb, target => target === 'remote', err => errors.push(err));
+const event = (text, png, target = 'remote') => ({
+    target, stopped: false, prevented: false,
+    clipboardData: {getData: () => text, items: png ? [{kind:'file',type:'image/png',getAsFile:() => png}] : []},
+    preventDefault() { this.prevented = true; },
+    stopImmediatePropagation() { this.stopped = true; }
 });
-const text = 'Clipboard café 中文 🎉\nsecond line\n';
-assert.equal(paste(text).prevented, true);
-await tick();
-assert.deepEqual(order, [['transfer', text, 'text/plain']]);
-release();
-await tick();
-assert.deepEqual(order.at(-1), ['paste']);
-run.gestures.unwire();
-
-// Dashboard form fields and disabled clipboard access remain local.
-run = setup();
-document.activeElement = { id: 'dashboardClipboardTextarea', tagName: 'TEXTAREA' };
-assert.equal(paste(text).prevented, false);
-await tick();
-assert.deepEqual(run.calls, []);
-run.gestures.unwire();
-document.activeElement = { id: 'overlayInput', tagName: 'INPUT' };
-run = setup({ canRead: () => false });
-assert.equal(paste(text).prevented, false);
-await tick();
-assert.deepEqual(run.calls, []);
-run.gestures.unwire();
-
-// Image transfer takes precedence over a text alternative.
-run = setup();
-const png = new Uint8Array([137, 80, 78, 71]).buffer;
-paste('image alternative', [{
-    kind: 'file', type: 'image/png',
-    getAsFile: () => ({ arrayBuffer: async () => png }),
-}]);
-await tick();
-assert.deepEqual(run.calls, [['transfer', png, 'image/png'], ['paste']]);
-run.gestures.unwire();
-
-// Failed transfers must never paste the previous clipboard contents.
-run = setup({ sendClipboardData: async () => { throw new Error('test transfer failure'); } });
-paste(text);
-await tick();
-assert.deepEqual(run.calls, []);
-run.gestures.unwire();
-
-// Other engines already forward the physical chord: do not paste twice.
-run = setup({ isChromium: false });
-assert.equal(paste(text).prevented, false);
-await tick();
-assert.deepEqual(run.calls, [['transfer', text, 'text/plain']]);
-run.gestures.unwire();
-assert.equal(listeners.size, 0);
-console.log('Client paste passed: Unicode, transfer ordering, images, permissions, local fields, failure handling.');
+const text = 'café 日本語 🎉\nsecond line';
+let paste = event(text);
+await handler.paste(paste);
+assert(paste.stopped && paste.prevented);
+assert.deepEqual(events[0], ['text', text]);
+assert.equal(events.filter(x => x[0] === 'key' && x[1] === 118 && x[2]).length, 1);
+events = [];
+const png = new Blob(['test image bytes'], {type:'image/png'});
+await Promise.all([handler.paste(event('image fallback text', png)), handler.sendText('next paste')]);
+assert.deepEqual(events[0], ['image', png]);
+assert(events.findIndex(x => x[0] === 'text') > events.findIndex(x => x[0] === 'key'));
+const length = events.length;
+await handler.paste(event('local form', null, 'field'));
+assert.equal(events.length, length);
+rfb.clipboardUp = false;
+await handler.paste(event('disabled'));
+assert.equal(events.length, length);
+rfb.clipboardUp = true;
+rfb.clipboardPasteFrom = () => { throw Error('transfer failed'); };
+await handler.paste(event('failed'));
+assert.equal(events.length, length, 'Failed transfer must not paste stale contents');
+assert.equal(errors.length, 1);
+const key = {target:'remote',key:'v',ctrlKey:true,stopImmediatePropagation(){this.stopped=true;}};
+handler.keydown(key);
+assert(key.stopped && !key.prevented, 'Native paste default must remain enabled');
+console.log('Native clipboard order, image transfer, form isolation, disabled access, and failure checks passed.');

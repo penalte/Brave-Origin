@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${IMAGE_NAME:-ghcr.io/shoyrock/brave-origin:latest}
-    container_name: brave-origin
+    image: ${IMAGE_NAME:-ghcr.io/shoyrock/brave-origin:x11}
+    container_name: brave-origin-x11
     hostname: ${CONTAINER_HOSTNAME:-brave-origin}
     restart: unless-stopped
     stop_grace_period: 30s

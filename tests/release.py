@@ -18,10 +18,13 @@ with tempfile.TemporaryDirectory() as tmp:
     cases = [
         ('refs/heads/main', 0, set()),
         ('refs/heads/feature/example', 0, set()),
-        ('refs/heads/beta', 0, {'beta','sha-abc123'}),
-        ('refs/tags/v1.0.0-beta.1', 0, {'1.0.0-beta.1','beta','sha-abc123'}),
-        ('refs/tags/v1.0.0', 0, {'1.0.0','latest','sha-abc123'}),
-        ('refs/tags/vbad', 1, set()),
+        ('refs/heads/beta', 0, set()),
+        ('refs/heads/x11', 0, set()),
+        ('refs/heads/x11-beta', 0, {'x11-beta','x11-sha-abc123'}),
+        ('refs/tags/x11-v1.0.0-beta.1', 0, {'1.0.0-beta.1-x11','x11-beta','x11-sha-abc123'}),
+        ('refs/tags/v1.0.0', 0, set()),
+        ('refs/tags/x11-v1.0.0', 0, {'1.0.0-x11','x11','x11-sha-abc123'}),
+        ('refs/tags/x11-vbad', 1, set()),
     ]
     for ref, code, tags in cases:
         log.write_text('')
@@ -31,6 +34,6 @@ with tempfile.TemporaryDirectory() as tmp:
         expected = {f'{registry}:{tag}' for registry in ('ghcr.io/shoyrock/brave-origin','forgejo.foss.homes/shoy/brave-origin') for tag in tags}
         assert set(pushes) == expected, (ref,pushes)
     log.write_text('')
-    result = subprocess.run(['bash',str(script),'test-image','refs/tags/v1.0.0','abc123'], env=dict(env,TEST_GIT_STATUS='1'), capture_output=True)
-    assert result.returncode != 0 and log.read_text() == '', 'Stable release outside main was allowed'
-print('Release channels passed: development never publishes latest; stable must be on main; both registries are required.')
+    result = subprocess.run(['bash',str(script),'test-image','refs/tags/x11-v1.0.0','abc123'], env=dict(env,TEST_GIT_STATUS='1'), capture_output=True)
+    assert result.returncode != 0 and log.read_text() == '', 'Stable release outside x11 was allowed'
+print('Release channels passed: development never publishes latest; stable must be on x11; both registries are required.')

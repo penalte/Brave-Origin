@@ -1,15 +1,15 @@
-# Brave Origin in Docker
+# Brave Origin in Docker — X11
 
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
-**Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
+**X11 release: 1.0.0.** This edition uses X11, Openbox, and KasmVNC. Use `x11` for stable X11 updates or pin `1.0.0-x11`. Development builds use `x11-beta` and need a separate appdata folder. The [Wayland edition](https://github.com/shoyrock/Brave-Origin/tree/main) remains available as `latest`.
 
 ## Get started
 
 You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is optional.
 
 ```bash
-git clone https://github.com/shoyrock/Brave-Origin.git
+git clone --branch x11 https://github.com/shoyrock/Brave-Origin.git
 cd Brave-Origin
 cp .env.example .env
 ```
@@ -25,24 +25,24 @@ Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates
 
 Images are available from both registries:
 
-- `ghcr.io/shoyrock/brave-origin:latest`
-- `forgejo.foss.homes/shoy/brave-origin:latest`
+- `ghcr.io/shoyrock/brave-origin:x11`
+- `forgejo.foss.homes/shoy/brave-origin:x11`
 
 Set `IMAGE_NAME` in `.env` to choose a registry or a specific version. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
 
 ## Unraid
 
-The [Unraid template](templates/brave-origin.xml) uses bridge networking, HTTPS port 8443, and `/mnt/user/appdata/brave-origin` for persistent storage. It defaults to Unraid's user ID 99 and group ID 100.
+The [Unraid template](templates/brave-origin.xml) uses bridge networking, HTTPS port 8443, and `/mnt/user/appdata/brave-origin-x11` for persistent storage. It defaults to Unraid's user ID 99 and group ID 100.
 
 To install the template from the Unraid terminal:
 
 ```bash
 mkdir -p /boot/config/plugins/dockerMan/templates-user
-curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml \
-  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
+curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/x11/templates/brave-origin.xml \
+  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin-x11.xml
 ```
 
-In **Docker → Add Container**, select **Brave-Origin**. Set a password, review the appdata path and port, then apply. Use the container's **WebUI** menu to open it.
+In **Docker → Add Container**, select **Brave-Origin-X11**. Set a password, review the appdata path and port, then apply. Use the container's **WebUI** menu to open it.
 
 For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. The template settings are checked automatically and tested with Unraid's user and group IDs. Installation through the Unraid web interface has not been verified on this development host.
 
@@ -50,7 +50,9 @@ For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri
 
 Use Ctrl+C and Ctrl+V inside the remote session. On macOS, use the shortcuts supported by your client browser. Text can move in both directions, including Unicode and multiple lines. The server also supports image clipboard transfer when the client enables it.
 
-Clipboard access depends on your client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. If automatic clipboard access is blocked, open **Clipboard** in the sidebar, enter your text, click **Send to session**, then paste inside Brave. Chromium-based clients also support native paste events, including paste from the browser menu. Clipboard permissions and image support vary by client browser.
+Clipboard access depends on the client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. KasmVNC provides a **Clipboard** panel: enter text and click **Paste to session** to paste into the focused field inside Brave. Native paste events also transfer text and PNG images without reading the system clipboard in the background. Image support varies by client browser.
+
+Audio starts after you interact with the page. Use the speaker and volume controls at the bottom right to mute or adjust it.
 
 ## Settings
 
@@ -59,7 +61,7 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `CONFIG_PATH` | `./appdata` | Compose host folder mounted at `/config`. |
-| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:latest` | Compose image and release channel. |
+| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:x11` | Compose image and release channel. |
 | `WEB_PORT` | `8443` | Compose host port. The container always listens on 8443. |
 | `PUID` / `PGID` | `1000` / `1000` | Nonzero user and group IDs for browser files. |
 | `UMASK` | `022` | File creation permissions. |
@@ -77,7 +79,7 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | `ENABLE_AUDIO` | `true` | Stream session audio. |
 | `ENABLE_GPU` | `true` | Use available GPU hardware for browser rendering. |
 | `DRI_NODE` | `/dev/dri/renderD128` | Render device when a GPU is passed through. |
-| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed remote display size in pixels. |
+| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Initial remote display size in pixels; KasmVNC can resize it. |
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
 
@@ -88,7 +90,7 @@ Saved credentials take precedence over password environment variables. On first 
 To change a saved password:
 
 ```bash
-docker exec brave-origin /usr/local/bin/reset-password.sh --generate
+docker exec brave-origin-x11 /usr/local/bin/reset-password.sh --generate
 ```
 
 The generated password is printed to that command's output. Save it securely. You can also pass a chosen password as the argument, but doing so can leave it in your shell history. Resetting a password does not enable authentication if you explicitly disabled it.
@@ -106,14 +108,14 @@ The generated password is printed to that command's output. Save it securely. Yo
 Back up the entire appdata folder while the container is stopped. For backups without stopping the container, pause the browser first:
 
 ```bash
-docker exec brave-origin /usr/local/bin/profile-control.sh quiesce
+docker exec brave-origin-x11 /usr/local/bin/profile-control.sh quiesce
 # Back up your appdata folder after the command succeeds.
-docker exec brave-origin /usr/local/bin/profile-control.sh resume
+docker exec brave-origin-x11 /usr/local/bin/profile-control.sh resume
 ```
 
 The backup command waits for the profile lock and flushes writes before reporting success. A failed command means the profile is not ready for backup. A backup hold persists across container restarts until you run `resume`.
 
-Run `docker exec brave-origin /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
+Run `docker exec brave-origin-x11 /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
 
 Changing `PUID` or `PGID` repairs profile ownership at the next startup. This can take time for a large profile. Do not run two containers against the same appdata folder.
 
@@ -124,17 +126,20 @@ Browser updates download first while the browser stays open. After the download 
 To check for a browser update manually:
 
 ```bash
-docker exec brave-origin /usr/local/bin/update-brave.sh
+docker exec brave-origin-x11 /usr/local/bin/update-brave.sh
 ```
 
 Container updates are separate: use `docker compose pull` and `docker compose up -d --no-build`, or Unraid's container update controls.
 
-- `beta` is the development branch and image tag. It receives tested development builds.
-- `main` holds release preparation and stable code. A push to `main` builds and tests but does not publish images.
-- A tag such as `v1.0.0-beta.1` publishes a beta version. It does not change `latest`.
-- A stable tag such as `v1.0.0`, created from `main`, publishes the version and updates `latest` in both registries.
+- `x11-beta` is the development branch and image tag.
+- `x11` is the stable branch. Branch pushes build and test; only a stable release tag updates the `x11` image.
+- A tag such as `x11-v1.0.0-beta.1` publishes an X11 beta.
+- A tag such as `x11-v1.0.0` publishes `1.0.0-x11` and updates `x11` on both registries.
+- X11 builds never publish the Wayland `latest` or `beta` image tags.
 
-The first stable container release is `1.0.0`. Back up appdata before moving from older `wayland` images. Never run stable and beta containers against the same live profile. See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md) for maintainer steps.
+Before upgrading an older X11 image, stop it and back up its appdata. Set `AUTH_PASSWORD` for the first start: old KasmVNC password files use a different format and are not imported. Bookmarks, history, and downloads remain in the same locations. Old KasmVNC display settings are regenerated from the environment settings. To compare editions, copy the stopped profile into a separate appdata folder and choose a different host port. Never share a live profile between containers.
+
+See [release notes](CHANGELOG.md) and [the release guide](RELEASING.md).
 
 ## HTTPS and access
 
@@ -152,8 +157,8 @@ Without a GPU mapping, the container uses software rendering. With an Intel or A
 docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
-Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering.
+Intel graphics were tested with hardware compositing, WebGL, and video decoding enabled. Other GPUs and host drivers have not been verified. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering.
 
 ## License
 
-This container project uses the [MIT License](LICENSE). Brave Origin, Selkies, and the other included components retain their own licenses. Brave Origin and the Brave logo are trademarks of Brave Software, Inc. This project is unofficial and is not affiliated with or endorsed by Brave Software, Inc.
+This container project uses the [MIT License](LICENSE). Brave Origin, KasmVNC, and the other included components retain their own licenses. Brave Origin and the Brave logo are trademarks of Brave Software, Inc. This project is unofficial and is not affiliated with or endorsed by Brave Software, Inc.

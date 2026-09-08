@@ -41,7 +41,7 @@ if [ "${GENERATED}" = "true" ]; then
     echo ""
     echo " NOTICE: This password will NOT be displayed in container logs."
     echo " Store it securely. To change it later, run:"
-    echo "   docker exec brave-origin /usr/local/bin/reset-password.sh <new_password>"
+    echo "   docker exec brave-origin-x11 /usr/local/bin/reset-password.sh <new_password>"
 else
     echo " Password successfully updated to user-provided value."
 fi

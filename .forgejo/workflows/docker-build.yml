@@ -1,10 +1,10 @@
 name: Build, test, and publish
 on:
   push:
-    branches: [main, beta]
-    tags: ['v*']
+    branches: [x11, x11-beta]
+    tags: ['x11-v*']
   pull_request:
-    branches: [main, beta]
+    branches: [x11, x11-beta]
   workflow_dispatch:
 concurrency:
   group: brave-origin-${{ github.ref }}
@@ -27,7 +27,7 @@ jobs:
         run: |
           set -eu
           version=dev
-          case "$BUILD_REF" in refs/tags/v*) version=${BUILD_REF#refs/tags/v} ;; refs/heads/beta) version=beta ;; esac
+          case "$BUILD_REF" in refs/tags/x11-v*) version=${BUILD_REF#refs/tags/x11-v}-x11 ;; refs/heads/x11-beta) version=x11-beta ;; esac
           docker build --build-arg "BUILD_COMMIT=$BUILD_SHA" --build-arg "VERSION=$version" -t "brave-origin:ci-$BUILD_SHA" .
       - name: Test container
         env:

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Brave Origin Native Wayland Docker Appliance (Selkies + Pixelflux + Labwc)
+# Brave Origin X11 Docker Appliance (KasmVNC + Openbox)
 # ==============================================================================
 set -eo pipefail
 
 echo "========================================================"
-echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Starting Brave Origin in Docker (Native Wayland / Selkies)"
+echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Starting Brave Origin in Docker (X11 / KasmVNC)"
 echo "========================================================"
 
 # Trap termination signals for clean shutdown
@@ -105,6 +105,8 @@ mkdir -p /config/profile \
          /tmp/brave-cache
 
 chmod 700 /tmp/runtime-braveuser
+# Nginx must traverse the mount root to read its group-protected password file.
+chmod 711 /config
 
 # Fast non-recursive ownership configuration for runtime directories
 chown "${TARGET_UID}:${TARGET_GID}" /config /config/profile /config/downloads /config/state /config/ssl /tmp/runtime-braveuser /tmp/brave-cache
@@ -147,7 +149,6 @@ fi
 
 if [ "${AUTH_ENABLED_LOWER}" = "true" ]; then
     PASSWD_FILE="/config/.passwd"
-    [ -f "/config/.kasmpasswd" ] && [ ! -f "${PASSWD_FILE}" ] && cp /config/.kasmpasswd "${PASSWD_FILE}"
     
     AUTH_USER_VAL="${AUTH_USER:-${KASM_USER:-brave}}"
     AUTH_PASS_VAL="${AUTH_PASSWORD:-${KASM_PASSWORD:-}}"
@@ -182,6 +183,32 @@ else
     echo "[nginx] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Authentication mode: DISABLED"
 fi
 
+# Initialize the X11 server and optional audio client before opening ingress.
+mkdir -p /config/.vnc /config/kasmvnc /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+cp /etc/kasmvnc/kasmvnc.yaml /config/kasmvnc/kasmvnc.yaml
+python3 - <<'CONFIG'
+import os
+p='/config/kasmvnc/kasmvnc.yaml'
+s=open(p).read().replace('width: 1920', 'width: '+os.environ.get('DISPLAY_WIDTH','1920')).replace('height: 1080', 'height: '+os.environ.get('DISPLAY_HEIGHT','1080'))
+node=os.environ.get('DRI_NODE','/dev/dri/renderD128')
+if os.environ.get('ENABLE_GPU','true') == 'true' and os.path.exists(node):
+    s=s.replace('hw3d: false','hw3d: true')
+s=s.replace('drinode: /dev/dri/renderD128','drinode: '+node)
+open(p,'w').write(s)
+CONFIG
+ln -snf /config/kasmvnc/kasmvnc.yaml /config/.vnc/kasmvnc.yaml
+chown -R braveuser:braveuser /config/.vnc /config/kasmvnc
+# KasmVNC listens only on loopback without its own HTTP login. Nginx protects
+# every route, including audio and WebSocket upgrades.
+sed -i 's|<script src="audio-client.js"></script>||g' /usr/share/kasmvnc/www/index.html
+if [ "${ENABLE_AUDIO:-true}" = true ]; then
+    cp /etc/kasmvnc/audio-client.js /usr/share/kasmvnc/www/audio-client.js
+    sed -i 's|</body>|<script src="audio-client.js"></script></body>|' /usr/share/kasmvnc/www/index.html
+else
+    rm -f /usr/share/kasmvnc/www/audio-client.js
+fi
+
 # 6. Startup Update Check & Downgrade Assessment
 if [ "${AUTO_UPDATE:-true}" = "true" ]; then
     echo "[updater] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Performing startup update verification..."
@@ -197,11 +224,11 @@ INSTALLED_VER=$(dpkg-query -W -f='${Version}' brave-origin 2>/dev/null || echo "
 PROFILE_VER=$(cat /config/state/last-brave-version 2>/dev/null || echo "None (new profile)")
 
 echo "========================================================"
-echo " Brave Origin Native Wayland Server Ready!"
+echo " Brave Origin X11 Server Ready!"
 echo " URL:                 https://localhost:8443"
-echo " Protocol:            Native Wayland / Ozone (Selkies + Pixelflux + Labwc)"
+echo " Protocol:            X11 / Ozone (KasmVNC + Openbox)"
 echo " Authentication:      $([ "${AUTH_ENABLED_LOWER}" = "true" ] && echo "Enabled" || echo "Disabled")"
-echo " Audio Streaming:     ${ENABLE_AUDIO:-true} (Unified WebSocket Opus)"
+echo " Audio Streaming:     ${ENABLE_AUDIO:-true} (PCM over WebSocket)"
 echo " Installed Version:   ${INSTALLED_VER}"
 echo " Profile Version:     ${PROFILE_VER}"
 echo " Update Interval:     ${UPDATE_INTERVAL:-21600}s"
