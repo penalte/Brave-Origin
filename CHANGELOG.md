@@ -1,13 +1,13 @@
 # Release notes
 
-## Unreleased updates
+## 1.0.1-beta.1
 
 - Fixed black bars by automatically resizing the desktop to fit the browser window.
 - Improved protection for saved browser data, login details, and certificates.
 - Blocked remote-session requests from unrelated websites.
 - Added security checks before publishing images.
 
-Stable publication is on hold while dependency security findings remain unresolved.
+Testing release only. Known dependency vulnerabilities remain; use a separate profile on a trusted network. Stable publication remains on hold.
 
 ## 1.0.0
 

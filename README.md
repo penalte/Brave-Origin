@@ -1,6 +1,6 @@
 # Brave Origin in Docker
 
-> Security review in progress: this branch contains fixes that are not yet in the published 1.0.0 images. New stable publication is blocked by unresolved dependency findings. See [security guidance](SECURITY.md).
+> Testing release: `1.0.1-beta.1` includes automatic resizing and application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).
 
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
 
@@ -86,7 +86,7 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
 
-Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. This fix is on the development branch and is not included in the published 1.0.0 images.
+Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. Use `beta` or `1.0.1-beta.1` for this fix; it is not included in the stable 1.0.0 images.
 
 The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
 
