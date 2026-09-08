@@ -88,5 +88,8 @@ docker exec "$name" sh -c '! pgrep -x brave && test "$(cat /config/state/status)
 docker run -d --name "${name}-invalid" -e PUID=0 -e AUTO_UPDATE=false "$image" >/dev/null
 [ "$(docker wait "${name}-invalid")" != 0 ]
 # Simulate update failure modes without contacting package servers or changing packages.
-docker run --name "${name}-updates" --entrypoint python3 -v "$PWD/tests/update.py:/tmp/update-test.py:ro" "$image" /tmp/update-test.py
+docker create --name "${name}-updates" --entrypoint python3 "$image" /tmp/update-test.py >/dev/null
+docker cp tests/update.py "${name}-updates:/tmp/update-test.py"
+docker start -a "${name}-updates"
+[ "$(docker wait "${name}-updates")" = 0 ]
 echo 'All container smoke tests passed.'
