@@ -4,6 +4,8 @@ Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensio
 
 **Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
 
+**Prefer X11?** The [stable X11 edition](https://github.com/shoyrock/Brave-Origin/tree/x11) uses KasmVNC and is available as `ghcr.io/shoyrock/brave-origin:x11` or `forgejo.foss.homes/shoy/brave-origin:x11`. It has its own [Unraid template](https://github.com/shoyrock/Brave-Origin/blob/x11/templates/brave-origin.xml) and `x11-beta` development channel. Use a separate appdata folder and host port when running both editions.
+
 ## Get started
 
 You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is optional.
