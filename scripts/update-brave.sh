@@ -4,7 +4,7 @@ set -euo pipefail
 STATE_DIR=/config/state
 mkdir -p /run/lock /run/brave-origin "$STATE_DIR"
 set_status() {
-    runuser -u braveuser -- bash -c 'printf "%s\n" "$1" > /config/state/status' -- "$1"
+    printf '%s\n' "$1" | runuser -u braveuser -- tee /config/state/status >/dev/null
 }
 exec 200>/run/lock/brave-origin-update.lock
 flock -n 200 || { echo '[updater] An update is already running.'; exit 0; }
