@@ -6,7 +6,7 @@ if [ -f /config/state/quiesce.flag ]; then
     [ "$(cat /config/state/status)" = QUIESCED ]
     exit
 fi
-[ ! -f /tmp/brave-update-in-progress ] || exit 0
+[ ! -f /run/brave-origin/update-in-progress ] || exit 0
 pid=$(cat /tmp/brave.pid)
 [[ "$pid" =~ ^[1-9][0-9]*$ ]]
 [ "$(cat "/proc/$pid/comm")" = brave ]

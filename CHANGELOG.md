@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased security updates
+
+- Improved protection for saved browser data, login details, and certificates.
+- Blocked remote-session requests from unrelated websites.
+- Added security checks before publishing images.
+- Fixed startup on networks without internet access.
+
+Stable publication is on hold while dependency security findings remain unresolved.
+
 ## X11 1.0.0
 
 First stable X11 edition for users who prefer KasmVNC.

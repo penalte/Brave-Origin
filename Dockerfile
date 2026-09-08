@@ -26,7 +26,6 @@ RUN set -eux; \
         python3-websockets \
         tzdata \
         util-linux \
-        gosu \
         tini \
         procps \
         openssl \
@@ -177,13 +176,14 @@ RUN set -eux; \
              /tmp/.X11-unix \
              /tmp/runtime-braveuser \
              /run/lock; \
-    chmod 1777 /tmp/.X11-unix /run/lock; \
+    chmod 1777 /tmp/.X11-unix; chmod 755 /run/lock; \
     chmod 700 /tmp/runtime-braveuser /tmp/brave-cache; \
     chown -R braveuser:braveuser /config /tmp/runtime-braveuser /tmp/brave-cache
 
 # Copy configuration and scripts
 COPY config/kasmvnc.yaml /etc/kasmvnc/kasmvnc.yaml
 COPY config/nginx.conf /etc/nginx/nginx.conf
+COPY scripts/prepare-storage.py /usr/local/bin/prepare-storage.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/start-session.sh /usr/local/bin/start-session.sh
 COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh

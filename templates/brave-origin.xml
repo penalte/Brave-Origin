@@ -5,7 +5,7 @@
   <Registry>https://github.com/shoyrock/Brave-Origin/pkgs/container/brave-origin</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
-  <ExtraParams>--security-opt seccomp=unconfined --shm-size=1g --pids-limit 2048 --stop-timeout 30</ExtraParams>
+  <ExtraParams>--security-opt seccomp=unconfined --security-opt no-new-privileges=true --shm-size=1g --pids-limit 2048 --stop-timeout 30</ExtraParams>
   <Overview>Run Brave Origin with an X11 desktop through KasmVNC over HTTPS. Saves bookmarks, settings, and downloads. Includes password protection, copy and paste, audio, and automatic browser updates.</Overview>
   <Project>https://github.com/shoyrock/Brave-Origin</Project>
   <Support>https://github.com/shoyrock/Brave-Origin/issues</Support>

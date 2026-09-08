@@ -26,7 +26,8 @@ for p in tracked:
 assert 'FROM debian:trixie-slim\n' in Path('Dockerfile').read_text()
 print('Shell syntax, whitespace, distribution rules, and Unraid template passed.')
 PY
-python3 -m py_compile scripts/audio-server.py tests/*.py
+python3 -m py_compile scripts/audio-server.py scripts/prepare-storage.py tests/*.py
+python3 -m py_compile scripts/prepare-storage.py scripts/security-scan.py tests/storage.py
 python3 tests/release.py
 node tests/client-clipboard.mjs
 docker compose config --quiet

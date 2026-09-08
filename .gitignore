@@ -38,3 +38,6 @@ config/*
 !config/kasmvnc.yaml
 !config/audio-client.js
 !config/clipboard-client.js
+
+# Local dependency scan output
+/security-report.json

@@ -11,7 +11,7 @@ cleanup() {
         docker logs --tail 60 "$name" 2>/dev/null || true
         docker exec "$name" tail -50 /config/state/session.log 2>/dev/null || true
     fi
-    docker rm -fv "$name" "${name}-conflict" "${name}-invalid" "${name}-updates" >/dev/null 2>&1 || true
+    docker rm -fv "$name" "${name}-conflict" "${name}-invalid" "${name}-updates" "${name}-storage" >/dev/null 2>&1 || true
     docker volume rm "$volume" >/dev/null 2>&1 || true
     rm -rf "$test_files"
     exit "$result"
@@ -28,13 +28,17 @@ http_code() {
     docker exec "$name" curl -k -s -o /dev/null -w '%{http_code}' "$@" https://127.0.0.1:8443/
 }
 docker volume create "$volume" >/dev/null
-docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
+docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined --security-opt no-new-privileges=true \
     -v "$volume:/config" -e PUID=99 -e PGID=100 -e AUTO_UPDATE=false \
     -e ENABLE_GPU=false -e AUTH_ENABLED=true -e AUTH_PASSWORD=smoke-test-only \
     -e DISPLAY_WIDTH=1280 -e DISPLAY_HEIGHT=720 -e "BRAVE_FLAGS=--user-agent=smoke'quoted" "$image" >/dev/null
 wait_ready
 [ "$(http_code)" = 401 ]
 [ "$(http_code -u brave:smoke-test-only)" = 200 ]
+[ "$(http_code -u brave:smoke-test-only -H 'Origin: https://127.0.0.1:8443')" = 200 ]
+[ "$(http_code -u brave:smoke-test-only -H 'Origin: https://untrusted.example')" = 403 ]
+[ "$(http_code -u brave:smoke-test-only -H 'Origin: null')" = 403 ]
+docker exec "$name" curl -ksI -u brave:smoke-test-only https://127.0.0.1:8443/ | python3 -c 'import sys; assert "frame-ancestors" in sys.stdin.read()'
 [ "$(docker exec "$name" dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ]
 docker exec "$name" sh -c '! pgrep -x Xwayland && ! pgrep -x labwc && pgrep -x Xvnc && pgrep -x openbox'
 docker exec "$name" sh -c 'test "$(awk "/^Uid:/ {print \$2}" /proc/$(cat /tmp/brave.pid)/status)" = 99'
@@ -96,7 +100,7 @@ docker exec "$name" /usr/local/bin/profile-control.sh resume
 wait_ready
 # Downgrade must stay blocked when AUTO_UPDATE=false.
 docker exec "$name" /usr/local/bin/profile-control.sh quiesce
-docker exec "$name" sh -c 'printf "999.0.0\n" > /config/state/last-brave-version'
+docker exec -u braveuser "$name" sh -c 'printf "999.0.0\n" > /config/state/last-brave-version'
 docker exec "$name" /usr/local/bin/profile-control.sh resume >/dev/null
 sleep 6
 docker exec "$name" sh -c '! pgrep -x brave && test "$(cat /config/state/status)" = DOWNGRADE_BLOCKED && test "$(cat /config/state/last-brave-version)" = 999.0.0'
@@ -108,4 +112,8 @@ docker create --name "${name}-updates" --entrypoint python3 "$image" /tmp/update
 docker cp tests/update.py "${name}-updates:/tmp/update-test.py"
 docker start -a "${name}-updates"
 [ "$(docker wait "${name}-updates")" = 0 ]
+docker create --name "${name}-storage" --network none --entrypoint python3 "$image" /tmp/storage-test.py >/dev/null
+docker cp tests/storage.py "${name}-storage:/tmp/storage-test.py"
+docker start -a "${name}-storage"
+[ "$(docker wait "${name}-storage")" = 0 ]
 echo 'All container smoke tests passed.'

@@ -69,13 +69,14 @@ if [ "${ENABLE_AUDIO:-true}" = true ]; then
     AUDIO_PID=$!
 fi
 
+# The proxy carries all traffic; a fixed loopback publicIP avoids external STUN lookups.
 # The launcher requires a user record even when nginx handles authentication.
 # Keep this internal record ephemeral and separate from saved web credentials.
 internal_password=$(openssl rand -hex 16)
 printf '%s\n%s\nn\n' "$internal_password" "$internal_password" | HOME="$XDG_RUNTIME_DIR" kasmvncpasswd -u session -wo >/dev/null
 unset internal_password
 HOME="$XDG_RUNTIME_DIR" vncserver :1 -config /config/kasmvnc/kasmvnc.yaml -geometry "${DISPLAY_WIDTH:-1920}x${DISPLAY_HEIGHT:-1080}" \
-    -depth 24 -interface 127.0.0.1 -websocketPort 8444 -disableBasicAuth -SecurityTypes None \
+    -depth 24 -interface 127.0.0.1 -publicIP 127.0.0.1 -websocketPort 8444 -disableBasicAuth -SecurityTypes None \
     -noxstartup 9>&- > /config/state/kasmvnc.log 2>&1
 VNC_PID=$(cat "$XDG_RUNTIME_DIR/.vnc/$(hostname):1.pid")
 printf '%s\n' "$VNC_PID" > /config/state/kasmvnc.pid

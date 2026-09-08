@@ -12,3 +12,4 @@
 !config/audio-client.js
 !config/clipboard-client.js
 !scripts/patch-client.py
+!scripts/prepare-storage.py

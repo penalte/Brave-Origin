@@ -4,12 +4,17 @@ Develop on `x11-beta`. Use a separate appdata folder and host port for developme
 
 Forgejo builds images and publishes to both registries. Configure the runner label `docker-build` and repository secrets `REGISTRY_TOKEN`, `REGISTRY_USERNAME`, `GHCR_TOKEN`, and `GHCR_USERNAME`. Both registry credentials are required for publishing. Pull requests do not run on the publishing runner because it has host Docker access.
 
+Release builds refresh the base image and package installation instead of reusing cached packages.
+
+The image scan uses a pinned Grype container with no Docker socket or credentials. High and critical findings block publishing until investigated and resolved. Scan the final image for malware with current definitions as well; dependency scanning does not detect all malicious code. See [security guidance](SECURITY.md).
+
 Before tagging a release:
 
 ```bash
 bash scripts/check.sh
-docker build --build-arg VERSION=1.0.0-x11 --build-arg BUILD_COMMIT="$(git rev-parse HEAD)" -t brave-origin:release-test .
+docker build --pull --no-cache --build-arg VERSION=1.0.0-x11 --build-arg BUILD_COMMIT="$(git rev-parse HEAD)" -t brave-origin:release-test .
 bash scripts/smoke-test.sh brave-origin:release-test
+python3 scripts/security-scan.py brave-origin:release-test
 ```
 
 For a stable release, verify a clean install, profile-preserving upgrades, software rendering, representative GPU hardware, audio restart, reconnects, and clipboard copy/paste through the web client. Check the Unraid template for unique settings, correct storage and ports, and safe defaults; test its container settings with UID 99 and GID 100. Validate HTTPS separately and use a secure browser context for clipboard tests. Document hardware and client combinations that have not been exercised. A missing platform-specific test is a compatibility limitation; a failing core browsing, storage, authentication, clipboard, audio, or recovery test blocks release. Add brief user-facing changes to `CHANGELOG.md`.
