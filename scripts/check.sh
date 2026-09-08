@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 for file in entrypoint.sh scripts/*.sh; do bash -n "$file"; done
-git diff --check
+git --no-pager diff --check
 python3 - <<'PY'
 from pathlib import Path
 import subprocess, xml.etree.ElementTree as ET
