@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <CommunityApplications>
+  <Icon>https://cdn.store.brave.com/27288513509c0d1081560c3cd499ad127b8e59fafbc40a2fc6025b79b024d4c7.png</Icon>
   <Profile>
 Brave Origin in Docker, with an Unraid template for remote browser access over HTTPS. Keep bookmarks, settings, extensions, and downloads in a persistent appdata folder. Includes password protection, copy and paste, audio, and automatic browser updates.
 

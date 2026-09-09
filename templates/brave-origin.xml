@@ -3,6 +3,7 @@
   <Name>Brave-Origin</Name>
   <Repository>ghcr.io/shoyrock/brave-origin:latest</Repository>
   <Registry>https://github.com/shoyrock/Brave-Origin/pkgs/container/brave-origin</Registry>
+  <Icon>https://cdn.store.brave.com/27288513509c0d1081560c3cd499ad127b8e59fafbc40a2fc6025b79b024d4c7.png</Icon>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <ExtraParams>--security-opt seccomp=unconfined --security-opt no-new-privileges=true --shm-size=1g --pids-limit 2048</ExtraParams>
@@ -14,7 +15,7 @@
   <Category>Productivity: Tools:Utilities</Category>
   <ExtraSearchTerms>brave browser wayland selkies remote web ozone</ExtraSearchTerms>
   <WebUI>https://[IP]:[PORT:8443]/</WebUI>
-  <Date>2026-09-08</Date>
+  <Date>2026-09-09</Date>
   <MinVer>6.9</MinVer>
   <License>MIT</License>
   <Config Name="Web HTTPS Port" Target="8443" Default="8443" Mode="tcp" Description="Single-origin HTTPS web port for remote browser access." Type="Port" Display="always" Required="true" Mask="false">8443</Config>
