@@ -245,8 +245,10 @@ export WAYLAND_DISPLAY="${LABWC_DISPLAY}"
 echo "[start-session] Labwc application Wayland socket ready: ${LABWC_SOCKET} (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
 
 # OIDC mode keeps the desktop alive. Only the gateway may launch a browser.
+# Publish the window manager's socket so the gateway starts browsers on the same
+# compositor the legacy path uses, and with it the kiosk window rules.
 if [ "${OIDC_ENABLED:-false}" = true ]; then
-    touch /tmp/brave-desktop-ready
+    printf '%s\n' "${LABWC_DISPLAY}" > /tmp/brave-desktop-ready
     wait -n "$LABWC_PID" "$SELKIES_PID"
     exit 1
 fi
@@ -255,10 +257,17 @@ fi
 GPU_FLAGS=""
 if [ "${ENABLE_GPU:-true}" = "false" ]; then
     echo "[start-session] ENABLE_GPU=false - forcing software rasterization"
+elif [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
+    # Chromium selects its own GL backend once the vendor's loader files exist,
+    # exactly as it does in the working LinuxServer image.
+    echo "[start-session] NVIDIA GPU detected - enabling hardware acceleration"
+    GPU_FLAGS="--enable-gpu-rasterization --ignore-gpu-blocklist --disable-features=Vulkan"
 elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
     echo "[start-session] GPU ${DRI_NODE:-/dev/dri/renderD128} detected - enabling hardware acceleration"
     export LIBVA_DRIVER_NAME_OVERRIDE=""
     GPU_FLAGS="--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan"
+elif [ -e /dev/nvidiactl ]; then
+    echo "[start-session] NVIDIA device present without its EGL driver - set NVIDIA_DRIVER_CAPABILITIES=all"
 else
     echo "[start-session] No /dev/dri GPU device detected - running with software rasterization"
 fi

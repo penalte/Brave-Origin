@@ -15,6 +15,7 @@ docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
     --security-opt no-new-privileges=true -e OIDC_ENABLED=true \
     -e OIDC_ISSUER_URL=https://id.example.test \
     -e OIDC_CLIENT_ID=test -e OIDC_CLIENT_SECRET=test-only \
+    -e PUID=99 -e PGID=100 -e UMASK=077 \
     -e AUTO_UPDATE=false -e ENABLE_GPU=false "$image" >/dev/null
 ready=false
 for ((i=0; i<90; i++)); do

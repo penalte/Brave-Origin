@@ -47,4 +47,5 @@ python3 -m py_compile scripts/session-manager.py tests/oidc-session.py tests/oid
 python3 tests/release.py
 docker compose config --quiet
 docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+docker compose -f compose.yaml -f compose.nvidia.yaml config --quiet
 if command -v shellcheck >/dev/null; then shellcheck entrypoint.sh scripts/*.sh; fi

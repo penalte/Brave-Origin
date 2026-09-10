@@ -1,6 +1,7 @@
 """Run in a disposable running OIDC image. Real Brave lifecycle, fake OIDC exchange."""
 import asyncio
 import importlib.util
+import re
 import time
 import json
 from pathlib import Path
@@ -58,6 +59,18 @@ async def main():
         await asyncio.sleep(1)
         assert manager.browser.running(), 'Browser exited before becoming usable'
         old_uid, old_home = manager.browser.uid, manager.browser.home
+        # The browser follows the window manager's socket, wherever the desktop
+        # put it, so the kiosk window rules always apply. Socket names depend on
+        # startup order, so take the published one rather than assuming a number.
+        published = Path('/tmp/brave-desktop-ready').read_text().strip()
+        assert re.fullmatch(r'wayland-[0-9]+', published), published
+        assert m.Browser.app_display() == published
+        assert (Path('/tmp/runtime-braveuser') / published).is_socket()
+        try:
+            await manager.browser.clear_profile_locks(__import__('pwd').getpwuid(old_uid).pw_name)
+            raise AssertionError('Unlocked a running profile')
+        except RuntimeError as error:
+            assert 'Profile processes still running' in str(error)
         (old_home/'private.txt').write_text('private user data')
         import os
         os.chown(old_home/'private.txt', old_uid, old_uid)
@@ -67,6 +80,21 @@ async def main():
             assert response.status == 200, (response.status,await response.text())
         async with client.get(server.make_url('/api/files/'),headers=owner_headers) as response:
             assert response.status == 403
+        # Send the request line verbatim: a client library resolves dot segments
+        # before they go out, which is exactly what hid this from the allowlist.
+        async def verbatim(target):
+            reader, writer = await asyncio.open_connection(server.host, server.port)
+            writer.write((f'GET {target} HTTP/1.1\r\nHost: web.example.test\r\n'
+                          f'Cookie: {m.COOKIE}={cookie}\r\nConnection: close\r\n\r\n').encode())
+            await writer.drain()
+            head = (await reader.read()).split(b'\r\n', 1)[0].decode()
+            writer.close()
+            return int(head.split()[1])
+        for escape in ('/desktop/assets/../api/status', '/desktop/assets/%2e%2e/api/status',
+                       '/desktop/assets/..%2fapi/status', '/assets/%2e%2e/api/files/',
+                       '/desktop/./api/status'):
+            assert await verbatim(escape) == 403, f'Allowlist escaped by {escape}'
+        assert await verbatim('/desktop/') == 200, 'Allowlist rejected the desktop itself'
         ws = await client.ws_connect(server.make_url('/desktop/api/websockets'), headers=owner_headers)
         try:
             await client.ws_connect(server.make_url('/desktop/api/websockets'), headers=owner_headers)
@@ -108,8 +136,20 @@ async def main():
             if manager.state == 'IDLE': break
             await asyncio.sleep(0.1)
         assert manager.state == 'IDLE'
+        # Reproduce a persisted Chromium lock naming a previous container host.
+        # The socket/cookie targets must survive; only singleton links are removed.
+        singleton_target = old_home / 'singleton-target.txt'
+        singleton_target.write_text('must survive recovery')
+        for filename, target in (('SingletonLock', 'old-container-host-2197'),
+                                 ('SingletonCookie', str(singleton_target)),
+                                 ('SingletonSocket', str(singleton_target))):
+            path = old_home / 'profile' / filename
+            path.unlink(missing_ok=True)
+            path.symlink_to(target)
         again = await callback('alice','d')
-        assert again.status == 302
+        assert again.status == 302, await again.text()
+        assert singleton_target.read_text() == 'must survive recovery'
+        assert (old_home / 'private.txt').read_text() == 'private user data'
         manager.connected_once = True
         manager.last_disconnect = time.monotonic() - config.grace - 1
         for _ in range(100):

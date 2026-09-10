@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Download while running, then stop the browser and install from the cache.
 set -euo pipefail
+# This script drops to braveuser to record status. Nothing here needs the OIDC
+# client secret, and an unprivileged child must never be handed one.
+unset OIDC_CLIENT_SECRET OIDC_CLIENT_SECRET_FILE
 STATE_DIR=/config/state
 mkdir -p /run/lock /run/brave-origin "$STATE_DIR"
 set_status() {

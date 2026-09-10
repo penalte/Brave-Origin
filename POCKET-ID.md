@@ -84,13 +84,21 @@ The X11 image is not supported by this integration.
   Pocket ID or unrelated applications. Logging out of Pocket ID elsewhere does
   not promise immediate browser termination; no back-channel logout is implemented.
 - Only the session owner can use the stream. Sharing, terminal commands, secondary
-  sessions and the Selkies upload/download interface are disabled in OIDC mode.
+  sessions and the Selkies upload/download interface are disabled in OIDC mode,
+  both at the streaming server and at the gateway, which forwards only the paths
+  the client needs and rejects relative path segments outright.
   Downloads inside Brave remain in the user's private home. This avoids exposing
   a shared transfer directory; a per-user web transfer UI is not implemented.
 - Closing the last browser window ends the app session once its process exits.
 - Automatic updates run while idle. Admission stays closed during installation.
-  A failed cleanup or failed update leaves the gateway locked for administrator
-  attention. Container restart recovers conservatively and requires a fresh login.
+  An update that fails without touching the installed browser reopens admission;
+  only an interrupted package transaction leaves the gateway locked. After a
+  failed cleanup the gateway retries reconciliation every 30 seconds and reopens
+  once no profile process remains, so a transient fault is not a lasting outage.
+  Container restart recovers conservatively and requires a fresh login.
+- Browsers run under the session's window manager, so the kiosk window rules and
+  suppressed desktop shortcuts apply as they do in password mode. The gateway
+  follows the socket the desktop reports rather than a fixed name.
 - A desktop/gateway failure shuts down the container for its configured restart
   policy. Normal user logins/logouts never start or stop the container.
 

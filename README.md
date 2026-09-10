@@ -188,7 +188,23 @@ Without a GPU mapping, the container uses software rendering. With an Intel or A
 docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
-Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering.
+For an NVIDIA GPU, install the NVIDIA Container Toolkit on the host and start
+Compose with:
+
+```bash
+docker compose -f compose.yaml -f compose.nvidia.yaml up -d --no-build
+```
+
+The browser needs the driver's graphics libraries, not only its compute
+libraries. `--gpus all` on its own requests `compute,utility`, which is enough
+for Selkies to encode on the card while the browser has no EGL driver and either
+falls back to software rendering or fails to display at all. The image therefore
+sets `NVIDIA_DRIVER_CAPABILITIES=all`; keep that value if you pass the variable
+yourself, and prefer the Compose override above to a bare `--gpus all`. Startup
+logs the GPU it selected under `[gpu]` and `[browser-session]`, and warns when an
+NVIDIA device is present without its graphics driver.
+
+Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering. The NVIDIA path follows the configuration used by LinuxServer's Selkies base image and has not been verified on this development host.
 
 ## License
 

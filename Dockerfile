@@ -69,6 +69,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     WAYLAND_DISPLAY=wayland-1 \
     PULSE_SERVER=unix:/tmp/runtime-braveuser/pulse/native
 
+# Without this the NVIDIA container runtime injects compute support only: Selkies
+# encodes happily on the card while the browser has no EGL/GL driver to render
+# with. Device selection stays with the operator's --gpus flag.
+ENV NVIDIA_DRIVER_CAPABILITIES=all
+
 # 1. Add Official Brave Origin Apt Repository (Release Channel)
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -114,7 +119,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglx-mesa0 \
     libegl1 \
+    libgl1 \
     libgles2 \
+    libvulkan1 \
+    libnvidia-egl-wayland1 \
     mesa-vulkan-drivers \
     mesa-va-drivers \
     intel-media-va-driver \

@@ -78,12 +78,25 @@ umask "${TARGET_UMASK}"
 
 case "${OIDC_ENABLED:-false}" in true|false) ;; *) echo 'OIDC_ENABLED must be true or false.' >&2; exit 1 ;; esac
 if [ "${OIDC_ENABLED:-false}" = true ]; then
+    # Profile accounts occupy 200000-1000199999. A container account sharing one
+    # of those IDs would own another identity's private browser data.
+    for id in "${TARGET_UID}" "${TARGET_GID}"; do
+        if (( id >= 200000 && id < 1000200000 )); then
+            echo 'PUID and PGID must be outside 200000-1000199999, reserved for browser profiles.' >&2
+            exit 1
+        fi
+    done
     groupadd -r brave-display 2>/dev/null || true
     python3 -c 'import importlib.util; s=importlib.util.spec_from_file_location("manager", "/usr/local/bin/session-manager.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.Config()'
 fi
 
-# Storage preparation holds the instance lock on descriptor 7.
-install -m 0666 /dev/null /run/lock/brave-origin-launch.lock
+# Storage preparation holds the instance lock on descriptor 7. Only the gateway
+# takes this lock in OIDC mode; the legacy session takes it as braveuser.
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    install -m 0600 /dev/null /run/lock/brave-origin-launch.lock
+else
+    install -m 0666 /dev/null /run/lock/brave-origin-launch.lock
+fi
 
 echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Configuring container user permissions (UID: ${TARGET_UID}, GID: ${TARGET_GID}, UMASK: ${TARGET_UMASK})..."
 
@@ -98,13 +111,50 @@ if [ "${CURRENT_UID}" -ne "${TARGET_UID}" ] || [ "${CURRENT_GID}" -ne "${TARGET_
     usermod -o -u "${TARGET_UID}" -g "${TARGET_GID}" braveuser
 fi
 
-# Ensure render and video group access for hardware acceleration
-if [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
-    RENDER_GID=$(stat -c '%g' "${DRI_NODE:-/dev/dri/renderD128}" 2>/dev/null || echo "")
-    if [ -n "${RENDER_GID}" ] && [ "${RENDER_GID}" -ne 0 ]; then
-        groupadd -g "${RENDER_GID}" hostrender 2>/dev/null || true
-        usermod -aG "${RENDER_GID}" braveuser 2>/dev/null || true
+# Ensure access to every render and NVIDIA device, not only DRI_NODE: an NVIDIA
+# container publishes /dev/nvidia* and its own render node under other groups.
+for device in /dev/dri/renderD* /dev/dri/card* /dev/nvidia* "${DRI_NODE:-}"; do
+    [ -n "${device}" ] && [ -c "${device}" ] || continue
+    DEVICE_GID=$(stat -c '%g' "${device}" 2>/dev/null || echo "")
+    [ -n "${DEVICE_GID}" ] && [ "${DEVICE_GID}" -ne 0 ] || continue
+    getent group "${DEVICE_GID}" >/dev/null 2>&1 || groupadd -g "${DEVICE_GID}" "hostgpu${DEVICE_GID}" 2>/dev/null || true
+    usermod -aG "${DEVICE_GID}" braveuser 2>/dev/null || true
+done
+
+# The NVIDIA container toolkit injects driver libraries but does not always
+# install the loader vendor files that find them. Without an EGL vendor entry
+# Chromium sees only Mesa, finds no usable device and gives up on the GPU --
+# while Selkies keeps encoding through CUDA, which needs none of these files.
+if [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
+    echo "[gpu] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] NVIDIA driver detected; verifying loader configuration..."
+    if ! find /usr/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d -name '*nvidia*.json' 2>/dev/null | grep -q .; then
+        echo '[gpu] Installing the NVIDIA EGL vendor file.'
+        mkdir -pm 755 /etc/glvnd/egl_vendor.d
+        printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+            > /etc/glvnd/egl_vendor.d/10_nvidia.json
+        chmod 644 /etc/glvnd/egl_vendor.d/10_nvidia.json
     fi
+    if ! find /usr/share/vulkan/icd.d /etc/vulkan/icd.d -name '*nvidia*.json' 2>/dev/null | grep -q .; then
+        echo '[gpu] Installing the NVIDIA Vulkan ICD.'
+        mkdir -pm 755 /etc/vulkan/icd.d
+        printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' \
+            > /etc/vulkan/icd.d/nvidia_icd.json
+        chmod 644 /etc/vulkan/icd.d/nvidia_icd.json
+    fi
+    # Wayland clients reach the driver through the GBM backend, which the toolkit
+    # leaves outside the loader path on some hosts.
+    if ! ldconfig -p | grep -q 'nvidia-drm_gbm.so'; then
+        GBM_SOURCE=$(find /usr/lib /usr/local/lib /usr/lib64 -name 'nvidia-drm_gbm.so' 2>/dev/null | head -n1)
+        if [ -n "${GBM_SOURCE}" ]; then
+            echo '[gpu] Linking the NVIDIA GBM backend.'
+            mkdir -pm 755 /usr/lib/x86_64-linux-gnu/gbm
+            cp -f "${GBM_SOURCE}" /usr/lib/x86_64-linux-gnu/gbm/ && ldconfig
+        fi
+    fi
+elif [ -e /dev/nvidiactl ]; then
+    echo "[gpu] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] WARNING: an NVIDIA device is present but its graphics driver is not." >&2
+    echo '[gpu] Selkies can still encode through CUDA while the browser cannot render.' >&2
+    echo '[gpu] Run the container with NVIDIA_DRIVER_CAPABILITIES=all to receive the EGL/GL libraries.' >&2
 fi
 
 # 2. Timezone Configuration
@@ -223,12 +273,13 @@ launch_session() {
 if [ "${OIDC_ENABLED:-false}" = true ]; then
     rm -f /tmp/brave-desktop-ready
     launch_session
+    # The desktop publishes its window-manager socket here once it is usable.
     for ((i=0; i<90; i++)); do
-        [ ! -f /tmp/brave-desktop-ready ] || break
+        [ ! -s /tmp/brave-desktop-ready ] || break
         kill -0 "$SESSION_PID" || exit 1
         sleep 1
     done
-    [ -f /tmp/brave-desktop-ready ] || { echo 'Desktop failed to start.' >&2; exit 1; }
+    [ -s /tmp/brave-desktop-ready ] || { echo 'Desktop failed to start.' >&2; exit 1; }
     python3 /usr/local/bin/session-manager.py 7>&- &
     MANAGER_PID=$!
     # A desktop failure invalidates its lease; never silently transfer a user.

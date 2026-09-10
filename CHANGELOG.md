@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.1.0-beta.3 (Pocket ID fork)
+
+- NVIDIA graphics now work. The image requests the driver's full capabilities, ships the NVIDIA Wayland EGL library, and installs the loader files the container toolkit leaves out. Previously a GPU container gave Selkies hardware encoding while the browser had no driver to render with. Added a `compose.nvidia.yaml` override.
+- The gateway now takes the desktop's reported window-manager socket instead of assuming a fixed name, so browsers keep the kiosk window rules even if compositor startup order changes.
+- Signing in no longer fails when the container runs with a restrictive `UMASK`.
+- A failed update or cleanup no longer locks the gateway permanently: only a genuinely interrupted package installation holds it closed, and the gateway retries reconciliation until the container is clean again.
+- The sign-in page can no longer be blocked by unauthenticated requests filling the pending-login table.
+- The streaming proxy rejects relative path segments, which could otherwise reach streaming-server endpoints it does not publish.
+- The OIDC client secret is kept out of every process that drops privileges.
+
+Testing only. See the prerelease for current dependency findings. Live Pocket ID credentials remain untested, and NVIDIA hardware was not available on the development host.
+
 ## 1.1.0-beta.2 (Pocket ID fork)
 
 - OIDC callbacks automatically detect the HTTPS hostname and port from the request; no application URL setting is needed. Login flows and sessions remain bound to their original address.

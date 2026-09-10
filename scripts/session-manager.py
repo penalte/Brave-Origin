@@ -18,6 +18,7 @@ import time
 from urllib.parse import urlencode, urlsplit
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+from yarl import URL
 import jwt
 
 LOG = logging.getLogger('browser-session')
@@ -25,6 +26,10 @@ COOKIE = '__Host-brave-session'
 FLOW_COOKIE = '__Host-brave-login'
 HOP = {'connection', 'upgrade', 'keep-alive', 'transfer-encoding', 'te', 'trailer',
        'proxy-authorization', 'proxy-authenticate', 'set-cookie', 'content-length'}
+# Helpers that drop privileges must not inherit the supervisor's environment: it
+# carries OIDC_CLIENT_SECRET, which the unprivileged account could read back out
+# of /proc/<pid>/environ for as long as the helper runs.
+HELPER_ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
 
 
 def https_url(value):
@@ -49,6 +54,12 @@ class Config:
         self.secret = Path(secret_file).read_text().strip() if secret_file else env.get('OIDC_CLIENT_SECRET', '')
         if not self.client_id or not self.secret:
             raise ValueError('OIDC_CLIENT_ID and OIDC_CLIENT_SECRET[_FILE] are required')
+        if env is os.environ:
+            # No child inherits the secret from here on. Children that drop to an
+            # unprivileged account would otherwise publish it through their own
+            # /proc/<pid>/environ. This supervisor's exec-time snapshot still
+            # holds it, but that one is readable only by root.
+            os.environ.pop('OIDC_CLIENT_SECRET', None)
         self.scopes = env.get('OIDC_SCOPES', 'openid profile email groups')
         if 'openid' not in self.scopes.split():
             raise ValueError('OIDC_SCOPES must include openid')
@@ -142,6 +153,36 @@ class Browser:
         return stdout.decode().strip()
 
     @staticmethod
+    def app_display():
+        """The window manager's socket, published by the desktop once it is ready.
+
+        Browsers belong on the nested compositor, exactly where the legacy
+        session launches them: the kiosk window rules and suppressed shortcuts
+        live there, and the capture compositor beneath enforces none of them.
+        Which socket that is depends on compositor startup order, so follow what
+        the desktop reports instead of assuming a number.
+        """
+        name = ''
+        with contextlib.suppress(OSError):
+            name = Path('/tmp/brave-desktop-ready').read_text().strip()
+        if not re.fullmatch(r'wayland-[0-9]+', name):
+            LOG.warning('Desktop published no usable display name; falling back')
+            name = 'wayland-1'
+        socket = Path('/tmp/runtime-braveuser') / name
+        if not socket.is_socket():
+            raise RuntimeError('Desktop compositor socket is missing')
+        return name
+
+    @staticmethod
+    def gpu_devices():
+        """Render/NVIDIA character devices a browser needs to reach the GPU."""
+        devices = sorted(Path('/dev/dri').glob('renderD*')) + sorted(Path('/dev').glob('nvidia*'))
+        node = os.environ.get('DRI_NODE')
+        if node:
+            devices.append(Path(node))
+        return [device for device in devices if device.is_char_device()]
+
+    @staticmethod
     def pids(uid):
         result = []
         for directory in Path('/proc').glob('[0-9]*'):
@@ -179,6 +220,9 @@ class Browser:
         self.users.mkdir(mode=0o711, exist_ok=True)
         if self.users.is_symlink() or self.users.stat().st_uid != 0:
             raise RuntimeError('Unsafe users directory')
+        # mkdir's mode is reduced by the container UMASK. Profile users need
+        # traversal through these root-owned parents, but never directory listing.
+        self.users.chmod(0o711)
         self.runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
         # Container recreations lose /etc/passwd. Metadata remains root-owned.
         for metadata in self.users.glob('*/identity.json'):
@@ -202,6 +246,7 @@ class Browser:
         directory.mkdir(mode=0o711, exist_ok=True)
         if directory.is_symlink() or directory.stat().st_uid != 0:
             raise RuntimeError('Unsafe identity directory')
+        directory.chmod(0o711)
         metadata = directory / 'identity.json'
         name = 'brv_' + key[:20]
         uid = 200000 + int(key[:8], 16) % 1000000000
@@ -259,6 +304,7 @@ class Browser:
 
     async def start_locked(self, issuer, subject):
         name = await self.prepare(issuer, subject)
+        await self.clear_profile_locks(name)
         installed = await self.command('dpkg-query', '-W', '-f=${Version}', 'brave-origin')
         saved = json.loads(self.metadata.read_text())
         if saved.get('version'):
@@ -288,15 +334,28 @@ class Browser:
         os.chown(private_runtime, self.uid, self.uid)
         # Parent permits traversal but no listing; each child is private.
         self.runtime.chmod(0o711)
-        device = Path(os.environ.get('DRI_NODE', '/dev/dri/renderD128'))
-        if device.exists():
-            await self.command('usermod', '-aG', str(device.stat().st_gid), name)
+        # Every render node and NVIDIA character device the browser may need, not
+        # just DRI_NODE: an NVIDIA container exposes /dev/nvidia* and its render
+        # node under groups this account is not born into.
+        groups = set()
+        for device in self.gpu_devices():
+            with contextlib.suppress(OSError):
+                info = device.stat()
+                if info.st_gid and info.st_mode & 0o060:
+                    groups.add(info.st_gid)
+        for gid in sorted(groups):
+            # Losing one device group costs acceleration, never the session.
+            try:
+                await self.command('usermod', '-aG', str(gid), name)
+            except RuntimeError:
+                LOG.warning('Could not grant group %s to a browser profile', gid)
         # User's download path is private too; no shared Selkies file server in OIDC mode.
         policy = Path('/etc/brave/policies/managed/policies.json')
         policy.write_text(json.dumps({'BookmarkBarEnabled': True, 'DownloadDirectory': str(self.home / 'Downloads'),
                                      'BackgroundModeEnabled': False}))
         env = {'HOME': str(self.home), 'USER': name, 'LOGNAME': name, 'PATH': '/usr/local/bin:/usr/bin:/bin',
-               'LANG': 'C.UTF-8', 'XDG_RUNTIME_DIR': str(private_runtime), 'WAYLAND_DISPLAY': str(runtime / 'wayland-0'),
+               'LANG': 'C.UTF-8', 'XDG_RUNTIME_DIR': str(private_runtime),
+               'WAYLAND_DISPLAY': str(runtime / self.app_display()),
                'PULSE_SERVER': f'unix:{runtime}/pulse/oidc'}
         for key in ('ENABLE_GPU', 'DRI_NODE', 'BRAVE_FLAGS', 'TZ'):
             if key in os.environ:
@@ -316,12 +375,38 @@ class Browser:
             await asyncio.sleep(0.2)
         raise RuntimeError('Browser failed to start')
 
+    async def clear_profile_locks(self, name):
+        # The container owns /config's instance lock and start() holds the launch
+        # lock. Never override an active profile, even if its lock looks stale.
+        if self.pids(self.uid):
+            raise RuntimeError('Profile processes still running; refusing to unlock')
+        # Run as the profile account and unlink only these three directory entries.
+        # Never follow a profile-directory symlink or a singleton symlink target.
+        await self.command('/usr/sbin/runuser', '-u', name, '--', 'python3', '-c', '''
+import os, sys
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except FileNotFoundError:
+    sys.exit(0)
+try:
+    for name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
+        try:
+            os.unlink(name, dir_fd=fd)
+        except FileNotFoundError:
+            pass
+finally:
+    os.close(fd)
+''', str(self.home / 'profile'), env=HELPER_ENV)
+
     async def clear_shared(self):
         # Clear both compositors' clipboard ownership without stopping either.
+        # Best effort: a clipboard that will not clear must not turn a routine
+        # logout into a locked appliance.
         for display in ('wayland-0', 'wayland-1'):
-            with contextlib.suppress(RuntimeError):
-                await self.command('runuser', '-u', 'braveuser', '--', 'env',
-                    'XDG_RUNTIME_DIR=/tmp/runtime-braveuser', f'WAYLAND_DISPLAY={display}', 'wl-copy', '--clear')
+            with contextlib.suppress(RuntimeError, OSError):
+                await self.command('/usr/sbin/runuser', '-u', 'braveuser', '--', 'env',
+                    'XDG_RUNTIME_DIR=/tmp/runtime-braveuser', f'WAYLAND_DISPLAY={display}', 'wl-copy', '--clear',
+                    env=HELPER_ENV)
 
     async def stop(self):
         if self.uid is not None:
@@ -360,6 +445,7 @@ class Manager:
         self.connected_once = False
         self.http = None
         self.last_update = time.monotonic()
+        self.last_recovery = time.monotonic()
 
     def owns(self, request):
         cookie = request.cookies.get(COOKIE, '')
@@ -383,8 +469,12 @@ class Manager:
             raise web.HTTPConflict(text='Browser currently in use')
         now = time.time()
         self.flows = {k: v for k, v in self.flows.items() if v['expires'] > now}
-        if len(self.flows) >= 128:
-            raise web.HTTPTooManyRequests()
+        # Bound the table by dropping the oldest pending flow rather than refusing
+        # the request: refusing let anyone deny every login for the flow lifetime
+        # with 128 unauthenticated requests. A displaced flow only has to sign in
+        # again, and a flow is worthless to anyone without its paired cookie.
+        while len(self.flows) >= 128:
+            del self.flows[min(self.flows, key=lambda key: self.flows[key]['expires'])]
         metadata = await self.oidc.discovery(self.http)
         state, nonce, verifier, cookie = (secrets.token_urlsafe(32) for _ in range(4))
         self.flows[state] = {'nonce': nonce, 'verifier': verifier, 'cookie': cookie, 'expires': now + 600,
@@ -435,13 +525,21 @@ class Manager:
     async def stop_locked(self):
         self.state = 'STOPPING'
         self.owner = None  # Immediately reject all new traffic, including during cleanup.
+        # Disconnecting clients is best effort. A socket registered but not yet
+        # prepared raises from close(), and losing the browser teardown over that
+        # would leave the previous user's profile running behind a closed door.
+        results = await asyncio.gather(
+            *(ws.close(code=4001, message=b'Session ended') for ws in list(self.connections)),
+            return_exceptions=True)
+        for error in (result for result in results if isinstance(result, BaseException)):
+            LOG.warning('Closing a streaming connection failed: %r', error)
+        self.connections.clear()
+        tasks = [task for task in self.transfers if task is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         try:
-            await asyncio.gather(*(ws.close(code=4001, message=b'Session ended') for ws in list(self.connections)))
-            tasks = [task for task in self.transfers if task is not asyncio.current_task()]
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
             # The pinned Selkies backend defers display teardown for 3 seconds.
             # Keep admission closed until that and bounded clipboard tasks settle.
             if self.connected_once:
@@ -450,6 +548,7 @@ class Manager:
             self.state = 'IDLE'
         except Exception:
             self.state = 'ERROR'
+            self.last_recovery = time.monotonic()
             LOG.exception('Browser cleanup failed; admission remains closed')
 
     async def logout(self, request):
@@ -468,15 +567,20 @@ class Manager:
         self.require_owner(request)
         # No token/control APIs, file server, recording, or secondary streaming modes.
         path = request.path
+        # request.path decodes %2e and keeps dot segments, while the outgoing URL
+        # resolves them: '/assets/%2e%2e/api/status' would pass this allowlist and
+        # then fetch '/api/status'. Reject the segments so both agree on one path.
+        if any(segment in ('.', '..') for segment in path.split('/')):
+            raise web.HTTPForbidden(text='Endpoint unavailable')
         if path.startswith('/desktop/'):
             path = path[len('/desktop'):]
         allowed = path == '/' or path.startswith(('/assets/', '/src/', '/nginx/')) or path in (
             '/api/websockets', '/api/websockets/', '/favicon.ico', '/icon.png', '/icon-512.png', '/manifest.json')
         if not allowed or request.method != 'GET':
             raise web.HTTPForbidden(text='Endpoint unavailable')
-        target = 'http://127.0.0.1:8082' + path
-        if request.query_string:
-            target += '?' + request.query_string
+        # Build the target from the checked path so no later re-parse can move it.
+        target = URL.build(scheme='http', host='127.0.0.1', port=8082, path=path,
+                           query_string=request.query_string)
         if request.headers.get('Upgrade', '').lower() == 'websocket':
             # One primary WebSocket per application session; never evict its owner.
             if self.connections:
@@ -521,7 +625,10 @@ class Manager:
                 response.headers['Cache-Control'] = 'no-store'
                 await response.prepare(request)
                 async for chunk in upstream.content.iter_chunked(65536):
-                    self.require_owner(request)
+                    # Headers are already sent, so a revoked session ends the body
+                    # here. Raising instead would splice an error page into it.
+                    if not self.owns(request) or self.state != 'RUNNING':
+                        break
                     await response.write(chunk)
                 return response
         finally:
@@ -530,6 +637,7 @@ class Manager:
     async def monitor(self):
         while True:
             await asyncio.sleep(1)
+            update = False
             async with self.lock:
                 if self.state == 'RUNNING':
                     grace = self.config.grace if self.connected_once else self.config.start_timeout
@@ -537,16 +645,52 @@ class Manager:
                     disconnected = not self.connections and time.monotonic() - self.last_disconnect >= grace
                     if expired or disconnected or not self.browser.running():
                         await self.stop_locked()
+                elif self.state == 'ERROR' and time.monotonic() - self.last_recovery >= 30:
+                    await self.retry_locked()
                 elif self.state == 'IDLE' and self.config.auto_update and time.monotonic() - self.last_update >= self.config.update_interval:
+                    # Claim the slot, then release the lock: an update runs for
+                    # minutes, and holding it would stall a login's callback
+                    # instead of refusing it outright.
                     self.state = 'UPDATING'
-                    try:
-                        await self.browser.command('/usr/local/bin/update-brave.sh', timeout=900)
-                        self.state = 'IDLE'
-                    except Exception:
-                        # Fail closed on an interrupted/failed package transaction.
-                        self.state = 'ERROR'
-                        LOG.exception('Idle browser update failed')
-                    self.last_update = time.monotonic()
+                    update = True
+            if update:
+                await self.update()
+
+    async def retry_locked(self):
+        """Reconcile a failed cleanup so a transient fault is not a permanent outage."""
+        self.last_recovery = time.monotonic()
+        try:
+            await self.browser.stop()
+            await self.browser.recover()
+        except Exception as error:
+            LOG.warning('Admission stays closed; recovery did not settle: %r', error)
+            return
+        LOG.info('Reconciled after a failed cleanup; admission reopens')
+        self.state = 'IDLE'
+
+    async def update(self):
+        try:
+            await self.browser.command('/usr/local/bin/update-brave.sh', timeout=900)
+            state = 'IDLE'
+        except Exception:
+            LOG.exception('Idle browser update failed')
+            # A refused or failed download leaves the installed browser intact and
+            # must not close admission. Only an interrupted package transaction,
+            # which leaves dpkg mid-flight, is worth locking the appliance for.
+            try:
+                status = await self.browser.command(
+                    'dpkg-query', '-W', '-f=${db:Status-Status}', 'brave-origin', timeout=30)
+                state = 'IDLE' if status == 'installed' else 'ERROR'
+            except Exception:
+                state = 'ERROR'
+            if state == 'ERROR':
+                LOG.error('Browser package is not fully installed; admission remains closed')
+        async with self.lock:
+            # Nothing else may claim UPDATING, so this is still our transition.
+            self.state = state
+            if state == 'ERROR':
+                self.last_recovery = time.monotonic()
+            self.last_update = time.monotonic()
 
     async def lifecycle(self, app):
         self.http = ClientSession(timeout=ClientTimeout(total=None, connect=10, sock_read=30))
