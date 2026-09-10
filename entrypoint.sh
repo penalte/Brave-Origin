@@ -114,9 +114,10 @@ fi
 # Ensure access to every render and NVIDIA device, not only DRI_NODE: an NVIDIA
 # container publishes /dev/nvidia* and its own render node under other groups.
 for device in /dev/dri/renderD* /dev/dri/card* /dev/nvidia* "${DRI_NODE:-}"; do
-    [ -n "${device}" ] && [ -c "${device}" ] || continue
+    [ -c "${device}" ] || continue
     DEVICE_GID=$(stat -c '%g' "${device}" 2>/dev/null || echo "")
-    [ -n "${DEVICE_GID}" ] && [ "${DEVICE_GID}" -ne 0 ] || continue
+    # Skip an unreadable device and anything already owned by the root group.
+    case "${DEVICE_GID}" in ''|0) continue ;; esac
     getent group "${DEVICE_GID}" >/dev/null 2>&1 || groupadd -g "${DEVICE_GID}" "hostgpu${DEVICE_GID}" 2>/dev/null || true
     usermod -aG "${DEVICE_GID}" braveuser 2>/dev/null || true
 done
@@ -129,14 +130,16 @@ if [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
     echo "[gpu] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] NVIDIA driver detected; verifying loader configuration..."
     if ! find /usr/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d -name '*nvidia*.json' 2>/dev/null | grep -q .; then
         echo '[gpu] Installing the NVIDIA EGL vendor file.'
-        mkdir -pm 755 /etc/glvnd/egl_vendor.d
+        mkdir -p /etc/glvnd/egl_vendor.d
+        chmod 755 /etc/glvnd/egl_vendor.d
         printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
             > /etc/glvnd/egl_vendor.d/10_nvidia.json
         chmod 644 /etc/glvnd/egl_vendor.d/10_nvidia.json
     fi
     if ! find /usr/share/vulkan/icd.d /etc/vulkan/icd.d -name '*nvidia*.json' 2>/dev/null | grep -q .; then
         echo '[gpu] Installing the NVIDIA Vulkan ICD.'
-        mkdir -pm 755 /etc/vulkan/icd.d
+        mkdir -p /etc/vulkan/icd.d
+        chmod 755 /etc/vulkan/icd.d
         printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' \
             > /etc/vulkan/icd.d/nvidia_icd.json
         chmod 644 /etc/vulkan/icd.d/nvidia_icd.json
@@ -147,7 +150,8 @@ if [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
         GBM_SOURCE=$(find /usr/lib /usr/local/lib /usr/lib64 -name 'nvidia-drm_gbm.so' 2>/dev/null | head -n1)
         if [ -n "${GBM_SOURCE}" ]; then
             echo '[gpu] Linking the NVIDIA GBM backend.'
-            mkdir -pm 755 /usr/lib/x86_64-linux-gnu/gbm
+            mkdir -p /usr/lib/x86_64-linux-gnu/gbm
+            chmod 755 /usr/lib/x86_64-linux-gnu/gbm
             cp -f "${GBM_SOURCE}" /usr/lib/x86_64-linux-gnu/gbm/ && ldconfig
         fi
     fi
