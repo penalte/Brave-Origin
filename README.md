@@ -25,10 +25,7 @@ docker compose up -d --no-build
 
 Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates a self-signed certificate, so your browser will show a certificate warning. For a trusted connection, supply your own certificate as described below.
 
-Images are available from both registries:
-
-- `ghcr.io/shoyrock/brave-origin:x11`
-- `forgejo.foss.homes/shoy/brave-origin:x11`
+The public X11 image is available as `ghcr.io/shoyrock/brave-origin:x11`.
 
 Set `IMAGE_NAME` in `.env` to choose a registry or a specific version. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
 
@@ -138,7 +135,7 @@ Container updates are separate: use `docker compose pull` and `docker compose up
 - `x11-beta` is the development branch and image tag.
 - `x11` is the stable branch. Branch pushes build and test; only a stable release tag updates the `x11` image.
 - A tag such as `x11-v1.0.0-beta.1` publishes an X11 beta.
-- A tag such as `x11-v1.0.0` publishes `1.0.0-x11` and updates `x11` on both registries.
+- A tag such as `x11-v1.0.0` publishes `1.0.0-x11` and updates `x11` on GHCR and the configured additional registry.
 - X11 builds never publish the Wayland `latest` or `beta` image tags.
 
 Before upgrading an older X11 image, stop it and back up its appdata. Set `AUTH_PASSWORD` for the first start: old KasmVNC password files use a different format and are not imported. Bookmarks, history, and downloads remain in the same locations. Old KasmVNC display settings are regenerated from the environment settings. To compare editions, copy the stopped profile into a separate appdata folder and choose a different host port. Never share a live profile between containers.
