@@ -18,15 +18,21 @@ case "$ref" in
         fi ;;
     *) echo 'This ref does not publish X11 images.'; exit 0 ;;
 esac
-: "${REGISTRY_TOKEN:?Forgejo registry token is required}"
+: "${REGISTRY_IMAGE:?Additional registry image path is required}"
+: "${REGISTRY_USERNAME:?Additional registry username is required}"
+: "${REGISTRY_TOKEN:?Additional registry token is required}"
 : "${GHCR_TOKEN:?GitHub registry token is required}"
+if [[ ! "$REGISTRY_IMAGE" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]+)?/[a-z0-9][a-z0-9._/-]*$ ]]; then
+    echo 'Registry image must contain a host and repository path, without a scheme or tag.' >&2
+    exit 1
+fi
 # Keep login files outside the workspace and remove them after publishing.
 registry_config=$(mktemp -d)
 trap 'rm -rf "$registry_config"' EXIT
 export DOCKER_CONFIG="$registry_config"
-printf '%s' "$REGISTRY_TOKEN" | docker login forgejo.foss.homes -u "${REGISTRY_USERNAME:-shoy}" --password-stdin
+printf '%s' "$REGISTRY_TOKEN" | docker login "${REGISTRY_IMAGE%%/*}" -u "$REGISTRY_USERNAME" --password-stdin
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-shoyrock}" --password-stdin
-for registry in forgejo.foss.homes/shoy/brave-origin ghcr.io/shoyrock/brave-origin; do
+for registry in "$REGISTRY_IMAGE" ghcr.io/shoyrock/brave-origin; do
     for tag in "${tags[@]}"; do
         docker tag "$image" "$registry:$tag"
         docker push "$registry:$tag"
