@@ -43,6 +43,7 @@ jobs:
         env:
           BUILD_SHA: ${{ github.sha }}
           BUILD_REF: ${{ github.ref }}
+          REGISTRY_IMAGE: ${{ secrets.REGISTRY_IMAGE }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
