@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.1.0-beta.1 (Pocket ID fork)
+
+- Optional configurable OIDC login with a private persistent browser profile per identity.
+- One active user at a time; Brave closes after logout, expiry or disconnection while the container remains running.
+- Published Linux AMD64 testing image through GitHub Actions, with application tests and attached dependency and malware scan reports.
+
+Testing only. See the prerelease for current dependency findings. Live Pocket ID credentials and GPU hardware remain untested.
+
 ## 1.0.1-beta.2
 
 - Brave now stays maximized when you click minimize or restore, or drag the window.

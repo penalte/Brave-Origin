@@ -31,7 +31,7 @@ OIDC_ALLOWED_GROUPS=
 SESSION_MAX_SECONDS=3600
 DISCONNECT_GRACE_SECONDS=30
 SESSION_CONNECT_TIMEOUT=90
-IMAGE_NAME=brave-origin:pocket-id
+IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.1
 ```
 
 All values are Docker environment variables. For a mounted secret, set
@@ -48,10 +48,10 @@ Only asymmetric RS256, ES256 or EdDSA ID-token signatures are accepted. The
 implementation validates discovery issuer, signature, audience, subject, nonce,
 expiry and authorized party, and uses authorization-code flow with S256 PKCE.
 
-Build this fork; upstream published images do not contain this feature:
+Pull the numbered Linux AMD64 testing image from this fork:
 
 ```bash
-docker compose build
+docker compose pull
 docker compose up -d --no-build
 ```
 
@@ -60,7 +60,12 @@ header and WebSocket upgrades. Publish only nginx's port, never internal 8082 or
 8084. Use a trusted external certificate. The internal nginx certificate is
 self-signed unless replaced using the project's normal certificate configuration.
 
-For Unraid, use the Wayland template with your locally built fork image and add
+To build locally instead, set `IMAGE_NAME=brave-origin:pocket-id` and run
+`docker compose build` before starting it. Upstream images lack this feature.
+Testing releases and dependency scan reports are on this fork's GitHub Releases
+page; review the unresolved findings before testing with sensitive browsing data.
+
+For Unraid, use the Wayland template with this fork's testing image and add
 the same OIDC variables; the upstream template defaults to an upstream image.
 The X11 image is not supported by this integration.
 

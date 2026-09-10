@@ -1,0 +1,116 @@
+name: Publish Pocket ID testing beta
+
+on:
+  push:
+    tags: ['v*-beta.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numbered testing version (for example 1.1.0-beta.1)
+        required: true
+        default: 1.1.0-beta.1
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: pocket-id-beta-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'penalte/Brave-Origin'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Select testing version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          version="${REQUESTED_VERSION:-${GITHUB_REF_NAME#v}}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/penalte/brave-origin" >> "$GITHUB_ENV"
+      - name: Validate source
+        run: bash scripts/check.sh
+      - name: Build fresh AMD64 image
+        run: |
+          docker build --pull --no-cache \
+            --build-arg "VERSION=$VERSION" --build-arg "BUILD_COMMIT=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            -t "brave-origin:ci" .
+      - name: Test legacy browser and Pocket ID sessions
+        run: |
+          bash scripts/smoke-test.sh brave-origin:ci
+          bash scripts/test-oidc.sh brave-origin:ci
+      - name: Scan dependencies and preserve testing exceptions
+        run: |
+          set +e
+          python3 scripts/security-scan.py brave-origin:ci > security-scan.log 2>&1
+          scan_status=$?
+          set -e
+          cat security-scan.log
+          # Valid findings may be disclosed in an explicitly requested beta.
+          # A broken scanner is never treated as a passing or waived scan.
+          SCAN_STATUS="$scan_status" python3 - <<'PY'
+          import json, os
+          from collections import Counter
+          report = json.load(open('security-report.json'))
+          assert isinstance(report.get('matches'), list)
+          assert report.get('descriptor', {}).get('db', {}).get('status') == 'valid'
+          counts = Counter(m['vulnerability']['severity'] for m in report['matches'])
+          high = counts['High'] + counts['Critical']
+          assert int(os.environ['SCAN_STATUS']) == (1 if high else 0)
+          with open('scan-summary.md', 'w') as output:
+              output.write('Dependency findings: ' + ', '.join(f'{k}: {v}' for k, v in sorted(counts.items())) + '.\n')
+              if high:
+                  output.write('The dependency security gate FAILED. This testing beta uses the explicit testing exception; unresolved findings are attached. This is not a stable release.\n')
+          PY
+      - name: Scan final filesystem for malware
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clamav
+          sudo systemctl stop clamav-freshclam.service || true
+          sudo freshclam
+          scan_container=$(docker create brave-origin:ci)
+          mkdir -p "$RUNNER_TEMP/brave-malware-root"
+          docker export "$scan_container" | sudo tar --no-same-owner -xf - -C "$RUNNER_TEMP/brave-malware-root"
+          docker rm -v "$scan_container"
+          sudo clamscan --recursive --infected --max-filesize=2048M --max-scansize=4096M \
+            --log="$PWD/malware-report.log" "$RUNNER_TEMP/brave-malware-root"
+      - name: Preserve scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: beta-scan-reports
+          path: |
+            security-report.json
+            security-scan.log
+            scan-summary.md
+            malware-report.log
+      - name: Publish beta image and prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for tag in "$VERSION" beta "sha-$GITHUB_SHA"; do
+            docker tag brave-origin:ci "$IMAGE:$tag"
+            docker push "$IMAGE:$tag"
+          done
+          docker logout ghcr.io
+          cat > release-notes.md <<EOF
+          Pocket ID testing image: \`$IMAGE:$VERSION\` (Linux AMD64).
+
+          OIDC login, a private persistent profile per identity, one active user, and browser shutdown after logout, expiry or disconnect. The container stays running between users. All OIDC settings are Docker environment variables.
+
+          Setup: [POCKET-ID.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/POCKET-ID.md). Register \`https://web.penalte.pt/auth/callback\` in Pocket ID and configure your own client ID and secret.
+
+          Legacy smoke tests and OIDC token, admission, streaming, isolation and browser-lifecycle tests passed. The final filesystem passed ClamAV with refreshed definitions. Live Pocket ID and GPU hardware have not been tested. Use separate test appdata.
+
+          EOF
+          cat scan-summary.md >> release-notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --prerelease \
+            --title "Pocket ID $VERSION (testing)" --notes-file release-notes.md \
+            security-report.json security-scan.log malware-report.log
