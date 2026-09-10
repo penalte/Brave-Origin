@@ -80,6 +80,7 @@ jobs:
           docker rm -v "$scan_container"
           sudo clamscan --recursive --infected --max-filesize=2048M --max-scansize=4096M \
             --log="$PWD/malware-report.log" "$RUNNER_TEMP/brave-malware-root"
+          sudo chown "$(id -u):$(id -g)" malware-report.log
       - name: Preserve scan evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
