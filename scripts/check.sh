@@ -20,6 +20,22 @@ assert root.findtext('Privileged') == 'false'
 assert root.findtext('WebUI') == 'https://[IP]:[PORT:8443]/'
 assert root.findtext('Project') == 'https://github.com/shoyrock/Brave-Origin'
 assert root.findtext('Support').endswith('/issues')
+assert root.findtext('Repository') == 'ghcr.io/shoyrock/brave-origin:latest'
+branches = root.findall('Branch')
+# CA adds the default automatically and replaces whole Config lists per branch.
+assert [b.findtext('Tag') for b in branches] == ['beta', 'x11', 'x11-beta']
+names, paths, ports = {root.findtext('Name')}, {config['/config'].text}, {config['8443'].text}
+for branch in branches:
+    settings = {c.attrib['Target']: c for c in branch.findall('Config')}
+    assert len(settings) == len(branch.findall('Config'))
+    assert settings.keys() == (config.keys() if branch.findtext('Tag') == 'beta' else config.keys() - {'DISPLAY_AUTO_RESIZE', 'BROWSER_LOCK_MAXIMIZED'})
+    assert settings['AUTH_ENABLED'].text == 'true'
+    assert settings['AUTH_PASSWORD'].attrib['Mask'] == 'true'
+    for seen, value in ((names, branch.findtext('Name')), (paths, settings['/config'].text), (ports, settings['8443'].text)):
+        assert value and value not in seen, 'Unraid channels must use separate names, storage, and ports'
+        seen.add(value)
+    assert settings['/config'].text == settings['/config'].attrib['Default']
+    assert settings['8443'].text == settings['8443'].attrib['Default']
 tracked = subprocess.check_output(['git','ls-files'], text=True).splitlines()
 for p in tracked:
     assert p not in ('AGENTS.md','CLAUDE.md','.env') and not p.startswith(('skills/','.agents/','appdata/','scratch/')), p

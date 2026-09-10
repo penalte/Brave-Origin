@@ -6,9 +6,46 @@ Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensio
 
 **Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
 
-**Prefer X11?** The [stable X11 edition](https://github.com/shoyrock/Brave-Origin/tree/x11) uses KasmVNC and is available as `ghcr.io/shoyrock/brave-origin:x11`. It has its own [Unraid template](https://github.com/shoyrock/Brave-Origin/blob/x11/templates/brave-origin.xml) and `x11-beta` development channel. Use a separate appdata folder and host port when running both editions.
+Wayland is the default desktop. The X11 edition uses KasmVNC. Both have stable and beta image channels; choose one during installation.
 
-## Get started
+## Unraid
+
+The [Unraid template](templates/brave-origin.xml) defaults to **Wayland stable (`latest`)**. It uses bridge networking, HTTPS, and Unraid's user ID 99 and group ID 100.
+
+When installed through **Apps / Community Applications**, Brave-Origin offers these choices:
+
+| Choice | Image tag | Container name | Appdata folder | HTTPS port |
+| --- | --- | --- | --- | --- |
+| **Default: Wayland stable** | `latest` | `Brave-Origin` | `/mnt/user/appdata/brave-origin` | `8443` |
+| Wayland beta | `beta` | `Brave-Origin-Beta` | `/mnt/user/appdata/brave-origin-beta` | `8444` |
+| X11 stable | `x11` | `Brave-Origin-X11` | `/mnt/user/appdata/brave-origin-x11` | `8445` |
+| X11 beta | `x11-beta` | `Brave-Origin-X11-Beta` | `/mnt/user/appdata/brave-origin-x11-beta` | `8446` |
+
+Each choice uses `ghcr.io/shoyrock/brave-origin` with the tag shown above. Select a channel, set a password, review the storage path and port, then apply. Open the container's **WebUI** menu to start browsing. The separate defaults let you test another channel alongside your existing container; choose a different port if one is already in use.
+
+Beta refers to the container's development channel. Every channel installs the official stable Brave Origin browser package. A beta tag can match its stable counterpart until a new test image is published; `x11-beta` currently matches `x11`.
+
+### Manual installation
+
+If Brave-Origin is not yet listed in Apps, install the template from the Unraid terminal:
+
+```bash
+mkdir -p /boot/config/plugins/dockerMan/templates-user
+curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml \
+  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
+```
+
+In **Docker → Add Container**, select **Brave-Origin**. This manual screen does not show the Community Applications channel menu. To choose another channel, enable **Advanced View**, change **Repository** to `ghcr.io/shoyrock/brave-origin:` followed by the desired tag, and set the name, appdata folder, and host port from the table. Set a password, then apply.
+
+For manual X11 installations, the [X11 template](https://github.com/shoyrock/Brave-Origin/blob/x11/templates/brave-origin.xml) supplies X11-specific settings. Wayland's **Automatic Display Resize** and **Keep Browser Maximized** settings do not apply to X11.
+
+For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. Installation through the Unraid web interface has not been verified on this development host.
+
+### Changing an existing installation
+
+Edit the container, enable **Advanced View**, and change the tag in **Repository**. Applying the change pulls that channel's image. Existing installations keep their saved name, port, and appdata path; the new template defaults do not change them automatically. Back up appdata before switching channels. Never run stable and beta containers against the same live profile.
+
+## Other Linux hosts (Docker Compose)
 
 You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is optional.
 
@@ -30,22 +67,6 @@ Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates
 The public image is available as `ghcr.io/shoyrock/brave-origin:latest`.
 
 Set `IMAGE_NAME` in `.env` to choose a specific version or another registry. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
-
-## Unraid
-
-The [Unraid template](templates/brave-origin.xml) uses bridge networking, HTTPS port 8443, and `/mnt/user/appdata/brave-origin` for persistent storage. It defaults to Unraid's user ID 99 and group ID 100.
-
-To install the template from the Unraid terminal:
-
-```bash
-mkdir -p /boot/config/plugins/dockerMan/templates-user
-curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml \
-  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
-```
-
-In **Docker → Add Container**, select **Brave-Origin**. Set a password, review the appdata path and port, then apply. Use the container's **WebUI** menu to open it.
-
-For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. The template settings are checked automatically and tested with Unraid's user and group IDs. Installation through the Unraid web interface has not been verified on this development host.
 
 ## Copy and paste
 

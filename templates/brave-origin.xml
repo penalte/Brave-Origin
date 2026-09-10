@@ -7,15 +7,15 @@
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <ExtraParams>--security-opt seccomp=unconfined --security-opt no-new-privileges=true --shm-size=1g --pids-limit 2048</ExtraParams>
-  <Overview>Run Brave Origin in your web browser over HTTPS. Saves bookmarks, settings, and downloads. Includes password protection, copy and paste, audio, and automatic browser updates.</Overview>
+  <Overview>Run Brave Origin in your web browser over HTTPS. Choose Wayland stable (default), Wayland beta, X11 stable, or X11 beta when installing through Apps. Saves bookmarks, settings, and downloads. Includes password protection, copy and paste, audio, and automatic browser updates.</Overview>
   <Project>https://github.com/shoyrock/Brave-Origin</Project>
   <Support>https://github.com/shoyrock/Brave-Origin/issues</Support>
   <TemplateURL>https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml</TemplateURL>
   <ReadMe>https://github.com/shoyrock/Brave-Origin/blob/main/README.md</ReadMe>
   <Category>Productivity: Tools:Utilities</Category>
-  <ExtraSearchTerms>brave browser wayland selkies remote web ozone</ExtraSearchTerms>
+  <ExtraSearchTerms>brave browser wayland x11 selkies kasmvnc remote web ozone</ExtraSearchTerms>
   <WebUI>https://[IP]:[PORT:8443]/</WebUI>
-  <Date>2026-09-09</Date>
+  <Date>2026-09-10</Date>
   <MinVer>6.9</MinVer>
   <License>MIT</License>
   <Config Name="Web HTTPS Port" Target="8443" Default="8443" Mode="tcp" Description="Single-origin HTTPS web port for remote browser access." Type="Port" Display="always" Required="true" Mask="false">8443</Config>
@@ -35,4 +35,70 @@
   <Config Name="Require Password" Target="AUTH_ENABLED" Default="true|false" Description="Require a password to open the browser. Set a password below before starting." Type="Variable" Display="always" Required="true" Mask="false">true</Config>
   <Config Name="Username" Target="AUTH_USER" Default="brave" Description="Username for the web login." Type="Variable" Display="always" Required="true" Mask="false">brave</Config>
   <Config Name="GPU Device" Target="DRI_NODE" Default="/dev/dri/renderD128" Description="Render device to use when /dev/dri is passed through." Type="Variable" Display="advanced" Required="true" Mask="false">/dev/dri/renderD128</Config>
+  <Branch>
+    <Tag>beta</Tag>
+    <TagDescription>Wayland beta - test upcoming changes</TagDescription>
+    <Name>Brave-Origin-Beta</Name>
+    <Config Name="Web HTTPS Port" Target="8443" Default="8444" Mode="tcp" Description="Single-origin HTTPS web port for remote browser access." Type="Port" Display="always" Required="true" Mask="false">8444</Config>
+    <Config Name="Config &amp; Profile Storage" Target="/config" Default="/mnt/user/appdata/brave-origin-beta" Mode="rw" Description="Persistent directory for browser profile, downloads, and state." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/brave-origin-beta</Config>
+    <Config Name="Password" Target="AUTH_PASSWORD" Default="" Description="Initial login password. Required when password protection is enabled; use reset-password.sh to change it after setup." Type="Variable" Display="always" Required="false" Mask="true" />
+    <Config Name="PUID" Target="PUID" Default="99" Description="Container user ID (Unraid default: 99)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+    <Config Name="PGID" Target="PGID" Default="100" Description="Container group ID (Unraid default: 100)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+    <Config Name="UMASK" Target="UMASK" Default="022" Description="File creation permissions mask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
+    <Config Name="Timezone" Target="TZ" Default="America/New_York" Description="Container timezone." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+    <Config Name="Automatic Display Resize" Target="DISPLAY_AUTO_RESIZE" Default="true|false" Description="Resize the desktop to fit your browser window automatically. Disable only to use a fixed width and height." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Keep Browser Maximized" Target="BROWSER_LOCK_MAXIMIZED" Default="true|false" Description="Prevent minimizing, restoring, or dragging a maximized browser window. Disable to restore the previous window controls." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Display Width" Target="DISPLAY_WIDTH" Default="1920" Description="Fixed desktop width in pixels; used only when Automatic Display Resize is disabled." Type="Variable" Display="advanced" Required="false" Mask="false">1920</Config>
+    <Config Name="Display Height" Target="DISPLAY_HEIGHT" Default="1080" Description="Fixed desktop height in pixels; used only when Automatic Display Resize is disabled." Type="Variable" Display="advanced" Required="false" Mask="false">1080</Config>
+    <Config Name="Enable Audio" Target="ENABLE_AUDIO" Default="true|false" Description="Enable PulseAudio virtual sink and unified Opus audio streaming." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Automatic Updates" Target="AUTO_UPDATE" Default="true|false" Description="Download browser updates in the background and install them while the browser is stopped." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Hardware Acceleration" Target="ENABLE_GPU" Default="true|false" Description="Enable hardware acceleration (mount /dev/dri devices)." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Require Password" Target="AUTH_ENABLED" Default="true|false" Description="Require a password to open the browser. Set a password below before starting." Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+    <Config Name="Username" Target="AUTH_USER" Default="brave" Description="Username for the web login." Type="Variable" Display="always" Required="true" Mask="false">brave</Config>
+    <Config Name="GPU Device" Target="DRI_NODE" Default="/dev/dri/renderD128" Description="Render device to use when /dev/dri is passed through." Type="Variable" Display="advanced" Required="true" Mask="false">/dev/dri/renderD128</Config>
+  </Branch>
+  <Branch>
+    <Tag>x11</Tag>
+    <TagDescription>X11 stable - KasmVNC</TagDescription>
+    <Name>Brave-Origin-X11</Name>
+    <ExtraParams>--security-opt seccomp=unconfined --shm-size=1g --pids-limit 2048 --stop-timeout 30</ExtraParams>
+    <ReadMe>https://github.com/shoyrock/Brave-Origin/blob/x11/README.md</ReadMe>
+    <Config Name="Web HTTPS Port" Target="8443" Default="8445" Mode="tcp" Description="Single-origin HTTPS web port for remote browser access." Type="Port" Display="always" Required="true" Mask="false">8445</Config>
+    <Config Name="Config &amp; Profile Storage" Target="/config" Default="/mnt/user/appdata/brave-origin-x11" Mode="rw" Description="Persistent directory for browser profile, downloads, and state." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/brave-origin-x11</Config>
+    <Config Name="Password" Target="AUTH_PASSWORD" Default="" Description="Initial login password. Required when password protection is enabled; use reset-password.sh to change it after setup." Type="Variable" Display="always" Required="false" Mask="true" />
+    <Config Name="PUID" Target="PUID" Default="99" Description="Container user ID (Unraid default: 99)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+    <Config Name="PGID" Target="PGID" Default="100" Description="Container group ID (Unraid default: 100)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+    <Config Name="UMASK" Target="UMASK" Default="022" Description="File creation permissions mask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
+    <Config Name="Timezone" Target="TZ" Default="America/New_York" Description="Container timezone." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+    <Config Name="Display Width" Target="DISPLAY_WIDTH" Default="1920" Description="Virtual desktop width in pixels." Type="Variable" Display="advanced" Required="false" Mask="false">1920</Config>
+    <Config Name="Display Height" Target="DISPLAY_HEIGHT" Default="1080" Description="Virtual desktop height in pixels." Type="Variable" Display="advanced" Required="false" Mask="false">1080</Config>
+    <Config Name="Enable Audio" Target="ENABLE_AUDIO" Default="true|false" Description="Enable PulseAudio virtual sink and browser audio streaming." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Automatic Updates" Target="AUTO_UPDATE" Default="true|false" Description="Download browser updates in the background and install them while the browser is stopped." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Hardware Acceleration" Target="ENABLE_GPU" Default="true|false" Description="Enable hardware acceleration (mount /dev/dri devices)." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Require Password" Target="AUTH_ENABLED" Default="true|false" Description="Require a password to open the browser. Set a password below before starting." Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+    <Config Name="Username" Target="AUTH_USER" Default="brave" Description="Username for the web login." Type="Variable" Display="always" Required="true" Mask="false">brave</Config>
+    <Config Name="GPU Device" Target="DRI_NODE" Default="/dev/dri/renderD128" Description="Render device to use when /dev/dri is passed through." Type="Variable" Display="advanced" Required="true" Mask="false">/dev/dri/renderD128</Config>
+  </Branch>
+  <Branch>
+    <Tag>x11-beta</Tag>
+    <TagDescription>X11 beta - test upcoming changes</TagDescription>
+    <Name>Brave-Origin-X11-Beta</Name>
+    <ExtraParams>--security-opt seccomp=unconfined --security-opt no-new-privileges=true --shm-size=1g --pids-limit 2048 --stop-timeout 30</ExtraParams>
+    <ReadMe>https://github.com/shoyrock/Brave-Origin/blob/x11-beta/README.md</ReadMe>
+    <Config Name="Web HTTPS Port" Target="8443" Default="8446" Mode="tcp" Description="Single-origin HTTPS web port for remote browser access." Type="Port" Display="always" Required="true" Mask="false">8446</Config>
+    <Config Name="Config &amp; Profile Storage" Target="/config" Default="/mnt/user/appdata/brave-origin-x11-beta" Mode="rw" Description="Persistent directory for browser profile, downloads, and state." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/brave-origin-x11-beta</Config>
+    <Config Name="Password" Target="AUTH_PASSWORD" Default="" Description="Initial login password. Required when password protection is enabled; use reset-password.sh to change it after setup." Type="Variable" Display="always" Required="false" Mask="true" />
+    <Config Name="PUID" Target="PUID" Default="99" Description="Container user ID (Unraid default: 99)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+    <Config Name="PGID" Target="PGID" Default="100" Description="Container group ID (Unraid default: 100)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+    <Config Name="UMASK" Target="UMASK" Default="022" Description="File creation permissions mask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
+    <Config Name="Timezone" Target="TZ" Default="America/New_York" Description="Container timezone." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+    <Config Name="Display Width" Target="DISPLAY_WIDTH" Default="1920" Description="Virtual desktop width in pixels." Type="Variable" Display="advanced" Required="false" Mask="false">1920</Config>
+    <Config Name="Display Height" Target="DISPLAY_HEIGHT" Default="1080" Description="Virtual desktop height in pixels." Type="Variable" Display="advanced" Required="false" Mask="false">1080</Config>
+    <Config Name="Enable Audio" Target="ENABLE_AUDIO" Default="true|false" Description="Enable PulseAudio virtual sink and browser audio streaming." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Automatic Updates" Target="AUTO_UPDATE" Default="true|false" Description="Download browser updates in the background and install them while the browser is stopped." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+    <Config Name="Hardware Acceleration" Target="ENABLE_GPU" Default="true|false" Description="Enable hardware acceleration (mount /dev/dri devices)." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Require Password" Target="AUTH_ENABLED" Default="true|false" Description="Require a password to open the browser. Set a password below before starting." Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+    <Config Name="Username" Target="AUTH_USER" Default="brave" Description="Username for the web login." Type="Variable" Display="always" Required="true" Mask="false">brave</Config>
+    <Config Name="GPU Device" Target="DRI_NODE" Default="/dev/dri/renderD128" Description="Render device to use when /dev/dri is passed through." Type="Variable" Display="advanced" Required="true" Mask="false">/dev/dri/renderD128</Config>
+  </Branch>
 </Container>
