@@ -27,12 +27,9 @@ docker compose up -d --no-build
 
 Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates a self-signed certificate, so your browser will show a certificate warning. For a trusted connection, supply your own certificate as described below.
 
-Images are available from both registries:
+The public image is available as `ghcr.io/shoyrock/brave-origin:latest`.
 
-- `ghcr.io/shoyrock/brave-origin:latest`
-- `forgejo.foss.homes/shoy/brave-origin:latest`
-
-Set `IMAGE_NAME` in `.env` to choose a registry or a specific version. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
+Set `IMAGE_NAME` in `.env` to choose a specific version or another registry. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
 
 ## Unraid
 
