@@ -26,7 +26,7 @@ async def main():
     await server.start_server()
     headers = {'Host':'web.example.test'}
     async with ClientSession() as client:
-        # No APP_URL: derive the HTTPS origin, preserving public ports and IPv6.
+        # Derive the HTTPS origin, preserving public ports and IPv6.
         for host in ('web.example.test', 'web.example.test:9443', '[::1]:8443'):
             async with client.get(server.make_url('/auth/login'), headers={'Host':host,
                     'X-Forwarded-Host':'attacker.test', 'X-Forwarded-Proto':'http'}, allow_redirects=False) as response:
@@ -43,10 +43,6 @@ async def main():
                 assert response.status == 400
         async with client.get(server.make_url('/session/status'),headers={**headers,'Origin':'https://attacker.test'}) as response:
             assert response.status == 403
-        config.url = 'https://fixed.example.test'
-        async with client.get(server.make_url('/session/status'),headers=headers) as response:
-            assert response.status == 403, 'Explicit APP_URL no longer restricts Host'
-        config.url = None
         async def callback(user, state):
             manager.flows[state] = {'cookie':state, 'expires':time.time()+60, 'origin':'https://web.example.test'}
             return await client.get(server.make_url('/auth/callback'), params={'state':state,'code':user},

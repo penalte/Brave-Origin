@@ -36,14 +36,13 @@ IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.2
 All values are Docker environment variables. For a mounted secret, set
 `OIDC_CLIENT_SECRET_FILE` to its container path and add a read-only secret mount in
 your Compose override. The file takes precedence over `OIDC_CLIENT_SECRET`.
-Never commit `.env` or a client secret. `APP_URL` is optional: leave it unset or
-empty to detect the external HTTPS address from the incoming Host header,
+Never commit `.env` or a client secret. The external HTTPS address is
+automatically detected from the incoming Host header,
 including a nonstandard port. The reverse proxy must preserve the public Host.
 Forwarded host/protocol headers are ignored. Register that HTTPS address plus
 `/auth/callback` in Pocket ID; only register addresses you control. Each login
 flow and browser session is bound to the address where it started.
-You can still set `APP_URL` to a fixed external HTTPS origin without a path to
-restrict the app to that host. `OIDC_ISSUER_URL` is the issuer, not the discovery URL.
+`OIDC_ISSUER_URL` is the issuer, not the discovery URL.
 
 `OIDC_ALLOWED_GROUPS` optionally restricts admission to at least one listed group.
 `OIDC_GROUPS_CLAIM` selects the claim, default `groups`. The provider must include

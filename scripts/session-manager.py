@@ -27,12 +27,10 @@ HOP = {'connection', 'upgrade', 'keep-alive', 'transfer-encoding', 'te', 'traile
        'proxy-authorization', 'proxy-authenticate', 'set-cookie', 'content-length'}
 
 
-def https_url(value, origin=False):
+def https_url(value):
     parsed = urlsplit(value)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError('OIDC and application URLs must be absolute HTTPS URLs')
-    if origin and parsed.path not in ('', '/'):
-        raise ValueError('APP_URL must be an origin without a path')
     return value.rstrip('/')
 
 
@@ -46,7 +44,6 @@ def integer(env, name, default, low, high):
 class Config:
     def __init__(self, env=os.environ):
         self.issuer = https_url(env.get('OIDC_ISSUER_URL', ''))
-        self.url = https_url(env['APP_URL'], origin=True) if env.get('APP_URL') else None
         self.client_id = env.get('OIDC_CLIENT_ID', '')
         secret_file = env.get('OIDC_CLIENT_SECRET_FILE', '')
         self.secret = Path(secret_file).read_text().strip() if secret_file else env.get('OIDC_CLIENT_SECRET', '')
@@ -582,9 +579,7 @@ class Manager:
                 except ValueError:
                     raise web.HTTPBadRequest(text='Invalid host') from None
                 app_origin = 'https://' + host.lower()
-                if self.config.url and host.lower() != urlsplit(self.config.url).netloc.lower():
-                    raise web.HTTPForbidden(text='Invalid host')
-                request['app_origin'] = self.config.url or app_origin
+                request['app_origin'] = app_origin
                 origin = request.headers.get('Origin')
                 if origin and origin != request['app_origin']:
                     raise web.HTTPForbidden(text='Invalid origin')

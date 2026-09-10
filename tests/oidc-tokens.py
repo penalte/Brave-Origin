@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 spec = importlib.util.spec_from_file_location('manager', '/usr/local/bin/session-manager.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-config = m.Config({'APP_URL':'https://web.example.test', 'OIDC_ISSUER_URL':'https://id.example.test',
+config = m.Config({'OIDC_ISSUER_URL':'https://id.example.test',
                    'OIDC_CLIENT_ID':'client', 'OIDC_CLIENT_SECRET':'secret', 'OIDC_ALLOWED_GROUPS':'browser'})
 key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
