@@ -17,19 +17,19 @@ done
 # or failing in the GPU process while Selkies encoded happily on the same card.
 gpu=(--disable-gpu --disable-gpu-compositing)
 if [ "${ENABLE_GPU:-true}" = true ]; then
-    if [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
+    if [ -e /dev/nvidiactl ] && /sbin/ldconfig -p | grep libEGL_nvidia >/dev/null; then
         # Let Chromium select its own GL backend, as the working LinuxServer
         # image does. Once the vendor's loader files are present it finds EGL by
         # itself. Zero-copy stays off: it wants GBM buffer sharing this driver
         # does not offer reliably under a nested compositor.
         echo '[browser-session] NVIDIA GPU detected - hardware acceleration enabled.' >&2
         gpu=(--enable-gpu-rasterization --ignore-gpu-blocklist --disable-features=Vulkan)
-    elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
-        echo "[browser-session] Render node ${DRI_NODE:-/dev/dri/renderD128} detected." >&2
-        gpu=(--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan)
     elif [ -e /dev/nvidiactl ]; then
         echo '[browser-session] NVIDIA device present but its EGL driver is missing.' >&2
         echo '[browser-session] Start the container with NVIDIA_DRIVER_CAPABILITIES=all.' >&2
+    elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
+        echo "[browser-session] Render node ${DRI_NODE:-/dev/dri/renderD128} detected." >&2
+        gpu=(--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan)
     else
         echo '[browser-session] No GPU device found - software rasterization.' >&2
     fi

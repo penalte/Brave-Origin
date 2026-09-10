@@ -30,7 +30,7 @@ OIDC_ALLOWED_GROUPS=
 SESSION_MAX_SECONDS=3600
 DISCONNECT_GRACE_SECONDS=30
 SESSION_CONNECT_TIMEOUT=90
-IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.2
+IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.4
 ```
 
 All values are Docker environment variables. For a mounted secret, set

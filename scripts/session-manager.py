@@ -662,6 +662,11 @@ class Manager:
         try:
             await self.browser.stop()
             await self.browser.recover()
+            status = await self.browser.command(
+                'dpkg-query', '-W', '-f=${db:Status-Status}', 'brave-origin', timeout=30)
+            if status != 'installed':
+                LOG.warning('Admission stays closed; browser package status is %s', status)
+                return
         except Exception as error:
             LOG.warning('Admission stays closed; recovery did not settle: %r', error)
             return

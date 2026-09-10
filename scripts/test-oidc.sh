@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 image="${1:?Usage: test-oidc.sh IMAGE}"
+# Separate disposable container: this test stubs drivers and never gets a GPU.
+docker run --rm -i --entrypoint python3 "$image" - < tests/browser-gpu.py
 name="brave-oidc-test-$$"
 cleanup() {
     code=$?
@@ -25,7 +27,7 @@ done
 [ "$ready" = true ]
 docker exec "$name" sh -c '! pgrep -x brave'
 identity=$(docker inspect --format '{{.State.StartedAt}}' "$name")
-for test in oidc-tokens oidc-session; do
+for test in oidc-tokens oidc-recovery oidc-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
     docker exec "$name" python3 "/tmp/$test.py"
 done

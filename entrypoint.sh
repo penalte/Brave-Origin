@@ -126,7 +126,7 @@ done
 # install the loader vendor files that find them. Without an EGL vendor entry
 # Chromium sees only Mesa, finds no usable device and gives up on the GPU --
 # while Selkies keeps encoding through CUDA, which needs none of these files.
-if [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
+if [ -e /dev/nvidiactl ] && /sbin/ldconfig -p | grep libEGL_nvidia >/dev/null; then
     echo "[gpu] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] NVIDIA driver detected; verifying loader configuration..."
     if ! find /usr/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d -name '*nvidia*.json' 2>/dev/null | grep -q .; then
         echo '[gpu] Installing the NVIDIA EGL vendor file.'

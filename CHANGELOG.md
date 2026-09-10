@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.1.0-beta.4 (Pocket ID fork)
+
+- Fixed NVIDIA detection under the browser account's restricted PATH. NVIDIA sessions no longer accidentally select generic render-node zero-copy flags; missing NVIDIA graphics drivers use software rendering.
+- Failed package installations keep admission closed until recovery verifies that Brave is fully installed.
+- Added regression coverage for GPU flag selection and interrupted package recovery. Actual NVIDIA rendering still requires hardware verification.
+
 ## 1.1.0-beta.3 (Pocket ID fork)
 
 - NVIDIA graphics now work. The image requests the driver's full capabilities, ships the NVIDIA Wayland EGL library, and installs the loader files the container toolkit leaves out. Previously a GPU container gave Selkies hardware encoding while the browser had no driver to render with. Added a `compose.nvidia.yaml` override.

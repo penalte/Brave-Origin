@@ -257,17 +257,17 @@ fi
 GPU_FLAGS=""
 if [ "${ENABLE_GPU:-true}" = "false" ]; then
     echo "[start-session] ENABLE_GPU=false - forcing software rasterization"
-elif [ -e /dev/nvidiactl ] && ldconfig -p | grep -q libEGL_nvidia; then
+elif [ -e /dev/nvidiactl ] && /sbin/ldconfig -p | grep libEGL_nvidia >/dev/null; then
     # Chromium selects its own GL backend once the vendor's loader files exist,
     # exactly as it does in the working LinuxServer image.
     echo "[start-session] NVIDIA GPU detected - enabling hardware acceleration"
     GPU_FLAGS="--enable-gpu-rasterization --ignore-gpu-blocklist --disable-features=Vulkan"
+elif [ -e /dev/nvidiactl ]; then
+    echo "[start-session] NVIDIA device present without its EGL driver - set NVIDIA_DRIVER_CAPABILITIES=all"
 elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
     echo "[start-session] GPU ${DRI_NODE:-/dev/dri/renderD128} detected - enabling hardware acceleration"
     export LIBVA_DRIVER_NAME_OVERRIDE=""
     GPU_FLAGS="--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan"
-elif [ -e /dev/nvidiactl ]; then
-    echo "[start-session] NVIDIA device present without its EGL driver - set NVIDIA_DRIVER_CAPABILITIES=all"
 else
     echo "[start-session] No /dev/dri GPU device detected - running with software rasterization"
 fi
