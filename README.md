@@ -1,5 +1,9 @@
 # Brave Origin in Docker
 
+This fork includes configurable [Pocket ID / OIDC sessions](POCKET-ID.md) on the
+Wayland image: private profiles, one admitted user, and browser-only start/stop.
+Build the fork to use it; upstream image tags do not include this integration.
+
 > Testing release: `1.0.1-beta.2` fixes automatic resizing, keeps Brave maximized, and includes application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).
 
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.

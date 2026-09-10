@@ -19,6 +19,10 @@ cleanup() {
     echo ""
     echo "[supervisor] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Caught shutdown signal, initiating graceful stop..."
     
+    if [ -n "${MANAGER_PID:-}" ]; then
+        kill -TERM "$MANAGER_PID" 2>/dev/null || true
+        wait "$MANAGER_PID" 2>/dev/null || true
+    fi
     # Let the session close Brave before stopping its display and audio servers.
     if [ "${SESSION_PID:-0}" -gt 0 ]; then
         pkill -TERM -P "$SESSION_PID" -u braveuser 2>/dev/null || true
@@ -71,6 +75,12 @@ case "${BROWSER_LOCK_MAXIMIZED:-true}" in
     *) echo 'BROWSER_LOCK_MAXIMIZED must be true or false.' >&2; exit 1 ;;
 esac
 umask "${TARGET_UMASK}"
+
+case "${OIDC_ENABLED:-false}" in true|false) ;; *) echo 'OIDC_ENABLED must be true or false.' >&2; exit 1 ;; esac
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    groupadd -r brave-display 2>/dev/null || true
+    python3 -c 'import importlib.util; s=importlib.util.spec_from_file_location("manager", "/usr/local/bin/session-manager.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.Config()'
+fi
 
 # Storage preparation holds the instance lock on descriptor 7.
 install -m 0666 /dev/null /run/lock/brave-origin-launch.lock
@@ -127,6 +137,7 @@ rm -f /etc/nginx/conf.d/auth.conf
 
 # Support both AUTH_ENABLED and legacy KASM_AUTH_ENABLED
 RAW_AUTH="${AUTH_ENABLED:-${KASM_AUTH_ENABLED:-true}}"
+if [ "${OIDC_ENABLED:-false}" = true ]; then RAW_AUTH=false; fi
 AUTH_ENABLED_LOWER="$(echo "${RAW_AUTH}" | tr '[:upper:]' '[:lower:]')"
 
 if [ "${AUTH_ENABLED_LOWER}" != "true" ] && [ "${AUTH_ENABLED_LOWER}" != "false" ]; then
@@ -177,6 +188,9 @@ if [ "${AUTO_UPDATE:-true}" = "true" ]; then
 fi
 
 # 7. Start Nginx Ingress Proxy
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    cp /etc/nginx/nginx-oidc.conf /etc/nginx/nginx.conf
+fi
 echo "[nginx] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Initializing Single-Origin TLS Reverse Proxy on port 8443..."
 nginx -t >/dev/null 2>&1 || nginx -t
 nginx
@@ -200,13 +214,27 @@ echo "========================================================"
 launch_session() {
     local name
     local -a session_env=("HOME=/config" "USER=braveuser" "LOGNAME=braveuser" "PATH=/usr/local/bin:/usr/bin:/bin" "LANG=C.UTF-8")
-    for name in ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ BROWSER_LOCK_MAXIMIZED DISPLAY_AUTO_RESIZE DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
+    for name in OIDC_ENABLED ENABLE_AUDIO ENABLE_GPU BRAVE_FLAGS DRI_NODE TZ BROWSER_LOCK_MAXIMIZED DISPLAY_AUTO_RESIZE DISPLAY_WIDTH DISPLAY_HEIGHT DOWNGRADE_RETRY_INTERVAL; do
         [ -z "${!name}" ] || session_env+=("${name}=${!name}")
     done
     runuser -u braveuser -- env -i "${session_env[@]}" bash -c 'exec /usr/local/bin/start-session.sh >> /config/state/session.log 2>&1' 7>&- &
     SESSION_PID=$!
 }
-if [ ! -f /config/state/quiesce.flag ]; then
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    rm -f /tmp/brave-desktop-ready
+    launch_session
+    for ((i=0; i<90; i++)); do
+        [ ! -f /tmp/brave-desktop-ready ] || break
+        kill -0 "$SESSION_PID" || exit 1
+        sleep 1
+    done
+    [ -f /tmp/brave-desktop-ready ] || { echo 'Desktop failed to start.' >&2; exit 1; }
+    python3 /usr/local/bin/session-manager.py 7>&- &
+    MANAGER_PID=$!
+    # A desktop failure invalidates its lease; never silently transfer a user.
+    wait -n "$SESSION_PID" "$MANAGER_PID" || true
+    cleanup
+elif [ ! -f /config/state/quiesce.flag ]; then
     launch_session
 else
     SESSION_PID=0

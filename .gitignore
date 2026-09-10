@@ -35,6 +35,9 @@ __pycache__/
 # Source configuration is separate from old runtime data.
 config/*
 !config/nginx.conf
+!config/nginx-oidc.conf
+!config/portal.html
+!config/portal.js
 
 # Local dependency scan output
 /security-report.json

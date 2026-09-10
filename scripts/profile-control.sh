@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    echo 'Legacy backup pause/resume is unavailable in OIDC mode. End the app session and stop the container for a consistent backup.' >&2
+    exit 1
+fi
+
 # State files and recorded PIDs are controlled by the browser user.
 if [ "$(id -u)" = 0 ]; then
     exec runuser -u braveuser -- "$0" "$@"

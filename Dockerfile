@@ -193,6 +193,12 @@ COPY scripts/start-session.sh /usr/local/bin/start-session.sh
 COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh
 COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
+COPY scripts/session-manager.py /usr/local/bin/session-manager.py
+COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
+COPY config/nginx-oidc.conf /etc/nginx/nginx-oidc.conf
+COPY config/portal.html config/portal.js /usr/local/share/brave-origin/
+RUN pip install --break-system-packages --no-cache-dir 'PyJWT[crypto]==2.13.0' && \
+    chmod 755 /usr/local/bin/browser-session.sh
 
 # Keep release metadata after dependency installation to reuse build layers.
 ARG VERSION=1.0.0-beta.1

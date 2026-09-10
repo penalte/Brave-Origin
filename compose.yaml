@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${IMAGE_NAME:-ghcr.io/shoyrock/brave-origin:latest}
+    image: ${IMAGE_NAME:-brave-origin:pocket-id}
     container_name: brave-origin
     hostname: ${CONTAINER_HOSTNAME:-brave-origin}
     restart: unless-stopped
@@ -16,6 +16,18 @@ services:
       # Container always listens on 8443 (nginx.conf); WEB_PORT only selects the host-side port.
       - "${WEB_PORT:-8443}:8443"
     environment:
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - APP_URL=${APP_URL:-https://web.penalte.pt}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-https://id.penalte.pt}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_CLIENT_SECRET_FILE=${OIDC_CLIENT_SECRET_FILE:-}
+      - OIDC_SCOPES=${OIDC_SCOPES:-openid profile email groups}
+      - OIDC_ALLOWED_GROUPS=${OIDC_ALLOWED_GROUPS:-}
+      - OIDC_GROUPS_CLAIM=${OIDC_GROUPS_CLAIM:-groups}
+      - SESSION_MAX_SECONDS=${SESSION_MAX_SECONDS:-3600}
+      - DISCONNECT_GRACE_SECONDS=${DISCONNECT_GRACE_SECONDS:-30}
+      - SESSION_CONNECT_TIMEOUT=${SESSION_CONNECT_TIMEOUT:-90}
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - UMASK=${UMASK:-022}

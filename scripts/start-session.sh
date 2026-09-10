@@ -58,13 +58,13 @@ trap 'exit 0' TERM INT HUP
 [ "$(dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ] || exit 1
 USED_VER="$(dpkg-query -W -f='${Version}' brave-origin)"
 LAST_VER="$(cat /config/state/last-brave-version 2>/dev/null || cat /config/.last-brave-version 2>/dev/null || true)"
-if [ -n "$LAST_VER" ] && { ! dpkg --validate-version "$LAST_VER" || dpkg --compare-versions "$USED_VER" lt "$LAST_VER"; }; then
+if [ "${OIDC_ENABLED:-false}" != true ] && [ -n "$LAST_VER" ] && { ! dpkg --validate-version "$LAST_VER" || dpkg --compare-versions "$USED_VER" lt "$LAST_VER"; }; then
     echo "Refusing browser $USED_VER: profile requires $LAST_VER." >&2
     set_status DOWNGRADE_BLOCKED
     sleep "${DOWNGRADE_RETRY_INTERVAL:-300}"
     exit 1
 fi
-[ ! -f /config/state/quiesce.flag ] || exit 0
+[ "${OIDC_ENABLED:-false}" = true ] || [ ! -f /config/state/quiesce.flag ] || exit 0
 mkdir -p "${XDG_RUNTIME_DIR}" /config/downloads /config/profile
 chmod 700 "${XDG_RUNTIME_DIR}"
 rm -f "${XDG_RUNTIME_DIR}"/wayland-* "${XDG_RUNTIME_DIR}"/pulse/pid "${XDG_RUNTIME_DIR}"/dbus/session_bus_socket
@@ -88,6 +88,9 @@ if [ "${ENABLE_AUDIO:-true}" = "true" ]; then
     mkdir -p "${XDG_RUNTIME_DIR}/pulse"
     pulseaudio --exit-idle-time=-1 --daemonize=true 9>&- || true
     pactl load-module module-native-protocol-unix auth-anonymous=1 socket="${XDG_RUNTIME_DIR}/pulse/native" 2>/dev/null || true
+    if [ "${OIDC_ENABLED:-false}" = true ]; then
+        pactl load-module module-native-protocol-unix auth-anonymous=1 socket="${XDG_RUNTIME_DIR}/pulse/oidc"
+    fi
     pactl load-module module-null-sink sink_name=output sink_properties=device.description="Default_Audio_Output" 2>/dev/null || true
     pactl set-default-sink output 2>/dev/null || true
     export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
@@ -113,6 +116,22 @@ export SELKIES_ENABLE_BASIC_AUTH=false
 export SELKIES_ENABLE_DUAL_MODE=false
 export SELKIES_PORT=8082
 export CUSTOM_WS_PORT=8082
+
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    export SELKIES_WEB_ROOT=/usr/share/selkies/web
+    export SELKIES_COMMAND_ENABLED='false|locked'
+    export SELKIES_FILE_TRANSFERS=none
+    export SELKIES_ENABLE_SHARING='false|locked'
+    export SELKIES_ENABLE_COLLAB='false|locked'
+    export SELKIES_ENABLE_SHARED='false|locked'
+    export SELKIES_ENABLE_PLAYER2='false|locked'
+    export SELKIES_ENABLE_PLAYER3='false|locked'
+    export SELKIES_ENABLE_PLAYER4='false|locked'
+    export SELKIES_SECOND_SCREEN='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_FILES='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_APPS='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_SHARING='false|locked'
+fi
 
 python3 -m selkies \
     --addr=127.0.0.1 \
@@ -224,6 +243,13 @@ done
 
 export WAYLAND_DISPLAY="${LABWC_DISPLAY}"
 echo "[start-session] Labwc application Wayland socket ready: ${LABWC_SOCKET} (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
+
+# OIDC mode keeps the desktop alive. Only the gateway may launch a browser.
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    touch /tmp/brave-desktop-ready
+    wait -n "$LABWC_PID" "$SELKIES_PID"
+    exit 1
+fi
 
 # 6. GPU Detection & Flags Configuration (ENABLE_GPU=false forces software rendering)
 GPU_FLAGS=""
