@@ -59,7 +59,7 @@ jobs:
           from collections import Counter
           report = json.load(open('security-report.json'))
           assert isinstance(report.get('matches'), list)
-          assert report.get('descriptor', {}).get('db', {}).get('status') == 'valid'
+          assert report.get('descriptor', {}).get('db', {}).get('status', {}).get('valid') is True
           counts = Counter(m['vulnerability']['severity'] for m in report['matches'])
           high = counts['High'] + counts['Critical']
           assert int(os.environ['SCAN_STATUS']) == (1 if high else 0)
