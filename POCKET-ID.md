@@ -22,7 +22,6 @@ Copy `.env.example` to `.env`, then configure:
 
 ```dotenv
 OIDC_ENABLED=true
-APP_URL=https://web.penalte.pt
 OIDC_ISSUER_URL=https://id.penalte.pt
 OIDC_CLIENT_ID=your-client-id
 OIDC_CLIENT_SECRET=your-client-secret
@@ -31,15 +30,20 @@ OIDC_ALLOWED_GROUPS=
 SESSION_MAX_SECONDS=3600
 DISCONNECT_GRACE_SECONDS=30
 SESSION_CONNECT_TIMEOUT=90
-IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.1
+IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.2
 ```
 
 All values are Docker environment variables. For a mounted secret, set
 `OIDC_CLIENT_SECRET_FILE` to its container path and add a read-only secret mount in
 your Compose override. The file takes precedence over `OIDC_CLIENT_SECRET`.
-Never commit `.env` or a client secret. `APP_URL` must be the external HTTPS origin
-without a path. `OIDC_ISSUER_URL` is the issuer, not the discovery URL. Client
-registration uses the current `APP_URL` plus `/auth/callback`.
+Never commit `.env` or a client secret. `APP_URL` is optional: leave it unset or
+empty to detect the external HTTPS address from the incoming Host header,
+including a nonstandard port. The reverse proxy must preserve the public Host.
+Forwarded host/protocol headers are ignored. Register that HTTPS address plus
+`/auth/callback` in Pocket ID; only register addresses you control. Each login
+flow and browser session is bound to the address where it started.
+You can still set `APP_URL` to a fixed external HTTPS origin without a path to
+restrict the app to that host. `OIDC_ISSUER_URL` is the issuer, not the discovery URL.
 
 `OIDC_ALLOWED_GROUPS` optionally restricts admission to at least one listed group.
 `OIDC_GROUPS_CLAIM` selects the claim, default `groups`. The provider must include

@@ -30,7 +30,7 @@ class HTTP:
                              'token_endpoint':config.issuer+'/token', 'jwks_uri':config.issuer+'/keys'})
         return Response({'keys':[jwk]})
     def post(self, url, data, **kwargs):
-        assert data['code_verifier'] == 'verifier' and data['redirect_uri'] == config.callback
+        assert data['code_verifier'] == 'verifier' and data['redirect_uri'] == 'https://web.example.test:9443/auth/callback'
         return Response({'id_token':self.token})
 
 async def main():
@@ -39,7 +39,8 @@ async def main():
     async def check(overrides, accepted=False, signing_key=key):
         token = jwt.encode({**claims, **overrides}, signing_key, algorithm='RS256', headers={'kid':'test'})
         try:
-            result = await m.OIDC(config).authenticate(HTTP(token),'code',{'verifier':'verifier','nonce':'nonce'})
+            result = await m.OIDC(config).authenticate(HTTP(token),'code',
+                    {'verifier':'verifier','nonce':'nonce','origin':'https://web.example.test:9443'})
         except (ValueError, jwt.PyJWTError):
             assert not accepted, overrides
         else:

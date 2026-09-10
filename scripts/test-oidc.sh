@@ -13,7 +13,7 @@ cleanup() {
 trap cleanup EXIT
 docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
     --security-opt no-new-privileges=true -e OIDC_ENABLED=true \
-    -e APP_URL=https://web.example.test -e OIDC_ISSUER_URL=https://id.example.test \
+    -e OIDC_ISSUER_URL=https://id.example.test \
     -e OIDC_CLIENT_ID=test -e OIDC_CLIENT_SECRET=test-only \
     -e AUTO_UPDATE=false -e ENABLE_GPU=false "$image" >/dev/null
 ready=false

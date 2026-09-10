@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.1.0-beta.2 (Pocket ID fork)
+
+- APP_URL is optional. OIDC callbacks detect the HTTPS hostname and port from the request while login flows and sessions remain bound to their original address.
+- An explicit APP_URL remains supported for a fixed hostname.
+
 ## 1.1.0-beta.1 (Pocket ID fork)
 
 - Optional configurable OIDC login with a private persistent browser profile per identity.

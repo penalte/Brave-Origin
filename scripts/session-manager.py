@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 import pwd
+import re
 import secrets
 import signal
 import time
@@ -45,7 +46,7 @@ def integer(env, name, default, low, high):
 class Config:
     def __init__(self, env=os.environ):
         self.issuer = https_url(env.get('OIDC_ISSUER_URL', ''))
-        self.url = https_url(env.get('APP_URL', ''), origin=True)
+        self.url = https_url(env['APP_URL'], origin=True) if env.get('APP_URL') else None
         self.client_id = env.get('OIDC_CLIENT_ID', '')
         secret_file = env.get('OIDC_CLIENT_SECRET_FILE', '')
         self.secret = Path(secret_file).read_text().strip() if secret_file else env.get('OIDC_CLIENT_SECRET', '')
@@ -61,7 +62,6 @@ class Config:
         self.start_timeout = integer(env, 'SESSION_CONNECT_TIMEOUT', 90, 10, 300)
         self.update_interval = integer(env, 'UPDATE_INTERVAL', 21600, 60, 604800)
         self.auto_update = env.get('AUTO_UPDATE', 'true') == 'true'
-        self.callback = self.url + '/auth/callback'
 
 
 class OIDC:
@@ -85,7 +85,7 @@ class OIDC:
         metadata = await self.discovery(http)
         async with http.post(metadata['token_endpoint'], data={
             'grant_type': 'authorization_code', 'code': code,
-            'redirect_uri': self.config.callback, 'client_id': self.config.client_id,
+            'redirect_uri': flow['origin'] + '/auth/callback', 'client_id': self.config.client_id,
             'client_secret': self.config.secret, 'code_verifier': flow['verifier'],
         }, allow_redirects=False) as response:
             response.raise_for_status()
@@ -366,7 +366,8 @@ class Manager:
 
     def owns(self, request):
         cookie = request.cookies.get(COOKIE, '')
-        return bool(self.owner and cookie and secrets.compare_digest(cookie, self.owner['cookie'])
+        return bool(self.owner and cookie and self.owner['origin'] == request['app_origin']
+                    and secrets.compare_digest(cookie, self.owner['cookie'])
                     and time.time() < self.owner['expires'])
 
     def require_owner(self, request):
@@ -389,10 +390,12 @@ class Manager:
             raise web.HTTPTooManyRequests()
         metadata = await self.oidc.discovery(self.http)
         state, nonce, verifier, cookie = (secrets.token_urlsafe(32) for _ in range(4))
-        self.flows[state] = {'nonce': nonce, 'verifier': verifier, 'cookie': cookie, 'expires': now + 600}
+        self.flows[state] = {'nonce': nonce, 'verifier': verifier, 'cookie': cookie, 'expires': now + 600,
+                             'origin': request['app_origin']}
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
         response = web.HTTPFound(metadata['authorization_endpoint'] + '?' + urlencode({
-            'response_type': 'code', 'client_id': self.config.client_id, 'redirect_uri': self.config.callback,
+            'response_type': 'code', 'client_id': self.config.client_id,
+            'redirect_uri': request['app_origin'] + '/auth/callback',
             'scope': self.config.scopes, 'state': state, 'nonce': nonce,
             'code_challenge': challenge, 'code_challenge_method': 'S256'}))
         response.set_cookie(FLOW_COOKIE, cookie, secure=True, httponly=True, samesite='Lax', path='/', max_age=600)
@@ -400,7 +403,7 @@ class Manager:
 
     async def callback(self, request):
         flow = self.flows.pop(request.query.get('state', ''), None)
-        if (not flow or flow['expires'] < time.time() or
+        if (not flow or flow['expires'] < time.time() or flow['origin'] != request['app_origin'] or
                 not secrets.compare_digest(request.cookies.get(FLOW_COOKIE, ''), flow['cookie']) or
                 not request.query.get('code') or request.query.get('error')):
             raise web.HTTPBadRequest(text='Invalid or expired login; please sign in again')
@@ -414,6 +417,7 @@ class Manager:
                 raise web.HTTPConflict(text='Browser currently in use')
             self.state = 'STARTING'
             self.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
+                          'origin': flow['origin'],
                           'name': str(claims.get('name') or claims.get('preferred_username') or 'Private browser')[:120],
                           'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
             try:
@@ -485,7 +489,7 @@ class Manager:
             self.connections.add(client)  # Reserve before the first network await.
             try:
                 async with self.http.ws_connect(target, heartbeat=20, max_msg_size=32 * 1024 * 1024,
-                                                headers={'Origin': self.config.url, 'Host': urlsplit(self.config.url).netloc}) as upstream:
+                                                headers={'Origin': session['origin'], 'Host': urlsplit(session['origin']).netloc}) as upstream:
                     if self.owner is not session or self.state != 'RUNNING':
                         raise web.HTTPForbidden()
                     await client.prepare(request)
@@ -565,10 +569,24 @@ class Manager:
         @web.middleware
         async def security(request, handler):
             if request.path != '/health':
-                if request.host.lower() != urlsplit(self.config.url).netloc.lower():
+                # nginx preserves the incoming Host. Never trust forwarded host/proto
+                # headers supplied by a client; the public application requires HTTPS.
+                host = request.headers.get('Host', '')
+                if not re.fullmatch(r'(?:[A-Za-z0-9.-]+|\[[A-Fa-f0-9:]+\])(?::[0-9]{1,5})?', host):
+                    raise web.HTTPBadRequest(text='Invalid host')
+                try:
+                    parsed = urlsplit('https://' + host)
+                    port = parsed.port
+                    if port == 0:
+                        raise ValueError('Invalid port')
+                except ValueError:
+                    raise web.HTTPBadRequest(text='Invalid host') from None
+                app_origin = 'https://' + host.lower()
+                if self.config.url and host.lower() != urlsplit(self.config.url).netloc.lower():
                     raise web.HTTPForbidden(text='Invalid host')
+                request['app_origin'] = self.config.url or app_origin
                 origin = request.headers.get('Origin')
-                if origin and origin != self.config.url:
+                if origin and origin != request['app_origin']:
                     raise web.HTTPForbidden(text='Invalid origin')
             try:
                 response = await handler(request)

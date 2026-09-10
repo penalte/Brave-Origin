@@ -4,6 +4,7 @@ import importlib.util
 import time
 import json
 from pathlib import Path
+from urllib.parse import urlsplit, parse_qs
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
@@ -18,15 +19,36 @@ class Provider:
         return {'iss': 'https://id.example.test', 'sub': code, 'exp': time.time()+600, 'name': code}
 
 async def main():
-    config = m.Config({'APP_URL':'https://web.example.test', 'OIDC_ISSUER_URL':'https://id.example.test',
+    config = m.Config({'OIDC_ISSUER_URL':'https://id.example.test',
                        'OIDC_CLIENT_ID':'test', 'OIDC_CLIENT_SECRET':'test', 'AUTO_UPDATE':'false'})
     manager = m.Manager(config, oidc=Provider())
     server = TestServer(manager.app())
     await server.start_server()
     headers = {'Host':'web.example.test'}
     async with ClientSession() as client:
+        # No APP_URL: derive the HTTPS origin, preserving public ports and IPv6.
+        for host in ('web.example.test', 'web.example.test:9443', '[::1]:8443'):
+            async with client.get(server.make_url('/auth/login'), headers={'Host':host,
+                    'X-Forwarded-Host':'attacker.test', 'X-Forwarded-Proto':'http'}, allow_redirects=False) as response:
+                assert response.status == 302, await response.text()
+                query = parse_qs(urlsplit(response.headers['Location']).query)
+                assert query['redirect_uri'] == ['https://' + host + '/auth/callback']
+                state = query['state'][0]
+                flow_cookie = response.cookies[m.FLOW_COOKIE].value
+            async with client.get(server.make_url('/auth/callback'), params={'state':state,'code':'alice'},
+                    headers={'Host':'other.example.test','Cookie':m.FLOW_COOKIE+'='+flow_cookie}, allow_redirects=False) as response:
+                assert response.status == 400, 'Login flow crossed hosts'
+        for host in ('user@web.example.test', 'web.example.test:99999'):
+            async with client.get(server.make_url('/auth/login'),headers={'Host':host},allow_redirects=False) as response:
+                assert response.status == 400
+        async with client.get(server.make_url('/session/status'),headers={**headers,'Origin':'https://attacker.test'}) as response:
+            assert response.status == 403
+        config.url = 'https://fixed.example.test'
+        async with client.get(server.make_url('/session/status'),headers=headers) as response:
+            assert response.status == 403, 'Explicit APP_URL no longer restricts Host'
+        config.url = None
         async def callback(user, state):
-            manager.flows[state] = {'cookie':state, 'expires':time.time()+60}
+            manager.flows[state] = {'cookie':state, 'expires':time.time()+60, 'origin':'https://web.example.test'}
             return await client.get(server.make_url('/auth/callback'), params={'state':state,'code':user},
                     headers={**headers, 'Cookie':m.FLOW_COOKIE+'='+state}, allow_redirects=False)
         first, second = await asyncio.gather(callback('alice','a'), callback('bob','b'))
@@ -34,6 +56,8 @@ async def main():
         winner = first if first.status == 302 else second
         cookie = winner.cookies[m.COOKIE].value
         owner_headers = {**headers, 'Cookie':m.COOKIE+'='+cookie}
+        async with client.get(server.make_url('/desktop/'),headers={**owner_headers,'Host':'other.example.test'}) as response:
+            assert response.status == 403, 'Session cookie crossed hosts'
         assert manager.browser.running()
         await asyncio.sleep(1)
         assert manager.browser.running(), 'Browser exited before becoming usable'
