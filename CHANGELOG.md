@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.3 (Pocket ID fork)
+
+- Slimmed the session bar to 32px and made the desktop fill the remaining viewport. Removed the inline iframe baseline gap and outer-page scrollbar.
+
 ## 1.2.0-beta.2 (Pocket ID fork)
 
 - Includes the private-desktop changes below and enforces upload size limits across successive chunks. The beta.1 publication was cancelled before image publication to include this correction.
