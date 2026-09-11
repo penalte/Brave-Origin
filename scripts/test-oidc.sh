@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 image="${1:?Usage: test-oidc.sh IMAGE}"
 # Separate disposable container: this test stubs drivers and never gets a GPU.
 docker run --rm -i --entrypoint python3 "$image" - < tests/browser-gpu.py
+docker run --rm -i --entrypoint python3 "$image" - < tests/file-picker.py
 name="brave-oidc-test-$$"
 cleanup() {
     code=$?
@@ -27,9 +28,10 @@ done
 [ "$ready" = true ]
 docker exec "$name" sh -c '! pgrep -x brave'
 identity=$(docker inspect --format '{{.State.StartedAt}}' "$name")
+docker cp tests/picker_browser.py "$name:/tmp/picker_browser.py"
 for test in oidc-tokens oidc-recovery multi-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
-    docker exec "$name" python3 "/tmp/$test.py"
+    docker exec -e TEST_PRIVATE_PICKER=true "$name" python3 "/tmp/$test.py"
 done
 [ "$(docker inspect --format '{{.State.StartedAt}}' "$name")" = "$identity" ]
 docker exec "$name" bash /usr/local/bin/healthcheck.sh

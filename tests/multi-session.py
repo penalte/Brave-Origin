@@ -50,6 +50,8 @@ async def main():
                 assert response.status == 200 and await response.text() == user
                 color = '#ff0000' if user == 'alice' else '#0000ff'
                 page = ('<html><body style="margin:0;background:'+color+'">'+user+
+                        '<input type="file" style="position:absolute;left:20px;top:20px;width:250px;height:40px" '
+                        'onchange="this.files[0].text().then(t=>document.body.style.background=t===\''+user+'\'?\'#00ff00\':\'#ffffff\')">'
                         '<script>let a=document.createElement("a");a.href="data:text/plain,'+user+
                         '";a.download="from-brave.txt";a.click();</script></body></html>')
                 response = await client.post(server.make_url('/api/upload'), headers={**auth,'X-Upload-Path':'page.html'},data=page.encode())
@@ -96,6 +98,9 @@ async def main():
                         break
                     await asyncio.sleep(0.1)
                 assert (desktop.home/'Downloads/from-brave.txt').read_text() == user, 'Browser download policy did not resolve private HOME'
+                if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
+                    from picker_browser import exercise_picker
+                    await exercise_picker(socket, desktop, decoder, user)
             # UID boundaries protect another session's stream and files.
             for endpoint in ('stream.sock', 'wayland-0', 'pulse/native'):
                 target = desktops['bob'].browser.directory / endpoint
@@ -124,6 +129,23 @@ async def main():
             response = await client.post(server.make_url('/auth/logout'),headers={**b,'X-CSRF-Token':desktops['bob'].owner['csrf']})
             assert response.status == 200
             assert not broker.sessions
+            if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
+                await login('failure')
+                failed = next(iter(broker.sessions.values()))
+                uid = failed.browser.uid
+                from pathlib import Path
+                import signal
+                pids = [pid for pid in m.single.Browser.pids(uid)
+                        if b'/usr/local/bin/file-picker.py' in Path(f'/proc/{pid}/cmdline').read_bytes()]
+                assert len(pids) == 1
+                os.kill(pids[0], signal.SIGTERM)
+                for _ in range(300):
+                    if not broker.sessions:
+                        break
+                    await asyncio.sleep(.1)
+                assert not broker.sessions, 'Picker failure must close its session'
+                assert not m.single.Browser.pids(uid), 'Picker failure left browser processes alive'
+                print('PASS: picker failure closes its desktop and browser', flush=True)
     finally:
         for session in broker.sessions.values():
             if session.browser.directory and (session.browser.directory/'browser.log').exists():

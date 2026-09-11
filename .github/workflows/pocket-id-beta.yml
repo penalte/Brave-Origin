@@ -104,7 +104,7 @@ jobs:
           cat > release-notes.md <<EOF
           Pocket ID testing image: \`$IMAGE:$VERSION\` (Linux AMD64).
 
-          OIDC login, a private persistent profile per identity, one active user, and browser shutdown after logout, expiry or disconnect. The container stays running between users. All OIDC settings are Docker environment variables.
+          OIDC login, concurrent private Wayland desktops and persistent profiles per identity, and shutdown of each user's desktop after logout, expiry or disconnect. Website file dialogs use the private My files picker. The container stays running between users. All OIDC settings are Docker environment variables.
 
           Setup: [POCKET-ID.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/POCKET-ID.md). Register \`https://web.penalte.pt/auth/callback\` in Pocket ID and configure your own client ID and secret.
 

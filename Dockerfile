@@ -96,6 +96,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pulseaudio \
     pulseaudio-utils \
     dbus \
+    python3-gi \
+    python3-dbus \
+    gir1.2-gtk-3.0 \
     labwc \
     libwlroots-0.18 \
     wtype \
@@ -210,6 +213,7 @@ COPY scripts/multi-session.py /usr/local/bin/multi-session.py
 COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
 RUN chmod 755 /usr/local/bin/user-desktop.sh
 COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
+COPY scripts/file-picker.py /usr/local/bin/file-picker.py
 COPY config/nginx-oidc.conf /etc/nginx/nginx-oidc.conf
 COPY config/portal.html config/portal.js /usr/local/share/brave-origin/
 RUN pip install --break-system-packages --no-cache-dir 'PyJWT[crypto]==2.13.0' && \

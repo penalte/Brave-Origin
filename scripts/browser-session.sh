@@ -39,7 +39,9 @@ if [ "${ENABLE_GPU:-true}" = true ]; then
         echo '[browser-session] No GPU device found - software rasterization.' >&2
     fi
 fi
-exec dbus-run-session -- /opt/brave.com/brave-origin/brave \
+bus=()
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then bus=(dbus-run-session --); fi
+exec "${bus[@]}" /opt/brave.com/brave-origin/brave \
     --ozone-platform=wayland --user-data-dir="$HOME/profile" \
     --disk-cache-dir="$HOME/.cache/brave" --password-store=basic \
     --no-first-run --no-default-browser-check --start-maximized \

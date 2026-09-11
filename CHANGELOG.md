@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.5 (Pocket ID fork)
+
+- Website uploads and Save dialogs now use a compact dark My files picker in each private desktop. It browses only that user's Downloads tree, rejects symlinks and outside paths, and supports multiple files and filename filters. Folder uploads are rejected.
+- The picker shares the desktop's private D-Bus session and is supervised with Brave. A picker failure closes that user's desktop; the container and other users stay running.
+- Verified real website uploads, saves, cancellation, and picker-failure cleanup alongside the existing two-user isolation tests. Picker restrictions do not constitute a complete filesystem sandbox for Brave.
+
 ## 1.2.0-beta.4 (Pocket ID fork)
 
 - Replaced internal profile paths in the file manager with a compact “My files” heading and relative folder names. Existing storage and download links are unchanged.

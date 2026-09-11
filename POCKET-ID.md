@@ -109,6 +109,19 @@ back up `/config`. Maintenance shutdown is distinct from normal user logout.
 
 ## Tests and limits
 
+Website upload buttons and Save dialogs use a private **My files** picker. It
+opens in the same Downloads folder used by Selkies transfers, supports subfolders,
+multiple files and filename filters, and has no root, Desktop, Other Locations,
+or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
+requests are cancelled; select individual files instead. Save names must be plain
+filenames, and existing files require overwrite confirmation.
+
+The picker runs on each desktop's private D-Bus session and must be ready before
+Brave starts. If it exits, that user's desktop is closed. These are picker
+restrictions, not a complete Brave filesystem sandbox: they do not restrict every
+other way the browser can read files accessible to its Linux account. Other
+identities' private homes remain protected by separate Linux UIDs.
+
 Run the self-contained acceptance suite against a locally built image:
 
 ```bash
@@ -119,6 +132,8 @@ The multi-user suite launches two real desktops and navigates through their
 authenticated keyboard streams. It decodes keyframes and delta frames, verifies
 distinct page pixels, tests private transfers and socket permissions, and checks
 independent logout. Container start time must stay unchanged across user transitions.
+It also exercises website uploads and saves through the real custom picker,
+Escape cancellation, path rejection and cleanup after picker failure.
 Signed-token and interrupted-update cases are tested separately. GPU rendering,
 live Pocket ID credentials and simultaneous audible playback require host testing.
 

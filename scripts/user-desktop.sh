@@ -50,7 +50,7 @@ fi
 unset WAYLAND_DISPLAY
 cat > "$XDG_CONFIG_HOME/labwc/rc.xml" <<'XML'
 <?xml version="1.0"?>
-<labwc_config><windowRules><windowRule identifier="*" serverDecoration="no"><action name="Maximize" /></windowRule></windowRules><keyboard><keybind key="A-F4"><action name="None" /></keybind><keybind key="A-Tab"><action name="None" /></keybind></keyboard><mouse/></labwc_config>
+<labwc_config><windowRules><windowRule identifier="brave-origin" serverDecoration="no"><action name="Maximize" /></windowRule></windowRules><keyboard><keybind key="A-F4"><action name="None" /></keybind><keybind key="A-Tab"><action name="None" /></keybind></keyboard><mouse/></labwc_config>
 XML
 compositor=labwc-browser
 if [ "${BROWSER_LOCK_MAXIMIZED:-true}" = false ]; then compositor=labwc; fi
@@ -63,6 +63,15 @@ for ((i=0; i<300; i++)); do
 done
 test -S "$XDG_RUNTIME_DIR/wayland-0"
 export WAYLAND_DISPLAY=wayland-0
+/usr/bin/python3 /usr/local/bin/file-picker.py > "$XDG_RUNTIME_DIR/picker.log" 2>&1 &
+picker_pid=$!
+for ((i=0; i<100; i++)); do
+    [ ! -f "$XDG_RUNTIME_DIR/picker-ready" ] || break
+    kill -0 "$picker_pid"
+    sleep 0.1
+done
+test -f "$XDG_RUNTIME_DIR/picker-ready"
+export GTK_USE_PORTAL=1
 python3 -m selkies --addr=127.0.0.1 --mode=websockets --wayland=true \
     --wayland-host-display=wayland-0 --app-wayland-display=wayland-0 \
     --enable-basic-auth=false > "$XDG_RUNTIME_DIR/selkies.log" 2>&1 &
@@ -70,4 +79,4 @@ stream_pid=$!
 /usr/local/bin/browser-session.sh > "$XDG_RUNTIME_DIR/browser.log" 2>&1 &
 browser_pid=$!
 touch "$XDG_RUNTIME_DIR/ready"
-wait -n "$stream_pid" "$compositor_pid" "$browser_pid"
+wait -n "$stream_pid" "$compositor_pid" "$browser_pid" "$picker_pid"
