@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.6 (Pocket ID fork)
+
+- Fixed duplicate pointers and missing CSS cursor-shape updates in private desktops. Each user's application compositor now forwards its cursor to a private Selkies capture compositor, keeping the pointer out of video unless native cursor rendering is enabled.
+- Verified distinct text/hand cursor messages, cursor-free video in CSS mode, native cursor toggling, resizing, and the private picker and two-user lifecycle tests.
+
 ## 1.2.0-beta.5 (Pocket ID fork)
 
 - Website uploads and Save dialogs now use a compact dark My files picker in each private desktop. It browses only that user's Downloads tree, rejects symlinks and outside paths, and supports multiple files and filename filters. Folder uploads are rejected.

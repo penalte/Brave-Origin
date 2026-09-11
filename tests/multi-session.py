@@ -52,6 +52,8 @@ async def main():
                 page = ('<html><body style="margin:0;background:'+color+'">'+user+
                         '<input type="file" style="position:absolute;left:20px;top:20px;width:250px;height:40px" '
                         'onchange="this.files[0].text().then(t=>document.body.style.background=t===\''+user+'\'?\'#00ff00\':\'#ffffff\')">'
+                        '<div style="position:absolute;left:350px;top:250px;width:150px;height:150px;cursor:text"></div>'
+                        '<div style="position:absolute;left:550px;top:250px;width:150px;height:150px;cursor:pointer"></div>'
                         '<script>let a=document.createElement("a");a.href="data:text/plain,'+user+
                         '";a.download="from-brave.txt";a.click();</script></body></html>')
                 response = await client.post(server.make_url('/api/upload'), headers={**auth,'X-Upload-Path':'page.html'},data=page.encode())
@@ -101,6 +103,8 @@ async def main():
                 if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
                     from picker_browser import exercise_picker
                     await exercise_picker(socket, desktop, decoder, user)
+                    from cursor_browser import exercise_cursor
+                    await exercise_cursor(socket, decoder, user)
             # UID boundaries protect another session's stream and files.
             for endpoint in ('stream.sock', 'wayland-0', 'pulse/native'):
                 target = desktops['bob'].browser.directory / endpoint

@@ -97,8 +97,9 @@ The X11 image is not supported by this integration.
   failed cleanup the gateway retries reconciliation every 30 seconds and reopens
   once no profile process remains, so a transient fault is not a lasting outage.
   Container restart recovers conservatively and requires a fresh login.
-- Browsers run under a private headless Labwc desktop. Selkies captures that
-  compositor directly. Each runtime directory, audio socket and streaming socket
+- Browsers run under a private Labwc desktop nested in that user's Selkies
+  capture compositor. This keeps CSS cursor sprites separate from video while
+  supporting native cursor rendering when selected. Each runtime directory, audio socket and streaming socket
   is private to its identity UID. GTK and Brave use dark mode.
 - A private desktop failure closes that user's session. A gateway failure uses
   the container restart policy. Normal logins/logouts never restart the container.
@@ -134,6 +135,8 @@ distinct page pixels, tests private transfers and socket permissions, and checks
 independent logout. Container start time must stay unchanged across user transitions.
 It also exercises website uploads and saves through the real custom picker,
 Escape cancellation, path rejection and cleanup after picker failure.
+Cursor tests verify text/hand shape updates, no cursor pixels in CSS mode,
+native cursor rendering and private-desktop resizing.
 Signed-token and interrupted-update cases are tested separately. GPU rendering,
 live Pocket ID credentials and simultaneous audible playback require host testing.
 
