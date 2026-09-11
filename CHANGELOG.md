@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.2.0-beta.8 (Pocket ID fork)
+
+- Blocked the ways a session could leave its managed profile: Incognito windows, private windows with Tor, guest profiles and adding a second profile. Each of them would otherwise escape the per-identity download folder.
+- Turned off casting and the cast button. Device discovery reached the host's network from inside a remote session.
+- Added `BROWSER_POLICY` for extra Chromium or Brave managed policies as a JSON object. The private download directory is applied last and cannot be overridden; malformed input stops startup instead of being ignored.
+- Rewrote the README around private multi-user sessions, including the locked browser features and the OIDC settings.
+
+## 1.2.0-beta.7 (Pocket ID fork)
+
+- Removed the private picker title bar and window-manager menu, including its Alt+Space shortcut. The picker retains its own Open/Save, Cancel and Escape controls.
+- Set Brave's system-titlebar preference once for new and existing identity profiles, preserving other preferences and later manual changes.
+
 ## 1.2.0-beta.6 (Pocket ID fork)
 
 - Fixed duplicate pointers and missing CSS cursor-shape updates in private desktops. Each user's application compositor now forwards its cursor to a private Selkies capture compositor, keeping the pointer out of video unless native cursor rendering is enabled.
