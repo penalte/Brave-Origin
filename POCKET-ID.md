@@ -121,7 +121,8 @@ or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
 requests are cancelled; select individual files instead. Save names must be plain
 filenames, and existing files require overwrite confirmation.
 The picker has no window-manager title bar or menu; use Cancel or Escape to
-close it. Brave starts with “Use system titlebar and borders” selected. This
+close it. Brave uses its own frame with a close-only button layout (plus tab search).
+“Use system titlebar and borders” is unchecked by default. This
 default is applied once per identity profile, preserving subsequent user changes.
 
 The picker runs on each desktop's private D-Bus session and must be ready before

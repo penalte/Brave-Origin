@@ -14,13 +14,13 @@ python3 - <<'PY'
 import json, os
 from pathlib import Path
 profile = Path(os.environ['HOME']) / 'profile'
-marker = profile / '.system-titlebar-default-v1'
+marker = profile / '.close-only-frame-default-v2'
 if not marker.exists():
     directory = profile / 'Default'
     directory.mkdir(exist_ok=True)
     path = directory / 'Preferences'
     data = json.loads(path.read_text()) if path.exists() else {}
-    data.setdefault('browser', {})['custom_chrome_frame'] = False
+    data.setdefault('browser', {})['custom_chrome_frame'] = True
     temporary = directory / '.Preferences.titlebar.tmp'
     temporary.write_text(json.dumps(data))
     os.replace(temporary, path)

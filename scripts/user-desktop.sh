@@ -25,7 +25,7 @@ unset DISPLAY
 mkdir -p "$HOME/Downloads" "$XDG_CONFIG_HOME/labwc" "$XDG_RUNTIME_DIR/pulse"
 mkdir -p "$XDG_CONFIG_HOME/gtk-3.0" "$XDG_CONFIG_HOME/gtk-4.0"
 for version in gtk-3.0 gtk-4.0; do
-    printf '%s\n' '[Settings]' 'gtk-theme-name=Adwaita-dark' 'gtk-application-prefer-dark-theme=1' \
+    printf '%s\n' '[Settings]' 'gtk-theme-name=Adwaita-dark' 'gtk-application-prefer-dark-theme=1' 'gtk-decoration-layout=:close' \
         > "$XDG_CONFIG_HOME/$version/settings.ini"
 done
 cleanup() {

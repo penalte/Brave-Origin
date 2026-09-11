@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.12 (Pocket ID fork)
+
+- Set private desktops to a close-only GTK button layout and Brave's own frame, retaining the tab-search arrow and X. Existing profiles receive the corrected frame default once; later manual preference changes are preserved.
+
 ## 1.2.0-beta.11 (Pocket ID fork)
 
 - Moved the signed-in name and End session control into the Selkies sidebar, removing the outer top bar so the desktop fills the viewport. Logout retains its authenticated gateway flow with visible failure and retry handling.

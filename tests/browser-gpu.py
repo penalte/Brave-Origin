@@ -19,7 +19,8 @@ capture.chmod(0o755)
 with tempfile.TemporaryDirectory() as home:
     preferences = Path(home) / 'profile/Default/Preferences'
     preferences.parent.mkdir(parents=True)
-    preferences.write_text(json.dumps({'browser': {'custom_chrome_frame': True}, 'homepage': 'https://example.test'}))
+    preferences.write_text(json.dumps({'browser': {'custom_chrome_frame': False}, 'homepage': 'https://example.test'}))
+    (Path(home)/'profile/.system-titlebar-default-v1').touch()
     env = {'HOME': home, 'PATH': '/usr/local/bin:/usr/bin:/bin', 'ENABLE_GPU': 'true'}
     def flags():
         result = subprocess.run(['/bin/bash', '/usr/local/bin/browser-session.sh'], env=env,
@@ -28,13 +29,13 @@ with tempfile.TemporaryDirectory() as home:
         return result.stdout.splitlines()
     selected = flags()
     saved = json.loads(preferences.read_text())
-    assert saved['browser']['custom_chrome_frame'] is False
+    assert saved['browser']['custom_chrome_frame'] is True
     assert saved['homepage'] == 'https://example.test'
     # The migration sets the default once; later user preference changes survive.
-    saved['browser']['custom_chrome_frame'] = True
+    saved['browser']['custom_chrome_frame'] = False
     preferences.write_text(json.dumps(saved))
     flags()
-    assert json.loads(preferences.read_text())['browser']['custom_chrome_frame'] is True
+    assert json.loads(preferences.read_text())['browser']['custom_chrome_frame'] is False
     assert '--enable-gpu-rasterization' in selected
     assert '--enable-zero-copy' not in selected
     assert '--disable-features=Vulkan' in selected
