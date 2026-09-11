@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.10 (Pocket ID fork)
+
+- Moved file deletion into a dedicated Delete column with accessible trash-can buttons. Confirmation and file-only deletion are unchanged.
+
 ## 1.2.0-beta.9 (Pocket ID fork)
 
 - Added confirmed file deletion to Selkies My files, restricted to the signed-in identity's Downloads tree. Directories, links and outside paths cannot be deleted.

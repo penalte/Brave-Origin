@@ -1,13 +1,31 @@
 --- a/src/selkies/stream_server.py
 +++ b/src/selkies/stream_server.py
-@@ -596,6 +596,27 @@
+@@ -592,10 +592,45 @@
+             // sorting). nginx-served listings send no Content-Disposition
+             // header, so without this a click inside the dashboard's
+             // file-browser iframe renders the file inline instead.
++            if (window.__MY_FILES_DELETE__) {
++                const heading = document.createElement('th');
++                heading.textContent = 'Delete';
++                heading.style.textAlign = 'center';
++                document.querySelector('table#list thead tr').appendChild(heading);
++                document.querySelectorAll('table#list tbody tr').forEach(function(row) {
++                    const cell = row.insertCell();
++                    cell.className = 'delete-cell';
++                    cell.style.cssText = 'text-align:center;width:56px';
++                });
++            }
+             document.querySelectorAll('table#list td a').forEach(function(a) {
                  const href = a.getAttribute('href') || '';
                  if (href && !href.endsWith('/') && !href.startsWith('?')) {
                      a.setAttribute('download', '');
 +                    if (window.__MY_FILES_DELETE__) {
 +                        const button = document.createElement('button');
-+                        button.textContent = 'Delete';
-+                        button.style.cssText = 'margin-left:16px;padding:4px 10px;background:transparent;color:#f59dc4;border:1px solid #707782;border-radius:4px;cursor:pointer';
++                        button.type = 'button';
++                        button.title = 'Delete ' + a.textContent;
++                        button.setAttribute('aria-label', 'Delete ' + a.textContent);
++                        button.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
++                        button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;color:#f59dc4;border:0;border-radius:4px;cursor:pointer';
 +                        button.addEventListener('click', async function() {
 +                            if (!window.confirm('Permanently delete "' + a.textContent + '"?')) return;
 +                            button.disabled = true;
@@ -23,12 +41,12 @@
 +                                button.disabled = false;
 +                            }
 +                        });
-+                        a.parentElement.appendChild(button);
++                        a.closest('tr').querySelector('.delete-cell').appendChild(button);
 +                    }
                  }
              });
  
-@@ -1606,6 +1627,42 @@
+@@ -1606,6 +1641,42 @@
              dst.mkdir(exist_ok=True)
              for child in src.iterdir():
                  self._copy_traversable(child, dst / child.name)
@@ -71,7 +89,7 @@
  
      async def fancy_index_handler(self, request: web.Request) -> web.StreamResponse:
          """GET /api/files/...: serve the file-manager tree for download.
-@@ -1792,6 +1849,7 @@
+@@ -1792,6 +1863,7 @@
                  {rows}
              </tbody>
          </table>
@@ -79,7 +97,7 @@
          {FILE_INDEX_FOOTER}
          """
  
-@@ -1830,6 +1888,7 @@
+@@ -1830,6 +1902,7 @@
              # deployment whose frontend is served elsewhere (nginx, web_root
              # unset) still gets downloads instead of a 404.
              web.get(f"{api_prefix}/api/files/{{path:.*}}", self.fancy_index_handler),
