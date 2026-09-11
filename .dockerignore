@@ -21,6 +21,7 @@
 
 !scripts/prepare-storage.py
 !scripts/session-manager.py
+!scripts/multi-session.py
 !config/nginx-oidc.conf
 !config/portal.html
 !config/portal.js

@@ -165,6 +165,10 @@ RUN mkdir -p /etc/brave/policies/managed && \
 # 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
+ADD --checksum=sha256:659a8c2202bbfad10eb925e75656ff714cf13816a77107d9b530102b017e07b9 \
+    https://github.com/selkies-project/pixelflux/releases/download/a3290fd/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+RUN pip install --no-deps --break-system-packages /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl && \
+    rm /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
 COPY dependencies/runtime.txt /tmp/runtime-requirements.txt
 # Pelorus is the donor desktop's launcher; it is not used by this browser image.
 RUN rm -rf /usr/local/lib/python3.13/dist-packages/pelorus /usr/local/lib/python3.13/dist-packages/pelorus-*.dist-info && \
@@ -202,6 +206,9 @@ COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh
 COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
 COPY scripts/session-manager.py /usr/local/bin/session-manager.py
+COPY scripts/multi-session.py /usr/local/bin/multi-session.py
+COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
+RUN chmod 755 /usr/local/bin/user-desktop.sh
 COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
 COPY config/nginx-oidc.conf /etc/nginx/nginx-oidc.conf
 COPY config/portal.html config/portal.js /usr/local/share/brave-origin/

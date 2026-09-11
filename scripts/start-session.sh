@@ -16,6 +16,14 @@ export XCURSOR_THEME=Adwaita
 export XCURSOR_SIZE=24
 export XKB_DEFAULT_LAYOUT=us
 export XKB_DEFAULT_RULES=evdev
+export GTK_THEME=Adwaita:dark
+
+# GTK dialogs follow the same dark appearance as the browser chrome.
+for version in gtk-3.0 gtk-4.0; do
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/$version"
+    printf '%s\n' '[Settings]' 'gtk-theme-name=Adwaita-dark' 'gtk-application-prefer-dark-theme=1' \
+        > "${XDG_CONFIG_HOME:-$HOME/.config}/$version/settings.ini"
+done
 
 # Explicitly UNSET DISPLAY to guarantee zero X11 / Xwayland execution
 unset DISPLAY
@@ -337,6 +345,7 @@ read -r -a GPU_ARGS <<< "$GPU_FLAGS"
     --no-default-browser-check \
     --password-store=basic \
     --start-maximized \
+    --force-dark-mode \
     "${GPU_ARGS[@]}" \
     "${EXTRA_FLAGS[@]}" \
     "$@" 8>&- 9>&- >> /config/state/brave.log 2>&1 &

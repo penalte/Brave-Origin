@@ -1,0 +1,132 @@
+"""Disposable-container integration: two real desktops and private transfers."""
+import asyncio
+import importlib.util
+import json
+import os
+import time
+import struct
+import av
+from aiohttp import ClientSession
+from aiohttp.test_utils import TestServer
+
+spec = importlib.util.spec_from_file_location('multi', '/usr/local/bin/multi-session.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+
+class Provider:
+    run = str(time.time_ns())
+    async def authenticate(self, http, code, flow):
+        return {'iss': 'https://id.example.test', 'sub': code + self.run, 'name': code, 'exp': time.time()+900}
+
+
+async def main():
+    config = m.single.Config({'OIDC_ISSUER_URL': 'https://id.example.test', 'OIDC_CLIENT_ID': 'test',
+                              'OIDC_CLIENT_SECRET': 'test', 'AUTO_UPDATE': 'false', 'MAX_UPLOAD_MB': '1'})
+    config.maximum, config.launch_timeout = 2, 90
+    broker = m.Broker(config, oidc=Provider())
+    server = TestServer(broker.app())
+    await server.start_server()
+    headers = {'Host': 'web.example.test', 'Origin': 'https://web.example.test'}
+    try:
+        async with ClientSession() as client:
+            async def login(user):
+                broker.flows[user] = {'cookie':user, 'origin':'https://web.example.test', 'expires':time.time()+60}
+                response = await client.get(server.make_url('/auth/callback'), params={'state':user,'code':user},
+                    headers={**headers, 'Cookie':m.single.FLOW_COOKIE+'='+user}, allow_redirects=False)
+                assert response.status == 302, (response.status, await response.text())
+                return {**headers, 'Cookie':m.single.COOKIE+'='+response.cookies[m.single.COOKIE].value}
+            a, b = await asyncio.gather(login('alice'), login('bob'))
+            assert len(broker.sessions) == 2
+            desktops = {s.owner['name']:s for s in broker.sessions.values()}
+            assert desktops['alice'].browser.uid != desktops['bob'].browser.uid
+            assert desktops['alice'].browser.directory != desktops['bob'].browser.directory
+            response = await client.get(server.make_url('/auth/login'), headers=headers, allow_redirects=False)
+            assert response.status == 409, 'Capacity limit must reject another login'
+            for user, auth in (('alice',a), ('bob',b)):
+                response = await client.post(server.make_url('/desktop/api/upload'), headers={**auth,'X-Upload-Path':'same.txt'}, data=user.encode())
+                assert response.status == 200, (response.status,await response.text())
+                response = await client.get(server.make_url('/api/files/same.txt'), headers=auth)
+                assert response.status == 200 and await response.text() == user
+                color = '#ff0000' if user == 'alice' else '#0000ff'
+                page = ('<html><body style="margin:0;background:'+color+'">'+user+
+                        '<script>let a=document.createElement("a");a.href="data:text/plain,'+user+
+                        '";a.download="from-brave.txt";a.click();</script></body></html>')
+                response = await client.post(server.make_url('/api/upload'), headers={**auth,'X-Upload-Path':'page.html'},data=page.encode())
+                assert response.status == 200
+                desktop = desktops[user].browser
+                await asyncio.sleep(3)
+                socket = await client.ws_connect(server.make_url('/desktop/api/websockets'),headers=auth)
+                await socket.send_str('SETTINGS,'+json.dumps({'displayId':'primary','initialClientWidth':800,'initialClientHeight':600,'framerate':10}))
+                await socket.send_str('START_VIDEO')
+                async with asyncio.timeout(40):
+                    decoder = av.CodecContext.create('h264','r')
+                    async for message in socket:
+                        raw = message.data
+                        if message.type != m.single.WSMsgType.BINARY or len(raw)<11 or raw[0]!=4:
+                            continue
+                        frame_id, y, width, height = struct.unpack('!4H',raw[2:10])
+                        await socket.send_str(f'CLIENT_FRAME_ACK {frame_id}')
+                        if y != 0:
+                            continue
+                        for frame in decoder.decode(av.Packet(raw[10:])):
+                            frame.to_image().save('/tmp/'+user+'-latest.png')
+                            plane = frame.reformat(format='rgb24').planes[0]
+                            offset = (height//2)*plane.line_size + (width//2)*3
+                            r,g,blue = bytes(plane)[offset:offset+3]
+                            if not hasattr(desktops[user], 'frame_saved'):
+                                frame.to_image().save('/tmp/'+user+'-frame.png')
+                                desktops[user].frame_saved = True
+                                for event in ('kd,65507', 'kd,108', 'ku,108', 'ku,65507',
+                                              'co,end,file://'+str(desktop.home/'Downloads/page.html'),
+                                              'kd,65293', 'ku,65293'):
+                                    await socket.send_str(event)
+
+                                print('First frame',user,width,height,r,g,blue,flush=True)
+                            if user == 'alice' and r>180 and blue<80 or user == 'bob' and blue>180 and r<80:
+                                break
+                        else:
+                            continue
+                        break
+                    else:
+                        raise AssertionError('No video frames')
+                desktops[user].test_socket = socket
+                for _ in range(50):
+                    if (desktop.home/'Downloads/from-brave.txt').exists():
+                        break
+                    await asyncio.sleep(0.1)
+                assert (desktop.home/'Downloads/from-brave.txt').read_text() == user, 'Browser download policy did not resolve private HOME'
+            # UID boundaries protect another session's stream and files.
+            for endpoint in ('stream.sock', 'wayland-0', 'pulse/native'):
+                target = desktops['bob'].browser.directory / endpoint
+                assert target.is_socket()
+                process = await asyncio.create_subprocess_exec('/usr/sbin/runuser','-u',
+                    __import__('pwd').getpwuid(desktops['alice'].browser.uid).pw_name,'--','python3','-c',
+                    'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])',str(target),
+                    stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL)
+                assert await process.wait() != 0
+            response = await client.post(server.make_url('/api/upload'),headers={**a,'Origin':'https://attacker.test','X-Upload-Path':'evil'},data=b'x')
+            assert response.status == 403
+            response = await client.post(server.make_url('/api/upload'),headers={**a,'X-Upload-Path':'big','X-Upload-Total':str(2*1024*1024)},data=b'x')
+            assert response.status == 413
+            alice_uid = desktops['alice'].browser.uid
+            response = await client.post(server.make_url('/auth/logout'),headers={**a,'X-CSRF-Token':desktops['alice'].owner['csrf']})
+            assert response.status == 200
+            assert not m.single.Browser.pids(alice_uid)
+            assert desktops['bob'].browser.running()
+            response = await client.get(server.make_url('/api/files/same.txt'),headers=a)
+            assert response.status == 403
+            response = await client.get(server.make_url('/api/files/same.txt'),headers=b)
+            assert await response.text() == 'bob'
+            response = await client.post(server.make_url('/auth/logout'),headers={**b,'X-CSRF-Token':desktops['bob'].owner['csrf']})
+            assert response.status == 200
+            assert not broker.sessions
+    finally:
+        for session in broker.sessions.values():
+            if session.browser.directory and (session.browser.directory/'browser.log').exists():
+                print((session.browser.directory/'browser.log').read_text(), flush=True)
+        await server.close()
+    print('PASS: two real private desktops, video, upload/download isolation, cross-UID socket rejection and independent logout')
+
+
+asyncio.run(main())

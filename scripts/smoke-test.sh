@@ -5,6 +5,7 @@ image="${1:?Usage: scripts/smoke-test.sh IMAGE}"
 name="brave-test-$$"
 volume="${name}-config"
 test_files=$(mktemp -d)
+if command -v cygpath >/dev/null; then test_files=$(cygpath -m "$test_files"); fi
 cleanup() {
     result=$?
     if (( result )); then

@@ -2,8 +2,6 @@
 set -euo pipefail
 if [ "${OIDC_ENABLED:-false}" = true ]; then
     curl -fsS --max-time 5 http://127.0.0.1:8084/health >/dev/null
-    pgrep -x 'labwc|labwc-browser' >/dev/null
-    ss -ltn | awk '$4 == "127.0.0.1:8082" {found=1} END {exit !found}'
     exit
 fi
 code=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:8443/)

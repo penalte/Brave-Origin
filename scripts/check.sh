@@ -44,6 +44,7 @@ print('Shell syntax, whitespace, distribution rules, Unraid template, and Commun
 PY
 python3 -m py_compile scripts/prepare-storage.py scripts/security-scan.py tests/storage.py
 python3 -m py_compile scripts/session-manager.py tests/oidc-session.py tests/oidc-tokens.py
+python3 -m py_compile scripts/multi-session.py tests/multi-session.py tests/oidc-recovery.py tests/browser-gpu.py
 python3 tests/release.py
 docker compose config --quiet
 docker compose -f compose.yaml -f compose.gpu.yaml config --quiet

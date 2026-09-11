@@ -4,7 +4,12 @@ set -euo pipefail
 umask 077
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
 export XDG_DATA_HOME="$HOME/.local/share"
+export GTK_THEME=Adwaita:dark
 mkdir -p "$HOME/profile" "$HOME/.cache" "$HOME/.config" "$HOME/.local/share"
+# Match the standard launcher's first-run behavior for new identity profiles.
+if [ ! -f "$HOME/profile/Local State" ]; then
+    printf '%s\n' '{"brave":{"has_seen_brave_welcome_page":true,"origin":{"free_tier_accepted":true}}}' > "$HOME/profile/Local State"
+fi
 read -r -a extra <<< "${BRAVE_FLAGS:-}"
 for flag in "${extra[@]}"; do
     case "$flag" in
@@ -38,4 +43,5 @@ exec dbus-run-session -- /opt/brave.com/brave-origin/brave \
     --ozone-platform=wayland --user-data-dir="$HOME/profile" \
     --disk-cache-dir="$HOME/.cache/brave" --password-store=basic \
     --no-first-run --no-default-browser-check --start-maximized \
+    --force-dark-mode \
     "${gpu[@]}" "${extra[@]}"

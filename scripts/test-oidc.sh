@@ -27,7 +27,7 @@ done
 [ "$ready" = true ]
 docker exec "$name" sh -c '! pgrep -x brave'
 identity=$(docker inspect --format '{{.State.StartedAt}}' "$name")
-for test in oidc-tokens oidc-recovery oidc-session; do
+for test in oidc-tokens oidc-recovery multi-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
     docker exec "$name" python3 "/tmp/$test.py"
 done

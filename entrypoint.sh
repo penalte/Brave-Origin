@@ -275,19 +275,10 @@ launch_session() {
     SESSION_PID=$!
 }
 if [ "${OIDC_ENABLED:-false}" = true ]; then
-    rm -f /tmp/brave-desktop-ready
-    launch_session
-    # The desktop publishes its window-manager socket here once it is usable.
-    for ((i=0; i<90; i++)); do
-        [ ! -s /tmp/brave-desktop-ready ] || break
-        kill -0 "$SESSION_PID" || exit 1
-        sleep 1
-    done
-    [ -s /tmp/brave-desktop-ready ] || { echo 'Desktop failed to start.' >&2; exit 1; }
-    python3 /usr/local/bin/session-manager.py 7>&- &
+    SESSION_PID=0
+    python3 /usr/local/bin/multi-session.py 7>&- &
     MANAGER_PID=$!
-    # A desktop failure invalidates its lease; never silently transfer a user.
-    wait -n "$SESSION_PID" "$MANAGER_PID" || true
+    wait "$MANAGER_PID" || true
     cleanup
 elif [ ! -f /config/state/quiesce.flag ]; then
     launch_session

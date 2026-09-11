@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.1 (Pocket ID fork)
+
+- Each identity now gets a private Wayland desktop, streaming server and audio session. Logout closes that user's stack while other users and the container stay running.
+- Restored Selkies upload/download access using each identity's private Downloads folder. Added configurable session capacity and upload limits.
+- Captures private headless Labwc sessions directly with a pinned matching Pixelflux library; GTK and Brave use dark mode.
+- Waits for desktop descendants to exit before releasing a session. GPU hardware and live Pocket ID deployment still require host verification.
+
 ## 1.1.0-beta.4 (Pocket ID fork)
 
 - Fixed NVIDIA detection under the browser account's restricted PATH. NVIDIA sessions no longer accidentally select generic render-node zero-copy flags; missing NVIDIA graphics drivers use software rendering.

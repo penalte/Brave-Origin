@@ -1,7 +1,7 @@
 # Brave Origin in Docker
 
 This fork includes configurable [Pocket ID / OIDC sessions](POCKET-ID.md) on the
-Wayland image: private profiles, one admitted user, and browser-only start/stop.
+Wayland image: concurrent private profiles and per-user desktop start/stop.
 Build the fork to use it; upstream image tags do not include this integration.
 
 > Testing release: `1.0.1-beta.2` fixes automatic resizing, keeps Brave maximized, and includes application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).

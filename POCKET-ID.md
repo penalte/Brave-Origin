@@ -1,12 +1,12 @@
 # Pocket ID browser sessions
 
-This fork adds an optional OIDC mode to the **Wayland** image. The container, nginx,
-Selkies, compositor and audio service stay running. Brave starts only after an
-authorized login and closes when the user ends the application session, the
+This fork adds an optional OIDC mode to the **Wayland** image. The container and
+nginx stay running. Each authorized login starts a private compositor, Selkies,
+audio service and Brave. The whole private desktop closes when the user ends the application session, the
 session expires, or the last streaming connection exceeds its reconnect grace.
 
-Only one user can enter at a time. A second login receives a busy response, and a
-second open tab cannot replace the active stream. Each OIDC issuer/subject pair
+Up to `MAX_CONCURRENT_SESSIONS` users can enter at once (default 2). Each identity
+can have one active desktop; a second open tab cannot replace its active stream. Each OIDC issuer/subject pair
 gets a private home and browser profile under `/config/users`, running under a
 separate Linux UID. Cookies, settings, extensions, cache and browser downloads
 persist there. Existing `/config/profile` data is not automatically assigned to a
@@ -30,7 +30,10 @@ OIDC_ALLOWED_GROUPS=
 SESSION_MAX_SECONDS=3600
 DISCONNECT_GRACE_SECONDS=30
 SESSION_CONNECT_TIMEOUT=90
-IMAGE_NAME=ghcr.io/penalte/brave-origin:1.1.0-beta.4
+SESSION_START_TIMEOUT=90
+MAX_CONCURRENT_SESSIONS=2
+MAX_UPLOAD_MB=1024
+IMAGE_NAME=ghcr.io/penalte/brave-origin:1.2.0-beta.1
 ```
 
 All values are Docker environment variables. For a mounted secret, set
@@ -83,12 +86,10 @@ The X11 image is not supported by this integration.
 - End session performs local application logout. It does not log the user out of
   Pocket ID or unrelated applications. Logging out of Pocket ID elsewhere does
   not promise immediate browser termination; no back-channel logout is implemented.
-- Only the session owner can use the stream. Sharing, terminal commands, secondary
-  sessions and the Selkies upload/download interface are disabled in OIDC mode,
-  both at the streaming server and at the gateway, which forwards only the paths
-  the client needs and rejects relative path segments outright.
-  Downloads inside Brave remain in the user's private home. This avoids exposing
-  a shared transfer directory; a per-user web transfer UI is not implemented.
+- Only the session owner can use their stream. Sharing and terminal commands are
+  disabled. Selkies uploads and downloads use that identity's private `Downloads`
+  folder, also used by Brave. `MAX_UPLOAD_MB` bounds uploads. Other identities
+  cannot access the session socket or home directory.
 - Closing the last browser window ends the app session once its process exits.
 - Automatic updates run while idle. Admission stays closed during installation.
   An update that fails without touching the installed browser reopens admission;
@@ -96,11 +97,11 @@ The X11 image is not supported by this integration.
   failed cleanup the gateway retries reconciliation every 30 seconds and reopens
   once no profile process remains, so a transient fault is not a lasting outage.
   Container restart recovers conservatively and requires a fresh login.
-- Browsers run under the session's window manager, so the kiosk window rules and
-  suppressed desktop shortcuts apply as they do in password mode. The gateway
-  follows the socket the desktop reports rather than a fixed name.
-- A desktop/gateway failure shuts down the container for its configured restart
-  policy. Normal user logins/logouts never start or stop the container.
+- Browsers run under a private headless Labwc desktop. Selkies captures that
+  compositor directly. Each runtime directory, audio socket and streaming socket
+  is private to its identity UID. GTK and Brave use dark mode.
+- A private desktop failure closes that user's session. A gateway failure uses
+  the container restart policy. Normal logins/logouts never restart the container.
 
 Legacy `profile-control.sh` backup hooks are disabled in OIDC mode. For a
 consistent full backup, end the application session and stop the container, then
@@ -114,16 +115,15 @@ Run the self-contained acceptance suite against a locally built image:
 bash scripts/test-oidc.sh brave-origin:pocket-id
 ```
 
-Verified locally on 10 September 2026: full source image build, shell/Python syntax,
-Python dependency consistency, Compose configuration, signed-token rejection cases,
-simultaneous admission, real video over the gateway, second-tab rejection, live
-socket logout, private-profile file permissions, audio access, session expiry and
-disconnect shutdown. Container start time remained unchanged across user transitions.
-Legacy password mode also became healthy and returned 401 without credentials and
-200 with credentials. GPU rendering and live Pocket ID credentials were not tested.
+The multi-user suite launches two real desktops and navigates through their
+authenticated keyboard streams. It decodes keyframes and delta frames, verifies
+distinct page pixels, tests private transfers and socket permissions, and checks
+independent logout. Container start time must stay unchanged across user transitions.
+Signed-token and interrupted-update cases are tested separately. GPU rendering,
+live Pocket ID credentials and simultaneous audible playback require host testing.
 
 In a disposable running OIDC container with no real user session, copy and execute
-`tests/oidc-session.py` and `tests/oidc-tokens.py` using `docker cp` and
+`tests/multi-session.py` and `tests/oidc-tokens.py` using `docker cp` and
 `docker exec ... python3 /tmp/<test-file>`. The session test creates private test
 profiles and launches real Brave. **Never run it against a production profile**:
 it exercises crash recovery and stops managed profile processes.

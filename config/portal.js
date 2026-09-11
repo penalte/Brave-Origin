@@ -9,9 +9,9 @@ async function update() {
     document.getElementById('session').hidden = !active;
     document.getElementById('login').hidden = state.state !== 'IDLE';
     document.getElementById('message').textContent = state.state === 'IDLE'
-      ? 'Sign in to open your own browser profile. Only one person can use the browser at a time.'
+      ? 'Sign in to open your private browser and desktop.'
       : state.owner ? 'Preparing your browser…'
-      : state.state === 'ERROR' ? 'The browser needs administrator attention.' : 'The browser is currently in use. Please try again later.';
+      : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     document.getElementById('name').textContent = state.name || 'Private browser';
     if (active && !opened) { document.getElementById('desktop').src = '/desktop/'; opened = true; }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; }

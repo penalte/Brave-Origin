@@ -70,6 +70,7 @@ class Config:
         self.start_timeout = integer(env, 'SESSION_CONNECT_TIMEOUT', 90, 10, 300)
         self.update_interval = integer(env, 'UPDATE_INTERVAL', 21600, 60, 604800)
         self.auto_update = env.get('AUTO_UPDATE', 'true') == 'true'
+        self.upload_limit = integer(env, 'MAX_UPLOAD_MB', 1024, 1, 10240) * 1024 * 1024
 
 
 class OIDC:
@@ -425,6 +426,14 @@ finally:
                 self.send_signal(self.uid, signal.SIGKILL)
             if self.process is not None:
                 await asyncio.wait_for(self.process.wait(), 10)
+            # The supervisor can exit before its audio/compositor descendants.
+            # Give signalled processes time to leave the scheduler before deciding
+            # cleanup failed. Keep the identity reserved throughout this wait.
+            for _ in range(100):
+                if not self.pids(self.uid):
+                    break
+                self.send_signal(self.uid, signal.SIGKILL)
+                await asyncio.sleep(0.1)
             if self.pids(self.uid):
                 raise RuntimeError('Browser processes remain; admission stays locked')
         await self.clear_shared()
@@ -576,8 +585,22 @@ class Manager:
             path = path[len('/desktop'):]
         allowed = path == '/' or path.startswith(('/assets/', '/src/', '/nginx/')) or path in (
             '/api/websockets', '/api/websockets/', '/favicon.ico', '/icon.png', '/icon-512.png', '/manifest.json')
-        if not allowed or request.method != 'GET':
+        private = getattr(self.browser, 'directory', None) is not None
+        upload = private and path == '/api/upload' and request.method == 'POST'
+        files = private and path.startswith('/api/files/') and request.method == 'GET'
+        if not (upload or files or allowed and request.method == 'GET'):
             raise web.HTTPForbidden(text='Endpoint unavailable')
+        if upload:
+            if request.headers.get('Origin') != request['app_origin']:
+                raise web.HTTPForbidden(text='Upload requires same-origin request')
+            for value in (request.content_length, request.headers.get('X-Upload-Total')):
+                if value is not None:
+                    try:
+                        size = int(value)
+                    except ValueError:
+                        raise web.HTTPBadRequest(text='Invalid upload size') from None
+                    if size < 0 or size > self.config.upload_limit:
+                        raise web.HTTPRequestEntityTooLarge(max_size=self.config.upload_limit, actual_size=size)
         # Build the target from the checked path so no later re-parse can move it.
         target = URL.build(scheme='http', host='127.0.0.1', port=8082, path=path,
                            query_string=request.query_string)
@@ -619,7 +642,18 @@ class Manager:
         task = asyncio.current_task()
         self.transfers.add(task)
         try:
-            async with self.http.get(target, allow_redirects=False) as upstream:
+            async def body():
+                total = 0
+                async for chunk in request.content.iter_chunked(65536):
+                    self.require_owner(request)
+                    total += len(chunk)
+                    if total > self.config.upload_limit:
+                        raise web.HTTPRequestEntityTooLarge(max_size=self.config.upload_limit, actual_size=total)
+                    yield chunk
+            headers = {key: value for key, value in request.headers.items()
+                       if key.lower().startswith('x-upload-') or key.lower() == 'content-type'} if upload else {}
+            async with self.http.request(request.method, target, data=body() if upload else None,
+                                         headers=headers, allow_redirects=False) as upstream:
                 response = web.StreamResponse(status=upstream.status,
                     headers={k:v for k,v in upstream.headers.items() if k.lower() not in HOP and k.lower() not in ('content-encoding', 'cache-control')})
                 response.headers['Cache-Control'] = 'no-store'
