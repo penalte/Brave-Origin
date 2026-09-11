@@ -39,6 +39,33 @@ def https_url(value):
     return value.rstrip('/')
 
 
+def policies(download_directory, env=os.environ):
+    """Managed Chromium policy: a locked baseline plus operator additions.
+
+    Each blocked feature opens a browsing context outside the managed profile,
+    where this appliance's per-identity separation does not reach. The download
+    directory is not negotiable: it is what keeps one identity's files out of
+    another's home, so operator additions cannot move it.
+    """
+    policy = {'BookmarkBarEnabled': True, 'BackgroundModeEnabled': False,
+              'IncognitoModeAvailability': 1, 'TorDisabled': True,
+              'BrowserGuestModeEnabled': False, 'BrowserAddPersonEnabled': False,
+              # Casting discovers and reaches devices on the host's network from
+              # inside a session, which no remote browser user should inherit.
+              'EnableMediaRouter': False, 'ShowCastIconInToolbar': False}
+    extra = env.get('BROWSER_POLICY', '').strip()
+    if extra:
+        try:
+            added = json.loads(extra)
+        except ValueError as error:
+            raise ValueError(f'BROWSER_POLICY must be valid JSON: {error}') from None
+        if not isinstance(added, dict):
+            raise ValueError('BROWSER_POLICY must be a JSON object of policy names')
+        policy.update(added)
+    policy['DownloadDirectory'] = download_directory
+    return policy
+
+
 def integer(env, name, default, low, high):
     value = int(env.get(name, str(default)))
     if not low <= value <= high:
@@ -70,6 +97,8 @@ class Config:
         self.start_timeout = integer(env, 'SESSION_CONNECT_TIMEOUT', 90, 10, 300)
         self.update_interval = integer(env, 'UPDATE_INTERVAL', 21600, 60, 604800)
         self.auto_update = env.get('AUTO_UPDATE', 'true') == 'true'
+        # Reject a malformed policy at startup rather than at the first login.
+        policies('/nonexistent', env)
         self.upload_limit = integer(env, 'MAX_UPLOAD_MB', 1024, 1, 10240) * 1024 * 1024
 
 
@@ -352,8 +381,7 @@ class Browser:
                 LOG.warning('Could not grant group %s to a browser profile', gid)
         # User's download path is private too; no shared Selkies file server in OIDC mode.
         policy = Path('/etc/brave/policies/managed/policies.json')
-        policy.write_text(json.dumps({'BookmarkBarEnabled': True, 'DownloadDirectory': str(self.home / 'Downloads'),
-                                     'BackgroundModeEnabled': False}))
+        policy.write_text(json.dumps(policies(str(self.home / 'Downloads'))))
         env = {'HOME': str(self.home), 'USER': name, 'LOGNAME': name, 'PATH': '/usr/local/bin:/usr/bin:/bin',
                'LANG': 'C.UTF-8', 'XDG_RUNTIME_DIR': str(private_runtime),
                'WAYLAND_DISPLAY': str(runtime / self.app_display()),

@@ -171,7 +171,34 @@ Set these in `.env`, the Unraid template, or your container's environment.
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed desktop size, used only when `DISPLAY_AUTO_RESIZE=false`. |
 | `BROWSER_LOCK_MAXIMIZED` | `true` | Keep Brave maximized. Set `false` to allow minimizing, restoring and dragging. |
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
+| `BROWSER_POLICY` | Empty | Extra Chromium/Brave managed policies as one JSON object, merged over the built-in blocks below. `DownloadDirectory` is fixed and cannot be overridden. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
+
+### Locked browser features
+
+The image ships a managed policy at `/etc/brave/policies/managed/policies.json`,
+the same mechanism an organisation would use. It blocks the ways a session could
+open a browsing context outside its managed profile, or reach the host's network:
+
+| Policy | Effect |
+| --- | --- |
+| `IncognitoModeAvailability: 1` | No Incognito windows. |
+| `TorDisabled: true` | No private window with Tor. |
+| `BrowserGuestModeEnabled: false` | No guest profile. |
+| `BrowserAddPersonEnabled: false` | Cannot add another profile. |
+| `EnableMediaRouter: false` | Casting and device discovery off. |
+| `ShowCastIconInToolbar: false` | No cast button. |
+| `DownloadDirectory` | Forced to the session's private `Downloads` folder. |
+
+Add or relax policies with `BROWSER_POLICY`, for example to also disable
+developer tools and profile sync:
+
+```bash
+BROWSER_POLICY={"DeveloperToolsAvailability":2,"SyncDisabled":true}
+```
+
+Malformed JSON stops startup rather than silently ignoring the setting. Confirm
+what the browser actually applied by opening `brave://policy` inside a session.
 
 ### OIDC session settings
 

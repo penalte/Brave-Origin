@@ -162,7 +162,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tini tzdata uti
 
 # 2.5 Brave managed policy: bookmarks bar always visible in the locked session
 RUN mkdir -p /etc/brave/policies/managed && \
-    printf '%s\n' '{"BookmarkBarEnabled": true, "DownloadDirectory": "/config/downloads"}' > /etc/brave/policies/managed/policies.json && \
+    printf '%s\n' '{"BookmarkBarEnabled": true, "DownloadDirectory": "/config/downloads", "IncognitoModeAvailability": 1, "TorDisabled": true, "BrowserGuestModeEnabled": false, "BrowserAddPersonEnabled": false, "EnableMediaRouter": false, "ShowCastIconInToolbar": false}' > /etc/brave/policies/managed/policies.json && \
     chmod 644 /etc/brave/policies/managed/policies.json
 
 # 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f

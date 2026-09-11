@@ -24,7 +24,36 @@ class Browser:
         pass
 
 
+def check_policies():
+    blocked = m.policies('/home/someone/Downloads', {})
+    # Each of these opens a browsing context outside the managed profile.
+    assert blocked['IncognitoModeAvailability'] == 1
+    assert blocked['TorDisabled'] is True
+    assert blocked['BrowserGuestModeEnabled'] is False
+    assert blocked['BrowserAddPersonEnabled'] is False
+    # Casting reaches the host's network from inside a remote session.
+    assert blocked['EnableMediaRouter'] is False
+    assert blocked['ShowCastIconInToolbar'] is False
+    assert blocked['DownloadDirectory'] == '/home/someone/Downloads'
+    extended = m.policies('/home/someone/Downloads',
+                          {'BROWSER_POLICY': '{"SyncDisabled": true, "DownloadDirectory": "/etc"}'})
+    assert extended['SyncDisabled'] is True, 'Operator policy was not merged'
+    assert extended['DownloadDirectory'] == '/home/someone/Downloads', 'Download directory was overridden'
+    assert extended['IncognitoModeAvailability'] == 1
+    # An operator may deliberately relax a block, but never the private path.
+    relaxed = m.policies('/home/someone/Downloads', {'BROWSER_POLICY': '{"IncognitoModeAvailability": 0}'})
+    assert relaxed['IncognitoModeAvailability'] == 0
+    for broken in ('{"unclosed": ', '[]', '"text"', '3'):
+        try:
+            m.policies('/home/someone/Downloads', {'BROWSER_POLICY': broken})
+            raise AssertionError(f'Accepted invalid BROWSER_POLICY {broken!r}')
+        except ValueError:
+            pass
+    print('PASS: managed policy blocks private windows, keeps the private download path and rejects bad input')
+
+
 async def main():
+    check_policies()
     browser = Browser()
     manager = m.Manager(object(), browser=browser)
     await manager.update()

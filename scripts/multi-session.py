@@ -200,9 +200,8 @@ class Broker(single.Manager):
             if directory.is_dir() and not directory.is_symlink():
                 shutil.rmtree(directory)
         # Chromium policy expands ${user_home} separately in each process.
-        Path('/etc/brave/policies/managed/policies.json').write_text(json.dumps({
-            'BookmarkBarEnabled': True, 'BackgroundModeEnabled': False,
-            'DownloadDirectory': '${user_home}/Downloads'}))
+        Path('/etc/brave/policies/managed/policies.json').write_text(
+            json.dumps(single.policies('${user_home}/Downloads')))
         self.http = ClientSession(timeout=ClientTimeout(total=None, connect=10, sock_read=30))
         task = asyncio.create_task(self.monitor())
         try:
