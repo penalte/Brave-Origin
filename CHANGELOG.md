@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.4 (Pocket ID fork)
+
+- Replaced internal profile paths in the file manager with a compact “My files” heading and relative folder names. Existing storage and download links are unchanged.
+
 ## 1.2.0-beta.3 (Pocket ID fork)
 
 - Slimmed the session bar to 32px and made the desktop fill the remaining viewport. Removed the inline iframe baseline gap and outer-page scrollbar.
