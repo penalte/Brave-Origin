@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.11 (Pocket ID fork)
+
+- Moved the signed-in name and End session control into the Selkies sidebar, removing the outer top bar so the desktop fills the viewport. Logout retains its authenticated gateway flow with visible failure and retry handling.
+
 ## 1.2.0-beta.10 (Pocket ID fork)
 
 - Moved file deletion into a dedicated Delete column with accessible trash-can buttons. Confirmation and file-only deletion are unchanged.

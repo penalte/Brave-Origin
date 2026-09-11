@@ -1,4 +1,9 @@
 let csrf = '', opened = false;
+let sessionName = 'Private browser', ending = false, sessionError = '';
+function notifyDesktop() {
+  document.getElementById('desktop').contentWindow.postMessage({type:'brave-session-state',
+    active:opened, name:sessionName, ending, error:sessionError}, location.origin);
+}
 async function update() {
   try {
     const response = await fetch('/session/status', {cache:'no-store'});
@@ -12,13 +17,25 @@ async function update() {
       ? 'Sign in to open your private browser and desktop.'
       : state.owner ? 'Preparing your browser…'
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
-    document.getElementById('name').textContent = state.name || 'Private browser';
+    sessionName = state.name || 'Private browser';
     if (active && !opened) { document.getElementById('desktop').src = '/desktop/'; opened = true; }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; }
+    notifyDesktop();
   } catch { document.getElementById('message').textContent = 'Reconnecting to the service…'; }
 }
-document.getElementById('logout').onclick = async () => {
-  const response = await fetch('/auth/logout', {method:'POST', headers:{'X-CSRF-Token':csrf}});
-  if (response.ok) { await update(); } else { alert('Could not end the session. Please retry.'); }
-};
+async function endSession() {
+  if (!opened || ending) return;
+  ending = true; sessionError = ''; notifyDesktop();
+  try {
+    const response = await fetch('/auth/logout', {method:'POST', headers:{'X-CSRF-Token':csrf}});
+    if (!response.ok) throw new Error('Logout failed');
+    await update();
+  } catch { sessionError = 'Could not end the session. Please retry.'; }
+  finally { ending = false; notifyDesktop(); }
+}
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== document.getElementById('desktop').contentWindow) return;
+  if (event.data?.type === 'brave-session-ready') notifyDesktop();
+  if (event.data?.type === 'brave-session-end') endSession();
+});
 update(); setInterval(update, 3000);

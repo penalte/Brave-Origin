@@ -5,8 +5,8 @@
 :root{color-scheme:dark;font:16px system-ui;background:#11151d;color:#edf1fa}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
 main{max-width:460px;margin:18vh auto;padding:32px;background:#1c2330;border:1px solid #313d51;border-radius:18px}
 h1{font-size:27px}p{line-height:1.6;color:#b9c5d8}a,button{display:inline-block;border:0;border-radius:9px;background:#f46638;color:#fff;padding:12px 19px;text-decoration:none;font:inherit;cursor:pointer}
-#session{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;height:100vh;height:100dvh}header{flex:0 0 32px;min-height:32px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 10px;background:#1c2330;font-size:12px}header span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}header button{flex-shrink:0;padding:3px 10px;border-radius:6px;line-height:20px}iframe{display:block;flex:1 1 0;min-height:0;min-width:0;border:0;width:100%;height:0}body:has(#session[hidden]){overflow:auto}[hidden]{display:none!important}
+#session{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;height:100vh;height:100dvh}iframe{display:block;flex:1 1 0;min-height:0;min-width:0;border:0;width:100%;height:0}body:has(#session[hidden]){overflow:auto}[hidden]{display:none!important}
 </style></head><body>
 <main id="welcome"><h1>Private browser</h1><p id="message">Checking availability…</p><a id="login" href="/auth/login" hidden>Sign in</a></main>
-<section id="session" hidden><header><span id="name">Private browser</span><button id="logout">End session</button></header><iframe id="desktop" title="Brave browser" allow="clipboard-read; clipboard-write; fullscreen; microphone; autoplay"></iframe></section>
+<section id="session" hidden><iframe id="desktop" title="Brave browser" allow="clipboard-read; clipboard-write; fullscreen; microphone; autoplay"></iframe></section>
 <script src="/portal.js"></script></body></html>
