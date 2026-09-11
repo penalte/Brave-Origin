@@ -616,7 +616,10 @@ class Manager:
         private = getattr(self.browser, 'directory', None) is not None
         upload = private and path == '/api/upload' and request.method == 'POST'
         files = private and path.startswith('/api/files/') and request.method == 'GET'
-        if not (upload or files or allowed and request.method == 'GET'):
+        delete = private and path.startswith('/api/files/') and request.method == 'DELETE'
+        if delete and (request.headers.get('Origin') != request['app_origin'] or request.headers.get('X-My-Files-Action') != 'delete'):
+            raise web.HTTPForbidden(text='Delete requires same-origin confirmation')
+        if not (upload or files or delete or allowed and request.method == 'GET'):
             raise web.HTTPForbidden(text='Endpoint unavailable')
         if upload:
             if request.headers.get('Origin') != request['app_origin']:
@@ -689,6 +692,9 @@ class Manager:
                     yield chunk
             headers = {key: value for key, value in request.headers.items()
                        if key.lower().startswith('x-upload-') or key.lower() == 'content-type'} if upload else {}
+            if delete:
+                headers = {'Origin': request['app_origin'], 'Host': urlsplit(request['app_origin']).netloc,
+                           'X-My-Files-Action': 'delete'}
             async with self.http.request(request.method, target, data=body() if upload else None,
                                          headers=headers, allow_redirects=False) as upstream:
                 response = web.StreamResponse(status=upstream.status,

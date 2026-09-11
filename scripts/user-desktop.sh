@@ -13,6 +13,7 @@ export SELKIES_UNIX_SOCKET="$XDG_RUNTIME_DIR/stream.sock"
 export SELKIES_JS_SOCKET_PATH="$XDG_RUNTIME_DIR"
 export SELKIES_GAMEPAD_ENABLED='false|locked'
 export SELKIES_WEB_ROOT=/usr/share/selkies/web FILE_MANAGER_PATH="$HOME/Downloads"
+export BRAVE_PRIVATE_FILES=true
 export SELKIES_FILE_TRANSFERS=upload,download SELKIES_COMMAND_ENABLED='false|locked'
 export SELKIES_ENABLE_SHARING='false|locked' SELKIES_ENABLE_COLLAB='false|locked'
 export SELKIES_ENABLE_SHARED='false|locked' SELKIES_SECOND_SCREEN='false|locked'
@@ -59,7 +60,7 @@ done
 test -S "$XDG_RUNTIME_DIR/wayland-1"
 cat > "$XDG_CONFIG_HOME/labwc/rc.xml" <<'XML'
 <?xml version="1.0"?>
-<labwc_config><windowRules><windowRule identifier="brave-origin" serverDecoration="no"><action name="Maximize" /></windowRule></windowRules><keyboard><keybind key="A-F4"><action name="None" /></keybind><keybind key="A-Tab"><action name="None" /></keybind></keyboard><mouse/></labwc_config>
+<labwc_config><windowRules><windowRule identifier="brave-origin" serverDecoration="no"><action name="Maximize" /></windowRule><windowRule identifier="brave-files" serverDecoration="no" /></windowRules><keyboard><keybind key="A-F4"><action name="None" /></keybind><keybind key="A-Tab"><action name="None" /></keybind><keybind key="A-space"><action name="None" /></keybind></keyboard><mouse/></labwc_config>
 XML
 compositor=labwc-browser
 if [ "${BROWSER_LOCK_MAXIMIZED:-true}" = false ]; then compositor=labwc; fi

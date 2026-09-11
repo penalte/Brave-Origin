@@ -10,6 +10,22 @@ mkdir -p "$HOME/profile" "$HOME/.cache" "$HOME/.config" "$HOME/.local/share"
 if [ ! -f "$HOME/profile/Local State" ]; then
     printf '%s\n' '{"brave":{"has_seen_brave_welcome_page":true,"origin":{"free_tier_accepted":true}}}' > "$HOME/profile/Local State"
 fi
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+profile = Path(os.environ['HOME']) / 'profile'
+marker = profile / '.system-titlebar-default-v1'
+if not marker.exists():
+    directory = profile / 'Default'
+    directory.mkdir(exist_ok=True)
+    path = directory / 'Preferences'
+    data = json.loads(path.read_text()) if path.exists() else {}
+    data.setdefault('browser', {})['custom_chrome_frame'] = False
+    temporary = directory / '.Preferences.titlebar.tmp'
+    temporary.write_text(json.dumps(data))
+    os.replace(temporary, path)
+    marker.touch()
+PY
 read -r -a extra <<< "${BRAVE_FLAGS:-}"
 for flag in "${extra[@]}"; do
     case "$flag" in

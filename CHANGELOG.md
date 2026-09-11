@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.9 (Pocket ID fork)
+
+- Added confirmed file deletion to Selkies My files, restricted to the signed-in identity's Downloads tree. Directories, links and outside paths cannot be deleted.
+- Includes the borderless picker and one-time Brave system-titlebar preference changes described in beta.7.
+
 ## 1.2.0-beta.8 (Pocket ID fork)
 
 - Blocked the ways a session could leave its managed profile: Incognito windows, private windows with Tor, guest profiles and adding a second profile. Each of them would otherwise escape the per-identity download folder.

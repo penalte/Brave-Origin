@@ -1,0 +1,89 @@
+--- a/src/selkies/stream_server.py
++++ b/src/selkies/stream_server.py
+@@ -596,6 +596,27 @@
+                 const href = a.getAttribute('href') || '';
+                 if (href && !href.endsWith('/') && !href.startsWith('?')) {
+                     a.setAttribute('download', '');
++                    if (window.__MY_FILES_DELETE__) {
++                        const button = document.createElement('button');
++                        button.textContent = 'Delete';
++                        button.style.cssText = 'margin-left:16px;padding:4px 10px;background:transparent;color:#f59dc4;border:1px solid #707782;border-radius:4px;cursor:pointer';
++                        button.addEventListener('click', async function() {
++                            if (!window.confirm('Permanently delete "' + a.textContent + '"?')) return;
++                            button.disabled = true;
++                            try {
++                                const response = await fetch(a.href, {
++                                    method: 'DELETE', credentials: 'same-origin',
++                                    headers: {'X-My-Files-Action': 'delete'}
++                                });
++                                if (!response.ok) throw new Error('Delete failed (' + response.status + ').');
++                                a.closest('tr').remove();
++                            } catch (error) {
++                                window.alert(error.message);
++                                button.disabled = false;
++                            }
++                        });
++                        a.parentElement.appendChild(button);
++                    }
+                 }
+             });
+ 
+@@ -1606,6 +1627,42 @@
+             dst.mkdir(exist_ok=True)
+             for child in src.iterdir():
+                 self._copy_traversable(child, dst / child.name)
++
++    async def delete_file_handler(self, request):
++        # Enabled only by the private-desktop launcher. The gateway authenticates
++        # the user; this handler still requires an explicit same-origin mutation.
++        if os.environ.get("BRAVE_PRIVATE_FILES") != "true":
++            raise web.HTTPForbidden()
++        if request.headers.get("X-My-Files-Action") != "delete":
++            raise web.HTTPForbidden()
++        origin = urllib.parse.urlsplit(request.headers.get("Origin", ""))
++        if origin.scheme not in ("http", "https") or origin.netloc != request.host:
++            raise web.HTTPForbidden()
++        parts = request.match_info.get("path", "").split("/")
++        if not parts or any(not x or x in (".", "..") or "\\" in x or "\x00" in x for x in parts):
++            raise web.HTTPForbidden()
++        # Traverse relative to directory descriptors without following links.
++        # unlink never follows the final entry, even if it changes after stat.
++        import stat
++        fd = None
++        try:
++            fd = os.open(self.upload_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
++            for part in parts[:-1]:
++                nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
++                os.close(fd)
++                fd = nxt
++            info = os.stat(parts[-1], dir_fd=fd, follow_symlinks=False)
++            if not stat.S_ISREG(info.st_mode):
++                raise web.HTTPForbidden(text="Only regular files can be deleted")
++            os.unlink(parts[-1], dir_fd=fd)
++        except FileNotFoundError:
++            raise web.HTTPNotFound()
++        except OSError:
++            raise web.HTTPForbidden(text="File cannot be deleted")
++        finally:
++            if fd is not None:
++                os.close(fd)
++        return web.Response(status=204)
+ 
+     async def fancy_index_handler(self, request: web.Request) -> web.StreamResponse:
+         """GET /api/files/...: serve the file-manager tree for download.
+@@ -1792,6 +1849,7 @@
+                 {rows}
+             </tbody>
+         </table>
++        <script>window.__MY_FILES_DELETE__ = {str(os.environ.get('BRAVE_PRIVATE_FILES') == 'true').lower()};</script>
+         {FILE_INDEX_FOOTER}
+         """
+ 
+@@ -1830,6 +1888,7 @@
+             # deployment whose frontend is served elsewhere (nginx, web_root
+             # unset) still gets downloads instead of a 404.
+             web.get(f"{api_prefix}/api/files/{{path:.*}}", self.fancy_index_handler),
++            web.delete(f"{api_prefix}/api/files/{{path:.*}}", self.delete_file_handler),
+         ]
+         # The Prometheus registry is process-global, so one mode-agnostic
+         # endpoint serves both streaming modes.

@@ -122,6 +122,23 @@ async def main():
                 'X-Upload-Path':'big','X-Upload-Id':'test','X-Upload-Offset':str(1024*1024)},data=b'x')
             assert response.status == 413, 'Chunk offsets must count toward the file size limit'
             alice_uid = desktops['alice'].browser.uid
+            delete_headers = {**a, 'X-My-Files-Action':'delete'}
+            response = await client.delete(server.make_url('/api/files/same.txt'), headers={**delete_headers,'Origin':'https://attacker.test'})
+            assert response.status == 403
+            response = await client.delete(server.make_url('/api/files/same.txt'), headers=a)
+            assert response.status == 403
+            response = await client.delete(server.make_url('/api/files/same.txt'), headers=delete_headers)
+            assert response.status == 204, (response.status, await response.text())
+            response = await client.get(server.make_url('/api/files/same.txt'), headers=b)
+            assert await response.text() == 'bob', 'Delete crossed identities'
+            home = desktops['alice'].browser.home
+            (home/'Downloads/link').symlink_to(home/'profile')
+            response = await client.delete(server.make_url('/api/files/link/Local%20State'), headers=delete_headers)
+            assert response.status == 403
+            response = await client.delete(server.make_url('/api/files/'), headers=delete_headers)
+            assert response.status == 403
+            assert (home/'profile/Local State').exists()
+            print('PASS: private file deletion, origin/header enforcement, symlink and root rejection', flush=True)
             response = await client.post(server.make_url('/auth/logout'),headers={**a,'X-CSRF-Token':desktops['alice'].owner['csrf']})
             assert response.status == 200
             assert not m.single.Browser.pids(alice_uid)

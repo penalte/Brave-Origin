@@ -145,6 +145,7 @@ def main():
                 self.finish(2)
                 return
             w = self.window = Gtk.Window(title='My files')
+            w.set_decorated(False)
             w.set_wmclass('brave-files', 'BraveFiles')
             w.set_default_size(680, 440)
             w.connect('delete-event', lambda *_: (self.finish(1), True)[1])

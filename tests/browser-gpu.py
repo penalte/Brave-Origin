@@ -1,5 +1,6 @@
 """Run ONLY in a disposable container without GPU devices; replaces test binaries."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -16,6 +17,9 @@ capture = Path('/usr/local/bin/dbus-run-session')
 capture.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
 capture.chmod(0o755)
 with tempfile.TemporaryDirectory() as home:
+    preferences = Path(home) / 'profile/Default/Preferences'
+    preferences.parent.mkdir(parents=True)
+    preferences.write_text(json.dumps({'browser': {'custom_chrome_frame': True}, 'homepage': 'https://example.test'}))
     env = {'HOME': home, 'PATH': '/usr/local/bin:/usr/bin:/bin', 'ENABLE_GPU': 'true'}
     def flags():
         result = subprocess.run(['/bin/bash', '/usr/local/bin/browser-session.sh'], env=env,
@@ -23,6 +27,14 @@ with tempfile.TemporaryDirectory() as home:
         assert 'command not found' not in result.stderr
         return result.stdout.splitlines()
     selected = flags()
+    saved = json.loads(preferences.read_text())
+    assert saved['browser']['custom_chrome_frame'] is False
+    assert saved['homepage'] == 'https://example.test'
+    # The migration sets the default once; later user preference changes survive.
+    saved['browser']['custom_chrome_frame'] = True
+    preferences.write_text(json.dumps(saved))
+    flags()
+    assert json.loads(preferences.read_text())['browser']['custom_chrome_frame'] is True
     assert '--enable-gpu-rasterization' in selected
     assert '--enable-zero-copy' not in selected
     assert '--disable-features=Vulkan' in selected

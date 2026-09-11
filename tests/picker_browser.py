@@ -28,6 +28,9 @@ async def exercise_picker(socket, desktop, decoder, user):
             for frame in decoder.decode(av.Packet(raw[10:])):
                 frame.to_image().save('/tmp/'+user+'-picker-open.png')
     # Tree starts focused; same.txt is the last file in this fresh test home.
+    # The removed decoration menu must not remain reachable through Alt+Space.
+    for event in ('kd,65513','kd,32','ku,32','ku,65513'):
+        await socket.send_str(event)
     await socket.send_str('kd,65367'); await socket.send_str('ku,65367')
     await socket.send_str('kd,65293'); await socket.send_str('ku,65293')
     async with asyncio.timeout(30):

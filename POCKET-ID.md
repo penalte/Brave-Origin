@@ -110,12 +110,19 @@ back up `/config`. Maintenance shutdown is distinct from normal user logout.
 
 ## Tests and limits
 
+Selkies My files includes a Delete button for individual files, with permanent
+deletion confirmed before sending the request. Only the current identity's
+Downloads files can be removed; folders and symlinks cannot be deleted.
+
 Website upload buttons and Save dialogs use a private **My files** picker. It
 opens in the same Downloads folder used by Selkies transfers, supports subfolders,
 multiple files and filename filters, and has no root, Desktop, Other Locations,
 or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
 requests are cancelled; select individual files instead. Save names must be plain
 filenames, and existing files require overwrite confirmation.
+The picker has no window-manager title bar or menu; use Cancel or Escape to
+close it. Brave starts with “Use system titlebar and borders” selected. This
+default is applied once per identity profile, preserving subsequent user changes.
 
 The picker runs on each desktop's private D-Bus session and must be ready before
 Brave starts. If it exits, that user's desktop is closed. These are picker
