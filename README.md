@@ -1,22 +1,57 @@
 # Brave Origin in Docker
 
-This fork includes configurable [Pocket ID / OIDC sessions](POCKET-ID.md) on the
-Wayland image: concurrent private profiles and per-user desktop start/stop.
-Build the fork to use it; upstream image tags do not include this integration.
+Run Brave Origin in a web browser over HTTPS. Bookmarks, settings, extensions and
+downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim
+and the official stable `brave-origin` package.
 
-> Testing release: `1.0.1-beta.2` fixes automatic resizing, keeps Brave maximized, and includes application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).
+This fork adds **[Pocket ID / OIDC sessions](POCKET-ID.md)**: several people can
+sign in with their own identity and each gets a private desktop, browser profile
+and download folder, isolated by a separate Linux user. Upstream image tags do
+not include this integration; use this fork's images or build it yourself.
 
-Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
+> **Testing release: `1.2.0-beta.7`.** The OIDC multi-user mode is under active
+> testing and carries unresolved dependency findings, so it is not security
+> cleared for production. See [security guidance](SECURITY.md) and the
+> [release notes](CHANGELOG.md).
 
-**Stable release: 1.0.0.** Use `latest` for stable updates or pin `1.0.0` to keep this container version. Development builds use `beta` and need a separate appdata folder.
+## Two ways to run it
 
-Wayland is the default desktop. The X11 edition uses KasmVNC. Both have stable and beta image channels; choose one during installation.
+| Mode | Who can sign in | What each person gets |
+| --- | --- | --- |
+| **Password** (default) | One shared login | One shared browser profile in `/config/profile` |
+| **Pocket ID / OIDC** | Any identity your provider admits | A private desktop, profile and `Downloads` folder under `/config/users`, on its own Linux UID |
+
+Password mode is the default and is unchanged. Set `OIDC_ENABLED=true` to switch;
+the two modes do not share profile data.
+
+### Private multi-user sessions
+
+With OIDC enabled, the container and its HTTPS proxy stay running while nothing
+else does. No browser and no desktop exist while the service is idle. Each
+authorised login starts that identity's own compositor, streaming server, audio
+service and Brave, and the whole stack stops when the person signs out, their
+session expires, or their connection stays gone past the reconnect grace.
+
+Up to `MAX_CONCURRENT_SESSIONS` people (default 2) can be signed in at once, and
+each identity may hold one desktop at a time. Sessions do not share a compositor,
+an audio socket, a streaming socket or a home directory, and one person's logout
+never disturbs another's session.
+
+Website uploads and Save dialogs use a private **My files** picker that browses
+only that identity's `Downloads` tree. It rejects symlinks and paths outside that
+tree. These are picker restrictions, not a complete filesystem sandbox for Brave.
+
+[POCKET-ID.md](POCKET-ID.md) covers provider registration, every session setting,
+and the limits of what the isolation does and does not promise.
 
 ## Unraid
 
-The [Unraid template](templates/brave-origin.xml) defaults to **Wayland stable (`latest`)**. It uses bridge networking, HTTPS, and Unraid's user ID 99 and group ID 100.
+The [Unraid template](templates/brave-origin.xml) installs **upstream** images
+from `ghcr.io/shoyrock/brave-origin`, which do not include OIDC sessions. It
+defaults to **Wayland stable (`latest`)**, uses bridge networking, HTTPS, and
+Unraid's user ID 99 and group ID 100.
 
-When installed through **Apps / Community Applications**, Brave-Origin offers these choices:
+When installed through **Apps / Community Applications**, these choices appear:
 
 | Choice | Image tag | Container name | Appdata folder | HTTPS port |
 | --- | --- | --- | --- | --- |
@@ -25,72 +60,101 @@ When installed through **Apps / Community Applications**, Brave-Origin offers th
 | X11 stable | `x11` | `Brave-Origin-X11` | `/mnt/user/appdata/brave-origin-x11` | `8445` |
 | X11 beta | `x11-beta` | `Brave-Origin-X11-Beta` | `/mnt/user/appdata/brave-origin-x11-beta` | `8446` |
 
-Each choice uses `ghcr.io/shoyrock/brave-origin` with the tag shown above. Select a channel, set a password, review the storage path and port, then apply. Open the container's **WebUI** menu to start browsing. The separate defaults let you test another channel alongside your existing container; choose a different port if one is already in use.
+Select a channel, set a password, review the storage path and port, then apply.
+Open the container's **WebUI** menu to start browsing. The separate defaults let
+you test another channel alongside an existing container; choose a different port
+if one is already in use.
 
-Beta refers to the container's development channel. Every channel installs the official stable Brave Origin browser package. A beta tag can match its stable counterpart until a new test image is published; `x11-beta` currently matches `x11`.
+Beta refers to the container's development channel. Every channel installs the
+official stable Brave Origin browser package.
+
+To run this fork's OIDC build on Unraid, use the Wayland template, change
+**Repository** to this fork's testing image, and add the OIDC variables from
+[POCKET-ID.md](POCKET-ID.md). The X11 edition does not support OIDC sessions.
 
 ### Manual installation
 
-If Brave-Origin is not yet listed in Apps, install the template from the Unraid terminal:
+If Brave-Origin is not yet listed in Apps, install the template from the Unraid
+terminal:
 
 ```bash
-mkdir -p /boot/config/plugins/dockerMan/templates-user
-curl -fL https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml \
-  -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
+curl -fL --create-dirs https://raw.githubusercontent.com/shoyrock/Brave-Origin/main/templates/brave-origin.xml -o /boot/config/plugins/dockerMan/templates-user/my-brave-origin.xml
 ```
 
-In **Docker → Add Container**, select **Brave-Origin**. This manual screen does not show the Community Applications channel menu. To choose another channel, enable **Advanced View**, change **Repository** to `ghcr.io/shoyrock/brave-origin:` followed by the desired tag, and set the name, appdata folder, and host port from the table. Set a password, then apply.
+In **Docker → Add Container**, select **Brave-Origin**. This manual screen does
+not show the Community Applications channel menu. To choose another channel,
+enable **Advanced View**, change **Repository** to the desired tag, and set the
+name, appdata folder and host port from the table above.
 
-For manual X11 installations, the [X11 template](https://github.com/shoyrock/Brave-Origin/blob/x11/templates/brave-origin.xml) supplies X11-specific settings. Wayland's **Automatic Display Resize** and **Keep Browser Maximized** settings do not apply to X11.
-
-For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to `/dev/dri` in the advanced template view. Leave this mapping out on systems without that device. Installation through the Unraid web interface has not been verified on this development host.
+For Intel or AMD graphics, add a **Device** mapping from `/dev/dri` to
+`/dev/dri`. Leave it out on systems without that device. Installation through the
+Unraid web interface has not been verified on this development host.
 
 ### Changing an existing installation
 
-Edit the container, enable **Advanced View**, and change the tag in **Repository**. Applying the change pulls that channel's image. Existing installations keep their saved name, port, and appdata path; the new template defaults do not change them automatically. Back up appdata before switching channels. Never run stable and beta containers against the same live profile.
+Edit the container, enable **Advanced View**, and change the tag in
+**Repository**. Existing installations keep their saved name, port and appdata
+path; new template defaults do not change them automatically. Back up appdata
+before switching channels, and never run two channels against the same live
+profile.
 
 ## Other Linux hosts (Docker Compose)
 
-You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is optional.
+You need an x86-64 Linux host with Docker and Docker Compose v2. GPU access is
+optional.
 
 ```bash
-git clone https://github.com/shoyrock/Brave-Origin.git
-cd Brave-Origin
+git clone https://github.com/penalte/Brave-Origin.git
+```
+
+```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set `AUTH_PASSWORD` to a password of your choice. Then start the container:
+For password mode, set `AUTH_PASSWORD` in `.env`. For OIDC mode, set
+`OIDC_ENABLED=true` and the provider settings from [POCKET-ID.md](POCKET-ID.md).
+Then start it:
 
 ```bash
 docker compose pull
+```
+
+```bash
 docker compose up -d --no-build
 ```
 
-Open `https://YOUR-SERVER-IP:8443` and sign in as `brave`. The container creates a self-signed certificate, so your browser will show a certificate warning. For a trusted connection, supply your own certificate as described below.
+Open `https://YOUR-SERVER-IP:8443`. The container creates a self-signed
+certificate, so your browser will warn you. Supply your own certificate for a
+trusted connection, as described below.
 
-The public image is available as `ghcr.io/shoyrock/brave-origin:latest`.
-
-Set `IMAGE_NAME` in `.env` to choose a specific version or another registry. To build from source, run `docker compose build` followed by `docker compose up -d --no-build`.
+Set `IMAGE_NAME` in `.env` to choose a version or registry. To build from source,
+run `docker compose build` followed by `docker compose up -d --no-build`.
 
 ## Copy and paste
 
-Use Ctrl+C and Ctrl+V inside the remote session. On macOS, use the shortcuts supported by your client browser. Text can move in both directions, including Unicode and multiple lines. The server also supports image clipboard transfer when the client enables it.
+Use Ctrl+C and Ctrl+V inside the remote session. On macOS, use the shortcuts your
+client browser supports. Text moves in both directions, including Unicode and
+multiple lines. Image clipboard transfer works when the client enables it.
 
-Clipboard access depends on your client browser's permissions and a secure context. Allow clipboard access when prompted and keep the session page focused. If automatic clipboard access is blocked, open **Clipboard** in the sidebar, enter your text, click **Send to session**, then paste inside Brave. Chromium-based clients also support native paste events, including paste from the browser menu. Clipboard permissions and image support vary by client browser.
+Clipboard access depends on your client browser's permissions and a secure
+context. Allow access when prompted and keep the session page focused. If
+automatic access is blocked, open **Clipboard** in the sidebar, enter your text,
+click **Send to session**, then paste inside Brave. Clipboard permissions and
+image support vary by client browser.
 
 ## Settings
 
-Set these values in `.env`, the Unraid template, or your container's environment.
+Set these in `.env`, the Unraid template, or your container's environment.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `CONFIG_PATH` | `./appdata` | Compose host folder mounted at `/config`. |
-| `IMAGE_NAME` | `ghcr.io/shoyrock/brave-origin:latest` | Compose image and release channel. |
+| `IMAGE_NAME` | `brave-origin:pocket-id` | Compose image and release channel. |
 | `WEB_PORT` | `8443` | Compose host port. The container always listens on 8443. |
-| `PUID` / `PGID` | `1000` / `1000` | Nonzero user and group IDs for browser files. |
+| `PUID` / `PGID` | `1000` / `1000` | Nonzero user and group IDs for browser files. In OIDC mode both must sit outside 200000–1000199999, which is reserved for private profiles. |
 | `UMASK` | `022` | File creation permissions. |
 | `TZ` | `Etc/UTC` | Timezone. |
-| `AUTH_ENABLED` | `true` | Require a login. Disable only when access is already restricted by your network or proxy. |
+| `AUTH_ENABLED` | `true` | Require a login in password mode. Ignored when `OIDC_ENABLED=true`. |
 | `AUTH_USER` | `brave` | Initial login username. |
 | `AUTH_PASSWORD` | Empty | Initial password; required unless a password file or saved credentials exist. |
 | `AUTH_PASSWORD_FILE` | Empty | Path inside the container to a mounted password file. |
@@ -103,21 +167,40 @@ Set these values in `.env`, the Unraid template, or your container's environment
 | `ENABLE_AUDIO` | `true` | Stream session audio. |
 | `ENABLE_GPU` | `true` | Use available GPU hardware for browser rendering. |
 | `DRI_NODE` | `/dev/dri/renderD128` | Render device when a GPU is passed through. |
-| `DISPLAY_AUTO_RESIZE` | `true` | Automatically resize the desktop to the browser window, including 1440p, 4K, and ultrawide displays. |
+| `DISPLAY_AUTO_RESIZE` | `true` | Resize the desktop to the browser window, including 1440p, 4K and ultrawide. |
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Fixed desktop size, used only when `DISPLAY_AUTO_RESIZE=false`. |
-| `BROWSER_LOCK_MAXIMIZED` | `true` | Keep Brave maximized. Set to `false` to allow minimizing, restoring, and dragging its windows. |
+| `BROWSER_LOCK_MAXIMIZED` | `true` | Keep Brave maximized. Set `false` to allow minimizing, restoring and dragging. |
 | `BRAVE_FLAGS` | Empty | Extra space-separated browser arguments. Shell quoting is not interpreted; flags that disable the sandbox or change the profile are rejected. |
 | `CONTAINER_HOSTNAME` | `brave-origin` | Compose container hostname. |
 
-Automatic resizing follows the available browser window, including changes when you maximize or resize it. Existing width and height values no longer lock the desktop unless you set `DISPLAY_AUTO_RESIZE=false`. Use `beta` or `1.0.1-beta.2` for this fix; it is not included in the stable 1.0.0 images.
+### OIDC session settings
 
-Starting with `1.0.1-beta.2`, Brave stays maximized: minimize, restore, and window dragging cannot take it off screen or make it smaller. Its title-bar buttons remain visible. Tabs, the address bar, and automatic display resizing continue to work. Set `BROWSER_LOCK_MAXIMIZED=false` and recreate the container to restore the previous window controls. In Unraid, this is **Keep Browser Maximized**.
+These apply only when `OIDC_ENABLED=true`. [POCKET-ID.md](POCKET-ID.md) explains
+each one in full.
 
-This behavior belongs to the container's window manager. Brave remains the official, unmodified package and can receive browser updates independently. The image includes the modified Labwc 0.8.3 source at `/usr/local/share/brave-origin/labwc-source.tar.xz`; its build recipe is in `Dockerfile` and its changes are in `patches/labwc/lock-maximized.patch`.
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `OIDC_ENABLED` | `false` | Replace the shared password login with per-identity private desktops. |
+| `OIDC_ISSUER_URL` | Empty | Provider issuer, not the discovery URL. |
+| `OIDC_CLIENT_ID` | Empty | Registered client identifier. |
+| `OIDC_CLIENT_SECRET` | Empty | Client secret. Prefer `OIDC_CLIENT_SECRET_FILE` with a mounted secret. |
+| `OIDC_SCOPES` | `openid profile email groups` | Requested scopes; must include `openid`. |
+| `OIDC_ALLOWED_GROUPS` | Empty | Optional comma-separated groups allowed to sign in. Empty admits every user of the client. |
+| `OIDC_GROUPS_CLAIM` | `groups` | ID-token claim carrying group membership. |
+| `MAX_CONCURRENT_SESSIONS` | `2` | Private desktops allowed at once. Each one costs real CPU and memory. |
+| `MAX_UPLOAD_MB` | `1024` | Largest single upload through the session's file transfer. It does not cap total stored files. |
+| `SESSION_MAX_SECONDS` | `3600` | Session lifetime ceiling. The ID token's own expiry can end it sooner. |
+| `SESSION_CONNECT_TIMEOUT` | `90` | Seconds to attach the first stream before the desktop is torn down. |
+| `SESSION_START_TIMEOUT` | `90` | Seconds a private desktop may take to become ready. |
+| `DISCONNECT_GRACE_SECONDS` | `30` | Reconnect window after the last stream drops. |
 
-The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD`, and `KASM_PASSWORD_FILE` names remain accepted. The corresponding `AUTH_*` setting takes precedence.
+The older `KASM_AUTH_ENABLED`, `KASM_USER`, `KASM_PASSWORD` and
+`KASM_PASSWORD_FILE` names remain accepted; the matching `AUTH_*` setting takes
+precedence.
 
-Saved credentials take precedence over password environment variables. On first setup, a password file takes precedence over `AUTH_PASSWORD`; an unreadable or empty file stops startup. New and reset passwords use bcrypt hashes. Existing saved credentials are retained.
+Saved credentials take precedence over password environment variables. On first
+setup a password file takes precedence over `AUTH_PASSWORD`; an unreadable or
+empty file stops startup. New and reset passwords use bcrypt hashes.
 
 To change a saved password:
 
@@ -125,37 +208,70 @@ To change a saved password:
 docker exec brave-origin /usr/local/bin/reset-password.sh --generate
 ```
 
-The generated password is printed to that command's output. Save it securely. You can also pass a chosen password as the argument, but doing so can leave it in your shell history. Resetting a password does not enable authentication if you explicitly disabled it.
+The generated password is printed to that command's output. Save it securely.
+Resetting a password does not enable authentication if you disabled it.
+
+## Window behavior
+
+Brave stays maximized: minimize, restore and window dragging cannot take it off
+screen or make it smaller. Its title-bar buttons stay visible, and tabs, the
+address bar and automatic resizing keep working. Set
+`BROWSER_LOCK_MAXIMIZED=false` and recreate the container to restore the previous
+controls. In Unraid this is **Keep Browser Maximized**.
+
+This belongs to the container's window manager. Brave remains the official,
+unmodified package and updates independently. The image ships the modified Labwc
+0.8.3 source at `/usr/local/share/brave-origin/labwc-source.tar.xz`; its build
+recipe is in `Dockerfile` and its changes are in
+`patches/labwc/lock-maximized.patch`.
 
 ## Storage and backups
 
 | Container path | Contents |
 | --- | --- |
-| `/config/profile` | Browser profile, bookmarks, history, and extensions. |
-| `/config/downloads` | Downloads and files transferred through the session. |
-| `/config/state` | Locks, version records, status, and logs. |
+| `/config/profile` | Password mode: browser profile, bookmarks, history and extensions. |
+| `/config/downloads` | Password mode: downloads and transferred files. |
+| `/config/users` | OIDC mode: one private home and profile per identity, each owned by its own Linux UID. |
+| `/config/state` | Locks, version records, status and logs. |
 | `/config/ssl` | HTTPS certificate and private key. |
 | `/config/.passwd` | Saved login credentials. |
 
-Back up the entire appdata folder while the container is stopped. For backups without stopping the container, pause the browser first:
+Back up the whole appdata folder while the container is stopped. In password
+mode you can pause the browser instead:
 
 ```bash
 docker exec brave-origin /usr/local/bin/profile-control.sh quiesce
-# Back up your appdata folder after the command succeeds.
+```
+
+Back up after that command succeeds, then resume:
+
+```bash
 docker exec brave-origin /usr/local/bin/profile-control.sh resume
 ```
 
-The backup command waits for the profile lock and flushes writes before reporting success. A failed command means the profile is not ready for backup. A backup hold persists across container restarts until you run `resume`.
+The pause waits for the profile lock and flushes writes before reporting success.
+A failed command means the profile is not ready for backup, and a hold survives
+restarts until you run `resume`. These hooks are disabled in OIDC mode: end the
+sessions and stop the container for a consistent backup.
 
-Run `docker exec brave-origin /usr/local/bin/profile-control.sh status` to inspect the session. A healthy container can be paused for backup. A browser that is too old for the saved profile reports `DOWNGRADE_BLOCKED` and does not open the profile.
+The `/config` mount root, login file, TLS directory, lifetime locks and every
+private home's parent belong to root. Do not recursively change ownership of the
+appdata folder. Nginx access and error logs are available through `docker logs`.
 
-The `/config` mount root, login file, TLS directory, and lifetime locks belong to root. Browser data directories remain writable by `PUID` and `PGID`. Do not recursively change ownership of the whole appdata folder. Nginx access and error logs are available through `docker logs`.
-
-Changing `PUID` or `PGID` repairs profile ownership at the next startup. This can take time for a large profile. Do not run two containers against the same appdata folder.
+Changing `PUID` or `PGID` repairs profile ownership at the next startup, which
+can take time for a large profile. Do not run two containers against the same
+appdata folder.
 
 ## Updates and release channels
 
-Browser updates download first while the browser stays open. After the download succeeds, the browser closes, the package installs from the local cache, and the session restarts. Expect a brief interruption. A download failure leaves the browser running. Failed installation recovery also uses cached packages only.
+Browser updates download first while the browser stays open. The browser then
+closes, the package installs from the local cache, and the session restarts.
+Expect a brief interruption. A download failure leaves the installed browser
+untouched and does not lock the service; only an interrupted package installation
+holds admission closed for administrator attention.
+
+In OIDC mode updates run only while no desktop is open, and no login can start
+one mid-installation.
 
 To check for a browser update manually:
 
@@ -163,33 +279,49 @@ To check for a browser update manually:
 docker exec brave-origin /usr/local/bin/update-brave.sh
 ```
 
-Container updates are separate: use `docker compose pull` and `docker compose up -d --no-build`, or Unraid's container update controls.
+Container updates are separate: use `docker compose pull` and
+`docker compose up -d --no-build`, or Unraid's container update controls.
 
-- `beta` is the development branch and image tag. It receives tested development builds.
-- `main` holds release preparation and stable code. A push to `main` builds and tests but does not publish images.
-- A tag such as `v1.0.0-beta.1` publishes a beta version. It does not change `latest`.
-- A stable tag such as `v1.0.0`, created from `main`, publishes the version and updates `latest` in both registries.
+This fork keeps two branches. `main` holds released code, and `pocket-id` is
+where session work lands before it is merged. A tag such as `v1.2.0-beta.7`
+builds, tests and publishes a testing image with its dependency and malware scan
+reports attached to the GitHub release. The X11/KasmVNC edition is not part of
+this fork's branches; it lives upstream and is kept here only as archive tags.
 
-The first stable container release is `1.0.0`. Back up appdata before moving from older `wayland` images. Never run stable and beta containers against the same live profile. See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md) for maintainer steps.
+See [release notes](CHANGELOG.md) for changes and [the release guide](RELEASING.md)
+for maintainer steps.
 
 ## HTTPS and access
 
-The web session provides access to the browser profile and downloaded files. Keep it behind a trusted network, VPN, or authenticated proxy. Login protection is enabled by default. A reverse proxy must preserve the original `Host` header, including a nonstandard port. Requests from unrelated website origins are rejected.
+The web session provides access to browser profiles and downloaded files. Keep it
+behind a trusted network, VPN or authenticated proxy. A reverse proxy must
+preserve the original `Host` header, including a nonstandard port. Requests from
+unrelated website origins are rejected. Publish only the HTTPS port; never expose
+the container's internal ports.
 
-Brave runs as `braveuser` with its Chromium sandbox enabled. The supplied configuration uses `seccomp:unconfined` so the browser can create user namespaces; this disables Docker's syscall filter for this container. The host must permit unprivileged user namespaces. `no-new-privileges` prevents child processes from gaining permissions through setuid programs. Do not add `--no-sandbox`, privileged mode, or `SYS_ADMIN`.
+Brave runs unprivileged with its Chromium sandbox enabled. In OIDC mode each
+identity runs under its own Linux UID, so file permissions — not application
+logic — keep one person's profile out of another's reach. The supplied
+configuration uses `seccomp:unconfined` so the browser can create user
+namespaces; this disables Docker's syscall filter for this container, and the
+host must permit unprivileged user namespaces. `no-new-privileges` prevents child
+processes from gaining permissions through setuid programs. Do not add
+`--no-sandbox`, privileged mode, or `SYS_ADMIN`.
 
-To use your own TLS certificate, place its certificate chain at `/config/ssl/cert.pem` and its private key at `/config/ssl/cert.key`, then restart the container. A simple nginx reload does not copy newly supplied files into place.
+To use your own TLS certificate, place the chain at `/config/ssl/cert.pem` and
+the key at `/config/ssl/cert.key`, then restart the container. An nginx reload
+does not copy newly supplied files into place.
 
 ## GPU support
 
-Without a GPU mapping, the container uses software rendering. With an Intel or AMD GPU available, start Compose with:
+Without a GPU mapping the container renders in software. With an Intel or AMD GPU
+available:
 
 ```bash
 docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
-For an NVIDIA GPU, install the NVIDIA Container Toolkit on the host and start
-Compose with:
+For an NVIDIA GPU, install the NVIDIA Container Toolkit on the host and use:
 
 ```bash
 docker compose -f compose.yaml -f compose.nvidia.yaml up -d --no-build
@@ -197,15 +329,27 @@ docker compose -f compose.yaml -f compose.nvidia.yaml up -d --no-build
 
 The browser needs the driver's graphics libraries, not only its compute
 libraries. `--gpus all` on its own requests `compute,utility`, which is enough
-for Selkies to encode on the card while the browser has no EGL driver and either
-falls back to software rendering or fails to display at all. The image therefore
-sets `NVIDIA_DRIVER_CAPABILITIES=all`; keep that value if you pass the variable
-yourself, and prefer the Compose override above to a bare `--gpus all`. Startup
-logs the GPU it selected under `[gpu]` and `[browser-session]`, and warns when an
-NVIDIA device is present without its graphics driver.
+for the streaming server to encode on the card while the browser has no EGL
+driver and either falls back to software rendering or fails to display. The image
+therefore sets `NVIDIA_DRIVER_CAPABILITIES=all`; keep that value if you pass the
+variable yourself, and prefer the Compose override above to a bare `--gpus all`.
+Startup logs the GPU it selected under `[gpu]`, the browser logs its choice under
+`[browser-session]`, and both warn when an NVIDIA device is present without its
+graphics driver.
 
-Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering. The NVIDIA path follows the configuration used by LinuxServer's Selkies base image and has not been verified on this development host.
+Browser hardware rendering, WebGL and video decoding were verified on Intel
+graphics. Stream encoding can fall back to the CPU when a driver does not support
+the requested format. `ENABLE_GPU=false` disables browser GPU rendering.
+
+The NVIDIA configuration follows LinuxServer's Selkies base image and **has not
+been verified on NVIDIA hardware** by this project; the development host exposes
+a GPU only through WSL2, which cannot present the Linux driver nodes this path
+needs. Private desktops composite in software regardless of the GPU, so plan
+`MAX_CONCURRENT_SESSIONS` against available CPU rather than the graphics card.
 
 ## License
 
-This container project uses the [MIT License](LICENSE). Brave Origin, Selkies, and the other included components retain their own licenses. Brave Origin and the Brave logo are trademarks of Brave Software, Inc. This project is unofficial and is not affiliated with or endorsed by Brave Software, Inc.
+This container project uses the [MIT License](LICENSE). Brave Origin, Selkies and
+the other included components retain their own licenses. Brave Origin and the
+Brave logo are trademarks of Brave Software, Inc. This project is unofficial and
+is not affiliated with or endorsed by Brave Software, Inc.
