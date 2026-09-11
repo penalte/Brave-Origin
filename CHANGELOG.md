@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.2 (Pocket ID fork)
+
+- Includes the private-desktop changes below and enforces upload size limits across successive chunks. The beta.1 publication was cancelled before image publication to include this correction.
+
 ## 1.2.0-beta.1 (Pocket ID fork)
 
 - Each identity now gets a private Wayland desktop, streaming server and audio session. Logout closes that user's stack while other users and the container stay running.

@@ -109,6 +109,9 @@ async def main():
             assert response.status == 403
             response = await client.post(server.make_url('/api/upload'),headers={**a,'X-Upload-Path':'big','X-Upload-Total':str(2*1024*1024)},data=b'x')
             assert response.status == 413
+            response = await client.post(server.make_url('/api/upload'),headers={**a,
+                'X-Upload-Path':'big','X-Upload-Id':'test','X-Upload-Offset':str(1024*1024)},data=b'x')
+            assert response.status == 413, 'Chunk offsets must count toward the file size limit'
             alice_uid = desktops['alice'].browser.uid
             response = await client.post(server.make_url('/auth/logout'),headers={**a,'X-CSRF-Token':desktops['alice'].owner['csrf']})
             assert response.status == 200

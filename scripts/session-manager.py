@@ -593,6 +593,15 @@ class Manager:
         if upload:
             if request.headers.get('Origin') != request['app_origin']:
                 raise web.HTTPForbidden(text='Upload requires same-origin request')
+            try:
+                upload_offset = int(request.headers.get('X-Upload-Offset', '0'))
+            except ValueError:
+                raise web.HTTPBadRequest(text='Invalid upload offset') from None
+            if upload_offset < 0:
+                raise web.HTTPBadRequest(text='Invalid upload offset')
+            size = upload_offset + (request.content_length or 0)
+            if size > self.config.upload_limit:
+                raise web.HTTPRequestEntityTooLarge(max_size=self.config.upload_limit, actual_size=size)
             for value in (request.content_length, request.headers.get('X-Upload-Total')):
                 if value is not None:
                     try:
@@ -643,7 +652,7 @@ class Manager:
         self.transfers.add(task)
         try:
             async def body():
-                total = 0
+                total = upload_offset
                 async for chunk in request.content.iter_chunked(65536):
                     self.require_owner(request)
                     total += len(chunk)

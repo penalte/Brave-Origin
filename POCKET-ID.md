@@ -33,7 +33,7 @@ SESSION_CONNECT_TIMEOUT=90
 SESSION_START_TIMEOUT=90
 MAX_CONCURRENT_SESSIONS=2
 MAX_UPLOAD_MB=1024
-IMAGE_NAME=ghcr.io/penalte/brave-origin:1.2.0-beta.1
+IMAGE_NAME=ghcr.io/penalte/brave-origin:1.2.0-beta.2
 ```
 
 All values are Docker environment variables. For a mounted secret, set
