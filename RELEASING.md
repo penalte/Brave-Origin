@@ -2,6 +2,14 @@
 
 Develop on `beta`. Use a separate appdata folder and host port for development containers. Do not test with a stable user's profile.
 
+The Pocket ID fork develops on `pocket-id`. Its separate GitHub workflow
+`.github/workflows/pocket-id-beta.yml` publishes explicitly requested testing
+betas to `ghcr.io/penalte/brave-origin`, using the repository's `GITHUB_TOKEN`.
+Push a numbered `vX.Y.Z-beta.N` tag to request a build. It runs legacy and OIDC
+tests, preserves dependency findings under the testing exception below, blocks
+scanner errors or malware, and attaches reports to a GitHub prerelease. Only
+Linux AMD64 is currently built. The upstream Forgejo stable workflow is unchanged.
+
 The publishing runner builds images and publishes to GHCR and a separately configured registry. Configure the runner label `docker-build` and repository secrets `REGISTRY_IMAGE`, `REGISTRY_TOKEN`, `REGISTRY_USERNAME`, `GHCR_TOKEN`, and `GHCR_USERNAME`. Set `REGISTRY_IMAGE` to the full image path without a tag or URL scheme, such as `registry.example.test/team/brave-origin`. Keep non-public registry addresses and credentials in CI secrets. Both registry credentials are required for publishing. Pull requests do not run on the publishing runner because it has host Docker access.
 
 Release builds refresh the base image and package installation instead of reusing cached packages.

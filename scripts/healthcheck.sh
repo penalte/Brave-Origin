@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    curl -fsS --max-time 5 http://127.0.0.1:8084/health >/dev/null
+    exit
+fi
 code=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:8443/)
 [[ "$code" = 200 || "$code" = 401 ]] || exit 1
 if [ -f /config/state/quiesce.flag ]; then

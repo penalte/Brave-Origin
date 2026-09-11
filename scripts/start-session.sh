@@ -16,6 +16,14 @@ export XCURSOR_THEME=Adwaita
 export XCURSOR_SIZE=24
 export XKB_DEFAULT_LAYOUT=us
 export XKB_DEFAULT_RULES=evdev
+export GTK_THEME=Adwaita:dark
+
+# GTK dialogs follow the same dark appearance as the browser chrome.
+for version in gtk-3.0 gtk-4.0; do
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/$version"
+    printf '%s\n' '[Settings]' 'gtk-theme-name=Adwaita-dark' 'gtk-application-prefer-dark-theme=1' \
+        > "${XDG_CONFIG_HOME:-$HOME/.config}/$version/settings.ini"
+done
 
 # Explicitly UNSET DISPLAY to guarantee zero X11 / Xwayland execution
 unset DISPLAY
@@ -58,13 +66,13 @@ trap 'exit 0' TERM INT HUP
 [ "$(dpkg-query -W -f='${db:Status-Status}' brave-origin)" = installed ] || exit 1
 USED_VER="$(dpkg-query -W -f='${Version}' brave-origin)"
 LAST_VER="$(cat /config/state/last-brave-version 2>/dev/null || cat /config/.last-brave-version 2>/dev/null || true)"
-if [ -n "$LAST_VER" ] && { ! dpkg --validate-version "$LAST_VER" || dpkg --compare-versions "$USED_VER" lt "$LAST_VER"; }; then
+if [ "${OIDC_ENABLED:-false}" != true ] && [ -n "$LAST_VER" ] && { ! dpkg --validate-version "$LAST_VER" || dpkg --compare-versions "$USED_VER" lt "$LAST_VER"; }; then
     echo "Refusing browser $USED_VER: profile requires $LAST_VER." >&2
     set_status DOWNGRADE_BLOCKED
     sleep "${DOWNGRADE_RETRY_INTERVAL:-300}"
     exit 1
 fi
-[ ! -f /config/state/quiesce.flag ] || exit 0
+[ "${OIDC_ENABLED:-false}" = true ] || [ ! -f /config/state/quiesce.flag ] || exit 0
 mkdir -p "${XDG_RUNTIME_DIR}" /config/downloads /config/profile
 chmod 700 "${XDG_RUNTIME_DIR}"
 rm -f "${XDG_RUNTIME_DIR}"/wayland-* "${XDG_RUNTIME_DIR}"/pulse/pid "${XDG_RUNTIME_DIR}"/dbus/session_bus_socket
@@ -88,6 +96,9 @@ if [ "${ENABLE_AUDIO:-true}" = "true" ]; then
     mkdir -p "${XDG_RUNTIME_DIR}/pulse"
     pulseaudio --exit-idle-time=-1 --daemonize=true 9>&- || true
     pactl load-module module-native-protocol-unix auth-anonymous=1 socket="${XDG_RUNTIME_DIR}/pulse/native" 2>/dev/null || true
+    if [ "${OIDC_ENABLED:-false}" = true ]; then
+        pactl load-module module-native-protocol-unix auth-anonymous=1 socket="${XDG_RUNTIME_DIR}/pulse/oidc"
+    fi
     pactl load-module module-null-sink sink_name=output sink_properties=device.description="Default_Audio_Output" 2>/dev/null || true
     pactl set-default-sink output 2>/dev/null || true
     export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
@@ -113,6 +124,22 @@ export SELKIES_ENABLE_BASIC_AUTH=false
 export SELKIES_ENABLE_DUAL_MODE=false
 export SELKIES_PORT=8082
 export CUSTOM_WS_PORT=8082
+
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    export SELKIES_WEB_ROOT=/usr/share/selkies/web
+    export SELKIES_COMMAND_ENABLED='false|locked'
+    export SELKIES_FILE_TRANSFERS=none
+    export SELKIES_ENABLE_SHARING='false|locked'
+    export SELKIES_ENABLE_COLLAB='false|locked'
+    export SELKIES_ENABLE_SHARED='false|locked'
+    export SELKIES_ENABLE_PLAYER2='false|locked'
+    export SELKIES_ENABLE_PLAYER3='false|locked'
+    export SELKIES_ENABLE_PLAYER4='false|locked'
+    export SELKIES_SECOND_SCREEN='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_FILES='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_APPS='false|locked'
+    export SELKIES_UI_SIDEBAR_SHOW_SHARING='false|locked'
+fi
 
 python3 -m selkies \
     --addr=127.0.0.1 \
@@ -225,10 +252,26 @@ done
 export WAYLAND_DISPLAY="${LABWC_DISPLAY}"
 echo "[start-session] Labwc application Wayland socket ready: ${LABWC_SOCKET} (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
 
+# OIDC mode keeps the desktop alive. Only the gateway may launch a browser.
+# Publish the window manager's socket so the gateway starts browsers on the same
+# compositor the legacy path uses, and with it the kiosk window rules.
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    printf '%s\n' "${LABWC_DISPLAY}" > /tmp/brave-desktop-ready
+    wait -n "$LABWC_PID" "$SELKIES_PID"
+    exit 1
+fi
+
 # 6. GPU Detection & Flags Configuration (ENABLE_GPU=false forces software rendering)
 GPU_FLAGS=""
 if [ "${ENABLE_GPU:-true}" = "false" ]; then
     echo "[start-session] ENABLE_GPU=false - forcing software rasterization"
+elif [ -e /dev/nvidiactl ] && /sbin/ldconfig -p | grep libEGL_nvidia >/dev/null; then
+    # Chromium selects its own GL backend once the vendor's loader files exist,
+    # exactly as it does in the working LinuxServer image.
+    echo "[start-session] NVIDIA GPU detected - enabling hardware acceleration"
+    GPU_FLAGS="--enable-gpu-rasterization --ignore-gpu-blocklist --disable-features=Vulkan"
+elif [ -e /dev/nvidiactl ]; then
+    echo "[start-session] NVIDIA device present without its EGL driver - set NVIDIA_DRIVER_CAPABILITIES=all"
 elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
     echo "[start-session] GPU ${DRI_NODE:-/dev/dri/renderD128} detected - enabling hardware acceleration"
     export LIBVA_DRIVER_NAME_OVERRIDE=""
@@ -302,6 +345,7 @@ read -r -a GPU_ARGS <<< "$GPU_FLAGS"
     --no-default-browser-check \
     --password-store=basic \
     --start-maximized \
+    --force-dark-mode \
     "${GPU_ARGS[@]}" \
     "${EXTRA_FLAGS[@]}" \
     "$@" 8>&- 9>&- >> /config/state/brave.log 2>&1 &

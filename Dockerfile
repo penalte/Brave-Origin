@@ -69,6 +69,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     WAYLAND_DISPLAY=wayland-1 \
     PULSE_SERVER=unix:/tmp/runtime-braveuser/pulse/native
 
+# Without this the NVIDIA container runtime injects compute support only: Selkies
+# encodes happily on the card while the browser has no EGL/GL driver to render
+# with. Device selection stays with the operator's --gpus flag.
+ENV NVIDIA_DRIVER_CAPABILITIES=all
+
 # 1. Add Official Brave Origin Apt Repository (Release Channel)
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -91,6 +96,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pulseaudio \
     pulseaudio-utils \
     dbus \
+    python3-gi \
+    python3-dbus \
+    gir1.2-gtk-3.0 \
     labwc \
     libwlroots-0.18 \
     wtype \
@@ -114,7 +122,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglx-mesa0 \
     libegl1 \
+    libgl1 \
     libgles2 \
+    libvulkan1 \
+    libnvidia-egl-wayland1 \
     mesa-vulkan-drivers \
     mesa-va-drivers \
     intel-media-va-driver \
@@ -157,6 +168,10 @@ RUN mkdir -p /etc/brave/policies/managed && \
 # 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
+ADD --checksum=sha256:659a8c2202bbfad10eb925e75656ff714cf13816a77107d9b530102b017e07b9 \
+    https://github.com/selkies-project/pixelflux/releases/download/a3290fd/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+RUN pip install --no-deps --break-system-packages /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl && \
+    rm /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
 COPY dependencies/runtime.txt /tmp/runtime-requirements.txt
 # Pelorus is the donor desktop's launcher; it is not used by this browser image.
 RUN rm -rf /usr/local/lib/python3.13/dist-packages/pelorus /usr/local/lib/python3.13/dist-packages/pelorus-*.dist-info && \
@@ -193,6 +208,16 @@ COPY scripts/start-session.sh /usr/local/bin/start-session.sh
 COPY scripts/update-brave.sh /usr/local/bin/update-brave.sh
 COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
+COPY scripts/session-manager.py /usr/local/bin/session-manager.py
+COPY scripts/multi-session.py /usr/local/bin/multi-session.py
+COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
+RUN chmod 755 /usr/local/bin/user-desktop.sh
+COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
+COPY scripts/file-picker.py /usr/local/bin/file-picker.py
+COPY config/nginx-oidc.conf /etc/nginx/nginx-oidc.conf
+COPY config/portal.html config/portal.js /usr/local/share/brave-origin/
+RUN pip install --break-system-packages --no-cache-dir 'PyJWT[crypto]==2.13.0' && \
+    chmod 755 /usr/local/bin/browser-session.sh
 
 # Keep release metadata after dependency installation to reuse build layers.
 ARG VERSION=1.0.0-beta.1

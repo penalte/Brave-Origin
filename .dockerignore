@@ -20,3 +20,9 @@
 !tests/client-audio.mjs
 
 !scripts/prepare-storage.py
+!scripts/session-manager.py
+!scripts/multi-session.py
+!scripts/file-picker.py
+!config/nginx-oidc.conf
+!config/portal.html
+!config/portal.js

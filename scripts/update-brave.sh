@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Download while running, then stop the browser and install from the cache.
 set -euo pipefail
+# This script drops to braveuser to record status. Nothing here needs the OIDC
+# client secret, and an unprivileged child must never be handed one.
+unset OIDC_CLIENT_SECRET OIDC_CLIENT_SECRET_FILE
 STATE_DIR=/config/state
 mkdir -p /run/lock /run/brave-origin "$STATE_DIR"
 set_status() {
@@ -30,6 +33,10 @@ fi
 [ -n "$target" ] && [ "$target" != '(none)' ] || exit 0
 dpkg --validate-version "$target" || exit 1
 last=$(cat "$STATE_DIR/last-brave-version" 2>/dev/null || cat /config/.last-brave-version 2>/dev/null || true)
+if [ "${OIDC_ENABLED:-false}" = true ]; then
+    last=''
+    if pgrep -x brave >/dev/null; then echo '[updater] Browser is occupied; update deferred.'; exit 0; fi
+fi
 if [ -n "$last" ]; then
     dpkg --validate-version "$last" || exit 1
     if dpkg --compare-versions "$target" lt "$last"; then
@@ -47,6 +54,7 @@ fi
 
 exec 8>/run/lock/brave-origin-launch.lock
 flock 8
+if [ "${OIDC_ENABLED:-false}" = true ] && pgrep -x brave >/dev/null; then exit 0; fi
 [ ! -f "$STATE_DIR/quiesce.flag" ] || exit 0
 touch /run/brave-origin/update-in-progress
 set_status UPDATING

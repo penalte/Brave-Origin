@@ -1,5 +1,9 @@
 # Brave Origin in Docker
 
+This fork includes configurable [Pocket ID / OIDC sessions](POCKET-ID.md) on the
+Wayland image: concurrent private profiles and per-user desktop start/stop.
+Build the fork to use it; upstream image tags do not include this integration.
+
 > Testing release: `1.0.1-beta.2` fixes automatic resizing, keeps Brave maximized, and includes application security fixes. Known dependency vulnerabilities remain, so it is not security-cleared for production. Stable `1.0.0` images do not include these fixes. See [security guidance](SECURITY.md).
 
 Run Brave Origin in a web browser over HTTPS. Your bookmarks, settings, extensions, and downloads stay in a persistent folder. The container uses Debian 13 Trixie Slim and the official stable `brave-origin` package.
@@ -184,7 +188,23 @@ Without a GPU mapping, the container uses software rendering. With an Intel or A
 docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
 
-Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering.
+For an NVIDIA GPU, install the NVIDIA Container Toolkit on the host and start
+Compose with:
+
+```bash
+docker compose -f compose.yaml -f compose.nvidia.yaml up -d --no-build
+```
+
+The browser needs the driver's graphics libraries, not only its compute
+libraries. `--gpus all` on its own requests `compute,utility`, which is enough
+for Selkies to encode on the card while the browser has no EGL driver and either
+falls back to software rendering or fails to display at all. The image therefore
+sets `NVIDIA_DRIVER_CAPABILITIES=all`; keep that value if you pass the variable
+yourself, and prefer the Compose override above to a bare `--gpus all`. Startup
+logs the GPU it selected under `[gpu]` and `[browser-session]`, and warns when an
+NVIDIA device is present without its graphics driver.
+
+Browser hardware rendering, WebGL, and video decoding were verified on Intel graphics. Stream encoding can fall back to the CPU when a driver does not support the requested format. Support varies by GPU and host driver; `ENABLE_GPU=false` disables browser GPU rendering. The NVIDIA path follows the configuration used by LinuxServer's Selkies base image and has not been verified on this development host.
 
 ## License
 
