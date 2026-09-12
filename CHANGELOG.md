@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.17 (Pocket ID fork)
+
+- Completed validation of the coordinated Selkies/Pixelflux/pcmflux upgrade. Updated regression tests to use the renamed manual-resolution setting and native clipboard API.
+- Corrected the rebased file manager to create one Delete column rather than one per file.
+- Added 150% DPI coverage to the full-viewport sizing test. Software-rendered fresh login, resize and reconnect pass; the reported GPU-host startup defect still requires host verification.
+
 ## 1.2.0-beta.16 (Pocket ID fork)
 
 - The browser now fills its desktop on the first connection. Earlier releases sized the capture and the desktop correctly while the browser window kept the size it started with, so a session could open small until the viewer was resized twice.

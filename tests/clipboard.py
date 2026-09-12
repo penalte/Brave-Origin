@@ -3,11 +3,15 @@ import asyncio
 import os
 import subprocess
 from selkies.input_handler import WebRTCInput
+from pixelflux import ScreenCapture
 
 async def main():
     handler = WebRTCInput.__new__(WebRTCInput)
     handler.is_wayland = True
-    handler.wayland_input = object()  # Exercise the fallback used by older pixelflux builds.
+    handler.wayland_input = ScreenCapture()  # Exercise the installed native data-control ABI.
+    handler._app_wl_display_cached = "wayland-0"
+    handler._app_watch_failure = None
+    handler._app_clip_read_failure = None
     handler._app_wayland_display = lambda: 'wayland-0'
     handler._has_separate_app_compositor = lambda: True
     env = dict(os.environ, WAYLAND_DISPLAY='wayland-0')
@@ -31,11 +35,14 @@ async def main():
     handler._clipboard_monitor_active = False
     handler._clipboard_last_bytes = None
     consumers = False
+    async def until(predicate):
+        async with asyncio.timeout(5):
+            while not predicate():
+                await asyncio.sleep(.05)
     broadcasts = []
     async def no_x11(): return None
     async def broadcast(data, mime): broadcasts.append((data, mime))
     handler._ensure_x11_clipboard_monitor_async = no_x11
-    handler._arm_app_compositor_watch = lambda: None
     handler._clipboard_has_consumers = lambda: consumers
     handler.on_clipboard_read = broadcast
     monitor = asyncio.create_task(handler.start_clipboard())
@@ -43,13 +50,13 @@ async def main():
         await asyncio.sleep(1.2)
         assert broadcasts == [], 'Clipboard broadcast without a connected client'
         consumers = True
-        await asyncio.sleep(1.2)
+        await until(lambda: bool(broadcasts))
         assert broadcasts == [(png, 'image/png')], 'Selection not delivered on connection'
         await handler.write_clipboard('Incoming clipboard')
         await asyncio.sleep(1.2)
         assert len(broadcasts) == 1, 'Incoming clipboard echoed back to client'
         subprocess.run(['wl-copy'], input=b'Remote copy', env=env, check=True)
-        await asyncio.sleep(1.2)
+        await until(lambda: broadcasts[-1] == ('Remote copy', 'text/plain'))
         assert broadcasts[-1] == ('Remote copy', 'text/plain'), 'Remote copy was not delivered'
         count = len(broadcasts)
         await asyncio.sleep(1.2)

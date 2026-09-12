@@ -35,6 +35,7 @@ for test in oidc-tokens oidc-recovery desktop-sizing multi-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
     docker exec -e TEST_PRIVATE_PICKER=true "$name" python3 "/tmp/$test.py"
 done
+docker exec -e TEST_DPI=144 "$name" python3 /tmp/desktop-sizing.py
 [ "$(docker inspect --format '{{.State.StartedAt}}' "$name")" = "$identity" ]
 docker exec "$name" bash /usr/local/bin/healthcheck.sh
 docker exec "$name" sh -c '! pgrep -x brave'

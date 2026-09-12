@@ -7,6 +7,7 @@ corners of the streamed desktop on first connection and after every resize.
 import asyncio
 import importlib.util
 import json
+import os
 import struct
 import time
 
@@ -83,7 +84,7 @@ async def main():
             await asyncio.sleep(3)
             ws = await client.ws_connect(server.make_url('/desktop/api/websockets'), headers=auth)
             await ws.send_str('SETTINGS,'+json.dumps({'displayId': 'primary',
-                'initialClientWidth': 1910, 'initialClientHeight': 912, 'framerate': 10}))
+                'initialClientWidth': 1910, 'initialClientHeight': 912, 'framerate': 10, 'scaling_dpi': int(os.environ.get('TEST_DPI', '96')), 'displayScale': float(os.environ.get('TEST_DPI', '96')) / 96}))
             await ws.send_str('START_VIDEO')
             await asyncio.sleep(2)
             for event in ('kd,65507', 'kd,108', 'ku,108', 'ku,65507',
@@ -97,7 +98,7 @@ async def main():
             await asyncio.sleep(1)
             ws = await client.ws_connect(server.make_url('/desktop/api/websockets'), headers=auth)
             await ws.send_str('SETTINGS,'+json.dumps({'displayId': 'primary',
-                'initialClientWidth': 1910, 'initialClientHeight': 912, 'framerate': 10}))
+                'initialClientWidth': 1910, 'initialClientHeight': 912, 'framerate': 10, 'scaling_dpi': int(os.environ.get('TEST_DPI', '96')), 'displayScale': float(os.environ.get('TEST_DPI', '96')) / 96}))
             await ws.send_str('START_VIDEO')
             await corners(ws, (1910, 912), 'reconnect')
             await ws.close()

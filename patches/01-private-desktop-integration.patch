@@ -222,10 +222,10 @@
                        enableBinaryClipboard && (
 --- a/src/selkies/stream_server.py
 +++ b/src/selkies/stream_server.py
-@@ -1000,6 +1000,41 @@
-                 // ahead of it, and the token joins a query already there.
-                 if (!href.split('?')[0].endsWith('/')) {
-                     a.setAttribute('download', '');
+@@ -992,6 +992,17 @@
+             // secure-mode token in the query rides every link, keeping the
+             // listing navigable where the token cookie cannot follow.
+             const sessionToken = new URLSearchParams(window.location.search).get('token');
 +            if (window.__MY_FILES_DELETE__) {
 +                const heading = document.createElement('th');
 +                heading.textContent = 'Delete';
@@ -237,6 +237,13 @@
 +                    cell.style.cssText = 'text-align:center;width:56px';
 +                });
 +            }
+             document.querySelectorAll('table#list td a').forEach(function(a) {
+                 const href = a.getAttribute('href') || '';
+                 if (!href || href.startsWith('?')) return;
+@@ -1000,6 +1011,30 @@
+                 // ahead of it, and the token joins a query already there.
+                 if (!href.split('?')[0].endsWith('/')) {
+                     a.setAttribute('download', '');
 +                    if (window.__MY_FILES_DELETE__) {
 +                        const button = document.createElement('button');
 +                        button.type = 'button';

@@ -195,3 +195,13 @@ Failed launches and unexpectedly ended desktops retain log tails in
 at most five archives, five logs per archive, 64 KiB per log. These are diagnostic
 logs and may contain browser activity; normal logout does not create an archive.
 The supervisor log includes GPU access checks and the component exit status.
+
+## Streaming stack compatibility
+
+The backend and dashboard are pinned together at Selkies
+`9762dd8c21af0292e069b05cdc49ad449fa04f54`. Capture wheels are pinned by
+checksum to Pixelflux `2.1.0` (`f23caf4`) and pcmflux `2.1.0` (`584f875`).
+The stack uses upstream screen/view sizing and nested-compositor scale adoption;
+the partial local resize patch has been removed. Test first login, reconnect and
+resize after changing these components as a set. The viewport test checks page
+corners, not only video dimensions, at 96 and 144 DPI.
