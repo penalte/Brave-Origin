@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.27 (Pocket ID fork)
+
+- Hide the sidebar scrollbar while preserving scrolling.
+- After signing in to an already-open desktop, offer Disconnect, Take over, or Cancel. Disconnect closes the previous desktop without restarting; takeover preserves tabs and revokes the previous session credentials.
+- Handoff is bound to a fresh verified identity, an expiring confirmation cookie, CSRF protection, and the original session generation. Runtime handoff validation remains pending.
+
 ## 1.2.0-beta.26 (Pocket ID fork)
 
 - Remove the sidebar theme toggle.

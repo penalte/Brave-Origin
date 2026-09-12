@@ -414,7 +414,10 @@
              routes.append(web.get(f"{api_prefix}/api/metrics", self.handle_metrics))
 --- a/addons/selkies-dashboard/src/styles/Overlay.css
 +++ b/addons/selkies-dashboard/src/styles/Overlay.css
-@@ -200,5 +200,10 @@
+@@ -197,7 +197,13 @@
+-  scrollbar-width: thin;
++  scrollbar-width: none;
+   scrollbar-color: var(--border-strong) transparent;
  }
  
 +/* Keep expanded sections at their natural height; the sidebar scrolls. */
@@ -423,5 +426,7 @@
 +}
 +
  .sidebar::-webkit-scrollbar {
-   width: 8px;
+-  width: 8px;
++  width: 0;
++  display: none;
  }

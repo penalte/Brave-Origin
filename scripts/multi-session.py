@@ -139,6 +139,7 @@ class Broker(single.Manager):
     def __init__(self, config, desktop_factory=None, oidc=None):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
+        self.handoffs = {}
         self.factory = desktop_factory or (lambda: Desktop(config))
 
     def selected(self, request):
@@ -162,12 +163,13 @@ class Broker(single.Manager):
         session = self.selected(request)
         if session:
             return await session.status(request)
-        available = self.state == 'IDLE' and len(self.sessions) < self.config.maximum
+        available = self.state == 'IDLE'  # Allow authentication at capacity to reclaim an existing desktop.
         return web.json_response({'state': 'IDLE' if available else 'BUSY', 'owner': False,
                                   'name': '', 'csrf': ''})
 
     def admin_routes(self):
-        return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp)]
+        return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp),
+                web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session)]
 
     def require_admin(self, request, mutate=False):
         session = self.selected(request)
@@ -223,8 +225,6 @@ class Broker(single.Manager):
         return web.json_response({'changed': True, 'sign_in_again': True})
 
     async def login(self, request):
-        if not self.owns(request) and len(self.sessions) >= self.config.maximum:
-            raise web.HTTPConflict(text='All desktop slots are occupied')
         return await super().login(request)
 
     async def callback(self, request):
@@ -238,9 +238,12 @@ class Broker(single.Manager):
         except Exception:
             raise web.HTTPForbidden(text='Sign-in could not be verified') from None
         identity = hashlib.sha256(json.dumps([claims['iss'], claims['sub']], separators=(',', ':')).encode()).hexdigest()
+        return await self.start_session(identity, claims, flow)
+
+    async def start_session(self, identity, claims, flow):
         async with self.lock:
             if identity in self.sessions:
-                raise web.HTTPConflict(text='Your desktop is already open. Reconnect from its original tab or end that session first.')
+                return self.offer_handoff(identity, claims, flow)
             if self.state != 'IDLE' or len(self.sessions) >= self.config.maximum:
                 raise web.HTTPConflict(text='No desktop slot is currently available')
             session = single.Manager(self.config, browser=self.factory())
@@ -269,6 +272,101 @@ class Broker(single.Manager):
                                 samesite='Lax', path='/', max_age=max(1, int(session.owner['expires'] - time.time())))
             response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
             return response
+
+    def offer_handoff(self, identity, claims, flow):
+        session = self.sessions[identity]
+        if session.state != 'RUNNING' or not session.owner:
+            raise web.HTTPConflict(text='Your desktop is changing. Please try signing in again shortly.')
+        now = time.time()
+        self.handoffs = {k: v for k, v in self.handoffs.items() if v['expires'] > now}
+        while len(self.handoffs) >= 128:
+            del self.handoffs[next(iter(self.handoffs))]
+        token = secrets.token_urlsafe(32)
+        self.handoffs[token] = dict(identity=identity, claims=claims, origin=flow['origin'],
+            session=self.sessions[identity], owner_cookie=self.sessions[identity].owner['cookie'],
+            csrf=secrets.token_urlsafe(32), expires=min(now + 120, float(claims['exp'])))
+        response = web.HTTPFound('/session/resolve')
+        response.set_cookie('__Host-brave-handoff', token, secure=True, httponly=True,
+                            samesite='Strict', path='/', max_age=120)
+        response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+        return response
+
+    def pending_handoff(self, request):
+        token = request.cookies.get('__Host-brave-handoff', '')
+        pending = self.handoffs.get(token)
+        if not pending or pending['expires'] <= time.time() or pending['origin'] != request['app_origin']:
+            self.handoffs.pop(token, None)
+            raise web.HTTPForbidden(text='This choice expired. Please sign in again.')
+        return token, pending
+
+    async def resolve_page(self, request):
+        _, pending = self.pending_handoff(request)
+        # Only the server-generated CSRF token is interpolated, never identity claims.
+        return web.Response(content_type='text/html', text="""<!doctype html><html lang="en">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Desktop already open</title>
+<style>:root{color-scheme:dark;font:16px system-ui;background:#11151d;color:#edf1fa}
+main{max-width:480px;margin:12vh auto;padding:28px;background:#1c2330;border-radius:16px}
+p{line-height:1.6;color:#b9c5d8}button{display:block;width:100%;margin:10px 0;padding:12px;border:0;border-radius:8px;background:#f46638;color:white;font:inherit;cursor:pointer}</style>
+<main><h1>Your desktop is already open</h1><p>Take over to keep your open tabs and disconnect the previous connection.
+Or disconnect to close that desktop without opening another. Your saved profile remains; unsaved work may be lost.</p>
+<form method="post" action="/session/resolve"><input type="hidden" name="csrf" value="""" + pending['csrf'] + """">
+<button name="action" value="takeover">Take over existing desktop</button>
+<button name="action" value="disconnect">Disconnect</button>
+<button name="action" value="cancel">Cancel</button></form></main></html>""")
+
+    async def resolve_session(self, request):
+        token, pending = self.pending_handoff(request)
+        data = await request.post()
+        if (request.headers.get('Origin') != pending['origin'] or
+                not secrets.compare_digest(str(data.get('csrf', '')), pending['csrf'])):
+            raise web.HTTPForbidden(text='Invalid session confirmation')
+        action = data.get('action')
+        if action not in ('takeover', 'disconnect', 'cancel'):
+            raise web.HTTPBadRequest(text='Unknown session choice')
+        async with self.lock:
+            # One-use and tied to the exact session offered, including its owner generation.
+            if self.handoffs.pop(token, None) is not pending:
+                raise web.HTTPConflict(text='This choice has already been used')
+            session = self.sessions.get(pending['identity'])
+            if action == 'cancel':
+                response = web.HTTPFound('/')
+            elif self.state != 'IDLE' or session is not pending['session']:
+                raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
+            else:
+                async with session.lock:
+                    if (session.state != 'RUNNING' or not session.owner or
+                            session.owner['cookie'] != pending['owner_cookie']):
+                        raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
+                    if action == 'disconnect':
+                        await self.end(pending['identity'], session)
+                        if session.state != 'IDLE':
+                            raise web.HTTPServiceUnavailable(text='Desktop cleanup failed')
+                        response = web.HTTPFound('/')
+                    else:
+                        session.state = 'STARTING'
+                        session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
+                            'csrf': secrets.token_urlsafe(32),
+                            'admin': admin_claim(pending['claims'], self.config.group_claim),
+                            'expires': min(time.time() + self.config.ttl, float(pending['claims']['exp']))}
+                        await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
+                            for ws in list(session.connections)), return_exceptions=True)
+                        session.connections.clear()
+                        tasks = list(session.transfers)
+                        for task in tasks:
+                            task.cancel()
+                        if tasks:
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                        if session.connected_once:
+                            await asyncio.sleep(4)  # Let the previous Selkies peer teardown settle.
+                        session.connected_once = False
+                        session.last_disconnect = time.monotonic()
+                        session.state = 'RUNNING'
+                        response = web.HTTPFound('/')
+                        response.set_cookie(single.COOKIE, session.owner['cookie'], secure=True,
+                            httponly=True, samesite='Lax', path='/',
+                            max_age=max(1, int(session.owner['expires'] - time.time())))
+        response.del_cookie('__Host-brave-handoff', path='/', secure=True, httponly=True, samesite='Strict')
+        return response
 
     async def end(self, identity, session):
         await session.stop_locked()
