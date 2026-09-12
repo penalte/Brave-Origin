@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.19 (Pocket ID fork)
+
+- The browser should now fill its desktop every time, not most times. Each private desktop runs its window manager inside the capture compositor, and that inner session was left to follow a resize on its own; when it did not lay out again it kept its previous geometry, so the desktop carried the new size while the browser window kept the old one. Its screen is now configured explicitly on every resolution change, and the result is recorded in the session log.
+- Requires host verification: the reported fault appears only on a GPU host, which no test environment here provides.
+
 ## 1.2.0-beta.18 (Pocket ID fork)
 
 - The session page no longer reports a refused request while loading. The client reads the streaming mode from the server before connecting, and the gateway was declining that one read, leaving the choice to a fallback. Token and control endpoints stay refused.

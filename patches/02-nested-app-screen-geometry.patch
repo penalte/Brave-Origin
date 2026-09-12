@@ -1,0 +1,25 @@
+--- a/src/selkies/selkies.py
++++ b/src/selkies/selkies.py
+@@ -4638,6 +4638,22 @@
+                 data_logger.warning(f"Wayland screen resize to {width}x{height} refused.")
+         except Exception as e:
+             data_logger.error(f"Wayland resize_output failed: {e}")
++        # A nested application compositor is a client of that screen, and a
++        # client that does not lay out again keeps the geometry it had: the
++        # desktop then carries the new size while its windows keep the old one.
++        # Configure its screen explicitly instead of relying on it to follow.
++        app_display = (getattr(app_settings, "app_wayland_display", "")
++                       or getattr(app_settings, "wayland_host_display", "") or "")
++        if not app_display:
++            return
++        try:
++            laid_out = await asyncio.to_thread(
++                module.set_app_screen_geometry, app_display, width, height, scale, 0)
++            data_logger.info(
++                f"App compositor '{app_display}' screen set to {width}x{height} "
++                f"scale {scale} (accepted={bool(laid_out)}).")
++        except Exception as e:
++            data_logger.warning(f"App screen geometry for '{app_display}' failed: {e}")
+ 
+     async def _scale_wayland_screen(self) -> None:
+         """Give the primary's screen (output 0) the primary's capture scale, at
