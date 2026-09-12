@@ -1,25 +1,47 @@
 --- a/src/selkies/selkies.py
 +++ b/src/selkies/selkies.py
-@@ -4638,6 +4638,22 @@
+@@ -4638,6 +4638,44 @@
                  data_logger.warning(f"Wayland screen resize to {width}x{height} refused.")
          except Exception as e:
              data_logger.error(f"Wayland resize_output failed: {e}")
 +        # A nested application compositor is a client of that screen, and a
 +        # client that does not lay out again keeps the geometry it had: the
 +        # desktop then carries the new size while its windows keep the old one.
-+        # Configure its screen explicitly instead of relying on it to follow.
 +        app_display = (getattr(app_settings, "app_wayland_display", "")
 +                       or getattr(app_settings, "wayland_host_display", "") or "")
 +        if not app_display:
 +            return
-+        try:
-+            laid_out = await asyncio.to_thread(
-+                module.set_app_screen_geometry, app_display, width, height, scale, 0)
-+            data_logger.info(
-+                f"App compositor '{app_display}' screen set to {width}x{height} "
-+                f"scale {scale} (accepted={bool(laid_out)}).")
-+        except Exception as e:
-+            data_logger.warning(f"App screen geometry for '{app_display}' failed: {e}")
++
++        async def configure_app_screen(tag: str) -> bool:
++            try:
++                laid_out = await asyncio.to_thread(
++                    module.set_app_screen_geometry, app_display, width, height, scale, 0)
++                data_logger.info(
++                    f"App compositor '{app_display}' screen set to {width}x{height} "
++                    f"scale {scale} ({tag}, accepted={bool(laid_out)}).")
++                return bool(laid_out)
++            except Exception as e:
++                data_logger.warning(f"App screen geometry for '{app_display}' failed: {e}")
++                return False
++
++        async def settle_app_screen() -> None:
++            # A session accepts a screen mode whether or not it yet has a window
++            # to lay out, and during bring-up it usually has none: an
++            # application started alongside the desktop maps its own window
++            # after this point and then keeps whatever geometry it was given.
++            # Applying the same configuration again over the first seconds of
++            # the session covers that window without waiting on it.
++            elapsed = 0.0
++            for delay in (2.0, 6.0, 12.0):
++                await asyncio.sleep(delay)
++                elapsed += delay
++                await configure_app_screen(f"settle +{elapsed:g}s")
++
++        await configure_app_screen("immediate")
++        pending = getattr(self, "_app_screen_settle", None)
++        if pending is not None and not pending.done():
++            pending.cancel()
++        self._app_screen_settle = asyncio.create_task(settle_app_screen())
  
      async def _scale_wayland_screen(self) -> None:
          """Give the primary's screen (output 0) the primary's capture scale, at

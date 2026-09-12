@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.20 (Pocket ID fork)
+
+- The browser now fills its desktop when it starts slowly. The previous release configured the inner session's screen at the moment the resolution was decided, which on a session's first seconds is before the browser has a window to lay out: the session accepted the mode and the late window kept the size it opened with. Switching away from the streamed tab and back corrected it by accident, because that re-ran the same step. The configuration is now applied again over the session's first twenty seconds, and each attempt is recorded in the session log.
+- Requires host verification: the reported fault appears only on a GPU host, which no test environment here provides.
+
 ## 1.2.0-beta.19 (Pocket ID fork)
 
 - The browser should now fill its desktop every time, not most times. Each private desktop runs its window manager inside the capture compositor, and that inner session was left to follow a resize on its own; when it did not lay out again it kept its previous geometry, so the desktop carried the new size while the browser window kept the old one. Its screen is now configured explicitly on every resolution change, and the result is recorded in the session log.
