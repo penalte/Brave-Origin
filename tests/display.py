@@ -43,10 +43,10 @@ async def main():
     # streaming server and compositor, without changing a real user session.
     async with websockets.connect('ws://127.0.0.1:8082/api/websockets', max_size=32 * 1024 * 1024) as ws:
         settings = (await receive(ws, 'server_settings'))['settings']
-        assert settings['is_manual_resolution_mode']['value'] is False, settings
+        assert settings['manual_resolution']['value'] is False, settings
         assert settings['enable_resize']['value'] is True, settings
         await ws.send('SETTINGS,' + json.dumps({
-            'displayId': 'primary', 'is_manual_resolution_mode': False,
+            'displayId': 'primary', 'manual_resolution': False,
             'initialClientWidth': 1280, 'initialClientHeight': 720,
             'framerate': 10,
         }))
@@ -59,9 +59,9 @@ async def main():
         await ws.send('STOP_VIDEO')
     async with websockets.connect('ws://127.0.0.1:8082/api/websockets', max_size=32 * 1024 * 1024) as ws:
         settings = (await receive(ws, 'server_settings'))['settings']
-        assert settings['is_manual_resolution_mode']['value'] is False
+        assert settings['manual_resolution']['value'] is False
         await ws.send('SETTINGS,' + json.dumps({
-            'displayId': 'primary', 'is_manual_resolution_mode': False,
+            'displayId': 'primary', 'manual_resolution': False,
             'initialClientWidth': 1920, 'initialClientHeight': 1080,
             'framerate': 10,
         }))
