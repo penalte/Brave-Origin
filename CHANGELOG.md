@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.14 (Pocket ID fork)
+
+- Completed the previous release's fix. The screen is now sized on the paths a new session actually takes, ahead of the capture start that sizes the browser's view over it, and the result is recorded in the session log. In 1.2.0-beta.13 the new step never ran.
+
 ## 1.2.0-beta.13 (Pocket ID fork)
 
 - The browser no longer sometimes opens at a small size inside a correctly sized stream. Starting a capture sizes the browser's view but not the screen holding it, so a desktop created before its first client kept the geometry it started with, and no later resize to that same size corrected it. The screen is now sized along with its display, backported from upstream Selkies.

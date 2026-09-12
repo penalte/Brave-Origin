@@ -1,6 +1,6 @@
 --- a/src/selkies/selkies.py
 +++ b/src/selkies/selkies.py
-@@ -4668,6 +4668,25 @@
+@@ -4668,6 +4668,27 @@
                  except (ConnectionResetError, OSError, RuntimeError):
                      pass
  
@@ -14,10 +14,12 @@
 +        """
 +        module = self._wayland_control_module()
 +        if module is None or width <= 0 or height <= 0:
++            data_logger.info(f"Wayland screen size {width}x{height} skipped (module={module is not None}).")
 +            return
 +        scale = float((self.display_clients.get('primary') or {}).get('scale', 1.0) or 1.0)
 +        try:
 +            ok = await asyncio.to_thread(module.resize_output, 0, width, height, scale)
++            data_logger.info(f"Wayland screen sized to {width}x{height} (accepted={bool(ok)}).")
 +            if not ok:
 +                data_logger.warning(f"Wayland screen resize to {width}x{height} refused.")
 +        except Exception as error:
@@ -26,19 +28,35 @@
      async def _reconfigure_displays_locked(self) -> None:
          """One reconfiguration pass. Must only be called by reconfigure_displays()
          with _reconfigure_lock held; early returns here abort just this pass.
-@@ -5085,6 +5104,11 @@
+@@ -5020,6 +5041,8 @@
+                         # current rates/tunables so settings drift rides along, no rebuild.
+                         inst = self.capture_instances[display_id]
+                         module, fresh = inst['module'], inst['settings']
++                        if IS_WAYLAND and display_id == 'primary':
++                            await self._size_wayland_screen(layout['w'], layout['h'])
+                         if IS_WAYLAND:
+                             # A start on the live capture reconfigures it in place;
+                             # serialize against a concurrent capture teardown
+@@ -5033,6 +5056,8 @@
+                         data_logger.info(f"Capture '{display_id}' followed the new layout live (no restart).")
+                     else:
+                         data_logger.info(f"Client '{display_id}' is active. Starting its capture.")
++                        if IS_WAYLAND and display_id == 'primary':
++                            await self._size_wayland_screen(layout['w'], layout['h'])
+                         await self._start_capture_for_display(
+                             display_id=display_id,
+                             width=layout['w'], height=layout['h'],
+@@ -5085,6 +5110,9 @@
                      "The capture pipeline could not start for this display "
                      "(encoder session or GPU resources exhausted).",
                  )
-+        if IS_WAYLAND and self.display_clients.get('primary'):
-+            # Last: the primary's view is as big as what it captures, and
-+            # the capture is live at its new size only past the barrier above.
-+            primary = self.display_clients['primary']
-+            await self._size_wayland_screen(primary.get('width', 0), primary.get('height', 0))
++        primary_layout = (getattr(self, 'display_layouts', {}) or {}).get('primary')
++        if IS_WAYLAND and primary_layout:
++            await self._size_wayland_screen(primary_layout['w'], primary_layout['h'])
          await self.broadcast_stream_resolution()
          await self.broadcast_display_config()
          data_logger.info("Display reconfiguration finished successfully.")
-@@ -5973,6 +5997,8 @@
+@@ -5973,6 +6001,8 @@
                  # (even-masking, GBM failure keeps the old mode): read the live
                  # geometry back and broadcast it, matching the X11 path's
                  # realized clamp + stream_resolution broadcast.
