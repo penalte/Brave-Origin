@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.13 (Pocket ID fork)
+
+- The browser no longer sometimes opens at a small size inside a correctly sized stream. Starting a capture sizes the browser's view but not the screen holding it, so a desktop created before its first client kept the geometry it started with, and no later resize to that same size corrected it. The screen is now sized along with its display, backported from upstream Selkies.
+
 ## 1.2.0-beta.12 (Pocket ID fork)
 
 - Set private desktops to a close-only GTK button layout and Brave's own frame, retaining the tab-search arrow and X. Existing profiles receive the corrected frame default once; later manual preference changes are preserved.

@@ -1,0 +1,49 @@
+--- a/src/selkies/selkies.py
++++ b/src/selkies/selkies.py
+@@ -4668,6 +4668,25 @@
+                 except (ConnectionResetError, OSError, RuntimeError):
+                     pass
+ 
++    async def _size_wayland_screen(self, width: int, height: int) -> None:
++        """Size the primary's screen (output 0) to its display rectangle.
++
++        A capture start sizes the view alone; the screen must already hold it.
++        Without this the nested application compositor keeps the geometry it was
++        created with, so a browser started before the first client keeps the
++        startup size inside an otherwise correctly sized stream.
++        """
++        module = self._wayland_control_module()
++        if module is None or width <= 0 or height <= 0:
++            return
++        scale = float((self.display_clients.get('primary') or {}).get('scale', 1.0) or 1.0)
++        try:
++            ok = await asyncio.to_thread(module.resize_output, 0, width, height, scale)
++            if not ok:
++                data_logger.warning(f"Wayland screen resize to {width}x{height} refused.")
++        except Exception as error:
++            data_logger.error(f"Wayland resize_output failed: {error}")
++
+     async def _reconfigure_displays_locked(self) -> None:
+         """One reconfiguration pass. Must only be called by reconfigure_displays()
+         with _reconfigure_lock held; early returns here abort just this pass.
+@@ -5085,6 +5104,11 @@
+                     "The capture pipeline could not start for this display "
+                     "(encoder session or GPU resources exhausted).",
+                 )
++        if IS_WAYLAND and self.display_clients.get('primary'):
++            # Last: the primary's view is as big as what it captures, and
++            # the capture is live at its new size only past the barrier above.
++            primary = self.display_clients['primary']
++            await self._size_wayland_screen(primary.get('width', 0), primary.get('height', 0))
+         await self.broadcast_stream_resolution()
+         await self.broadcast_display_config()
+         data_logger.info("Display reconfiguration finished successfully.")
+@@ -5973,6 +5997,8 @@
+                 # (even-masking, GBM failure keeps the old mode): read the live
+                 # geometry back and broadcast it, matching the X11 path's
+                 # realized clamp + stream_resolution broadcast.
++                if display_id == 'primary':
++                    await data_server_instance._size_wayland_screen(target_w, target_h)
+                 await data_server_instance._sync_wayland_realized_geometry(display_id)
+             else:
+                 logger_app_resize.info(f"Display client '{display_id}' dimensions updated to {target_w}x{target_h}. Triggering reconfiguration.")
