@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.29 (Pocket ID fork)
+
+- Add expiring guest links in Selkies, with optional mouse and keyboard control selected by the owner. Guests do not need Pocket ID. Owners can grant/revoke control and stop sharing.
+- Add admin View session buttons that open online desktops in a new tab, bound to the active admin login.
+- Enforce guest media/input permissions at the gateway and Selkies token layer; revoke access on logout, takeover, expiry, or stop sharing.
+
 ## 1.2.0-beta.28 (Pocket ID fork)
 
 - Update capacity tests for authenticated session takeover: permit login at capacity, reject new identities, and verify existing-user confirmation, CSRF rejection, cancellation, and replay protection. Beta.27 failed the old admission test and was not published.

@@ -48,6 +48,7 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-ready') notifyDesktop();
   if (event.data?.type === 'brave-session-admin' && isAdmin) openAdmin();
   if (event.data?.type === 'brave-session-end') endSession();
+  if (event.data?.type === 'brave-session-share') openShare();
 });
 update(); setInterval(update, 3000);
 
@@ -70,7 +71,15 @@ async function openAdmin() {
     for (const user of state.users) {
       const row = document.createElement('li');
       row.textContent = `${user.name}${user.admin ? ' (admin)' : ''} — ${user.state.toLowerCase()}`;
-      users.append(row);
+      const view = document.createElement('button');
+      view.textContent = 'View session'; view.disabled = user.state !== 'RUNNING';
+      view.onclick = async () => {
+        const popup = window.open('about:blank', '_blank');
+        try { const data = await sharingPost('/admin/view', {id:user.id});
+          if (popup) { popup.opener = null; popup.location = data.url; }
+        } catch(error) { if (popup) popup.close(); document.getElementById('admin-error').textContent = error.message; }
+      };
+      row.append(view); users.append(row);
     }
   } catch (error) { document.getElementById('admin-error').textContent = error.message; }
 }
@@ -87,3 +96,35 @@ document.getElementById('admin-warp').onclick = async () => {
     document.getElementById('admin-warp').disabled = false;
   }
 };
+
+async function sharingPost(path, data={}) {
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(data)});
+  if(!r.ok) throw Error(await r.text());
+  return r.json();
+}
+async function openShare() {
+  const panel=document.getElementById('share-panel'); if(!panel.open) panel.showModal();
+  await refreshShare();
+}
+async function refreshShare() {
+  try {
+    const r=await fetch('/shares/status',{cache:'no-store'}); if(!r.ok) throw Error('Sharing unavailable');
+    const state=await r.json();
+    document.getElementById('share-status').textContent=`${state.viewers} viewers (${state.admin_viewers} administrators), ${state.links} invitation links`;
+    const list=document.getElementById('share-participants'); list.replaceChildren();
+    for(const user of state.participants) {
+      const li=document.createElement('li'); li.textContent=user.name+(user.admin?' (administrator)':'');
+      const button=document.createElement('button');button.textContent=user.control?'Revoke control':'Grant mouse and keyboard';
+      button.onclick=async()=>{try{await sharingPost('/shares/control',{id:user.id,enabled:!user.control});await refreshShare();}catch(e){document.getElementById('share-error').textContent=e.message;}};
+      li.append(button);list.append(li);
+    }
+  } catch(e) {document.getElementById('share-error').textContent=e.message;}
+}
+document.getElementById('share-create').onclick=async()=>{try{
+  const data=await sharingPost('/shares/create',{minutes:Number(document.getElementById('share-expiry').value),control:document.getElementById('share-control').checked});
+  document.getElementById('share-link').value=data.url;await refreshShare();
+}catch(e){document.getElementById('share-error').textContent=e.message;}};
+document.getElementById('share-copy').onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById('share-link').value);}catch{document.getElementById('share-link').select();}};
+document.getElementById('share-revoke').onclick=async()=>{try{await sharingPost('/shares/revoke');document.getElementById('share-link').value='';await refreshShare();}catch(e){document.getElementById('share-error').textContent=e.message;}};
+document.getElementById('share-close').onclick=()=>document.getElementById('share-panel').close();
+setInterval(()=>{if(document.getElementById('share-panel').open) refreshShare();},3000);

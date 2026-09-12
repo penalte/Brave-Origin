@@ -684,6 +684,8 @@ class Manager:
         # Build the target from the checked path so no later re-parse can move it.
         target = URL.build(scheme='http', host='127.0.0.1', port=8082, path=path,
                            query_string=request.query_string)
+        if getattr(self.browser, 'owner_token', None):
+            target = target.update_query(token=self.browser.owner_token)
         if request.headers.get('Upgrade', '').lower() == 'websocket':
             # One primary WebSocket per application session; never evict its owner.
             if self.connections:

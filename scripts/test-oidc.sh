@@ -8,6 +8,7 @@ docker run --rm -i --entrypoint python3 "$image" - < tests/browser-gpu.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/file-picker.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/session-operations.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/admin-panel.py
+docker run --rm -i --entrypoint python3 "$image" - < tests/view-sharing.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/browser-network.py
 name="brave-oidc-test-$$"
 cleanup() {

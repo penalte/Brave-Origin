@@ -140,6 +140,39 @@ async def main():
                     await exercise_picker(socket, desktop, decoder, user)
                     from cursor_browser import exercise_cursor
                     await exercise_cursor(socket, decoder, user)
+            # A real Selkies viewer joins without replacing either owner desktop.
+            invite = await broker.new_grant(desktops['alice'], 15)
+            admitted = await broker.admit_viewer(invite, {'iss':'https://id.example.test','sub':'viewer','name':'Viewer','exp':time.time()+600})
+            view_token = admitted.cookies[m.sharing.VIEW_COOKIE].value
+            viewer_headers = {**headers,'Cookie':m.sharing.VIEW_COOKIE+'='+view_token}
+            await asyncio.sleep(1)  # Selkies debounces rapid connections on the Unix peer.
+            viewer = await client.ws_connect(server.make_url('/watch/api/websockets'),headers=viewer_headers)
+            await viewer.send_str('START_VIDEO')
+            async with asyncio.timeout(30):
+                async for message in viewer:
+                    if message.type == m.single.WSMsgType.BINARY and message.data and message.data[0] in (3,4):
+                        break
+                    if message.type in (m.single.WSMsgType.CLOSE,m.single.WSMsgType.CLOSED,m.single.WSMsgType.ERROR):
+                        raise AssertionError('Viewer closed before receiving video')
+                else:
+                    raise AssertionError('No viewer video')
+            assert len(desktops['alice'].connections) == 1, 'Viewer must not replace owner or count toward owner lifetime'
+            state_response = await client.get(server.make_url('/session/status'),headers=a)
+            owner_csrf = (await state_response.json())['csrf']
+            for enabled in (True, False):
+                response = await client.post(server.make_url('/shares/control'),headers={**a,'X-CSRF-Token':owner_csrf},json={'id':view_token,'enabled':enabled})
+                assert response.status == 200, await response.text()
+                async with asyncio.timeout(10):
+                    async for message in viewer:
+                        if message.type == m.single.WSMsgType.TEXT and message.data == 'MK_ACCESS,'+str(int(enabled)):
+                            break
+                    else:
+                        raise AssertionError('Control update was not delivered')
+            response = await client.post(server.make_url('/shares/revoke'),headers={**a,'X-CSRF-Token':owner_csrf},json={})
+            assert response.status == 200
+            await viewer.close()
+            assert len(broker.sessions) == 2
+            print('Live sharing passed: video, owner preserved, control grant/revoke and stop sharing.',flush=True)
             # UID boundaries protect another session's stream and files.
             for endpoint in ('stream.sock', 'wayland-0', 'pulse/native'):
                 target = desktops['bob'].browser.directory / endpoint

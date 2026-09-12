@@ -86,8 +86,8 @@ The X11 image is not supported by this integration.
 - End session performs local application logout. It does not log the user out of
   Pocket ID or unrelated applications. Logging out of Pocket ID elsewhere does
   not promise immediate browser termination; no back-channel logout is implemented.
-- Only the session owner can use their stream. Sharing and terminal commands are
-  disabled. Selkies uploads and downloads use that identity's private `Downloads`
+- Only the session owner can manage their desktop. Owner-created guest links can
+  share its stream; terminal commands remain disabled. Selkies uploads and downloads use that identity's private `Downloads`
   folder, also used by Brave. `MAX_UPLOAD_MB` bounds uploads. Other identities
   cannot access the session socket or home directory.
 - Closing the last browser window ends the app session once its process exits.
@@ -255,3 +255,21 @@ reachable when WARP cannot connect because ingress does not use the tunnel.
 Network health checks send one HTTPS request through the configured proxy to
 Cloudflare's trace endpoint about every 15 seconds; WARP health requires
 `warp=on` or `warp=plus`, not just a listening port.
+
+## Guest sharing and collaboration
+
+Use **Share desktop** in Selkies to create a unique link, choose its lifetime,
+and optionally enable **Give mouse and keyboard control**. Guests do not need
+Pocket ID. Anyone holding the link has its selected permission until expiry or
+revocation. Keep control links private. One guest controls input at a time; the
+owner can grant/revoke it from the participant list. Control returns to the owner
+when the controlling guest disconnects. Clipboard, files, commands, microphone,
+and webcam remain unavailable through guest connections.
+
+The admin panel has **View session** beside each online desktop. It opens a new
+tab, initially view-only, and requires the administrator's active OIDC session.
+Owners can see administrator viewers in the sharing panel. **Stop sharing** closes
+current viewers including administrators. Logout, takeover, desktop shutdown and
+expiry invalidate that desktop's links. Viewers do not extend the owner's idle
+lifetime. Links and participant credentials are held in memory and disappear on
+container restart. Up to eight viewers can connect to a desktop.

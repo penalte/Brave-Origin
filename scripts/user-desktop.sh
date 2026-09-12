@@ -17,8 +17,8 @@ export SELKIES_GAMEPAD_ENABLED='false|locked'
 export SELKIES_WEB_ROOT=/usr/share/selkies/web FILE_MANAGER_PATH="$HOME/Downloads"
 export BRAVE_PRIVATE_FILES=true
 export SELKIES_FILE_TRANSFERS=upload,download SELKIES_COMMAND_ENABLED='false|locked'
-export SELKIES_ENABLE_SHARING='false|locked' SELKIES_ENABLE_COLLAB='false|locked'
-export SELKIES_ENABLE_SHARED='false|locked' SELKIES_SECOND_SCREEN='false|locked'
+export SELKIES_ENABLE_SHARING='false|locked' SELKIES_ENABLE_COLLAB='true|locked'
+export SELKIES_ENABLE_SHARED='true|locked' SELKIES_SECOND_SCREEN='false|locked'
 export SELKIES_ENABLE_PLAYER2='false|locked' SELKIES_ENABLE_PLAYER3='false|locked' SELKIES_ENABLE_PLAYER4='false|locked'
 export SELKIES_UI_SIDEBAR_SHOW_FILES=true SELKIES_UI_SIDEBAR_SHOW_APPS='false|locked'
 export SELKIES_UI_SIDEBAR_SHOW_SHARING='false|locked'

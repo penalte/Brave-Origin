@@ -18,6 +18,9 @@ from aiohttp import ClientSession, ClientTimeout, UnixConnector, web
 spec = importlib.util.spec_from_file_location('single', '/usr/local/bin/session-manager.py')
 single = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(single)
+sharing_spec = importlib.util.spec_from_file_location('view_sharing', '/usr/local/bin/view-sharing.py')
+sharing = importlib.util.module_from_spec(sharing_spec)
+sharing_spec.loader.exec_module(sharing)
 LOG = logging.getLogger('multi-session')
 
 
@@ -110,6 +113,9 @@ class Desktop(single.Browser):
             if gid:
                 await self.command('usermod', '-aG', str(gid), name)
         env = session_environment(self.home, name, self.directory)
+        self.master_token = secrets.token_urlsafe(32)
+        self.owner_token = secrets.token_urlsafe(32)
+        env['SELKIES_MASTER_TOKEN'] = self.master_token
         with (self.directory / 'supervisor.log').open('ab') as log:
             self.process = await asyncio.create_subprocess_exec('/usr/sbin/runuser', '-u', name,
                 '--', 'dbus-run-session', '--', '/usr/local/bin/user-desktop.sh',
@@ -135,7 +141,7 @@ class Desktop(single.Browser):
             self.directory = None
 
 
-class Broker(single.Manager):
+class Broker(sharing.ViewSharing, single.Manager):
     def __init__(self, config, desktop_factory=None, oidc=None):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
@@ -169,7 +175,7 @@ class Broker(single.Manager):
 
     def admin_routes(self):
         return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp),
-                web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session)]
+                web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
 
     def require_admin(self, request, mutate=False):
         session = self.selected(request)
@@ -186,9 +192,9 @@ class Broker(single.Manager):
         return web.json_response({'network': network,
             'warp_available': shutil.which('warp-svc') is not None,
             'tos_accepted': os.environ.get('WARP_ACCEPT_TOS') == 'true',
-            'users': [{'name': s.owner['name'], 'state': s.state,
+            'users': [{'id': key, 'name': s.owner['name'], 'state': s.state,
                        'started_at': s.owner.get('started_at'), 'admin': s.owner.get('admin', False)}
-                      for s in self.sessions.values() if s.owner]})
+                      for key, s in self.sessions.items() if s.owner]})
 
     async def admin_warp(self, request):
         self.require_admin(request, mutate=True)
@@ -260,6 +266,7 @@ class Broker(single.Manager):
                 await session.browser.start(claims['iss'], claims['sub'])
                 session.http = ClientSession(connector=UnixConnector(path=str(session.browser.directory / 'stream.sock')),
                                             timeout=ClientTimeout(total=None, connect=10, sock_read=30))
+                await self.provision_view_tokens(session)
                 session.state = 'RUNNING'
                 session.last_disconnect = time.monotonic()
             except Exception:
@@ -343,6 +350,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
                             raise web.HTTPServiceUnavailable(text='Desktop cleanup failed')
                         response = web.HTTPFound('/')
                     else:
+                        await self.revoke_session_views(session)
                         session.state = 'STARTING'
                         session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
                             'csrf': secrets.token_urlsafe(32),
@@ -369,6 +377,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
         return response
 
     async def end(self, identity, session):
+        await self.revoke_session_views(session)
         await session.stop_locked()
         if session.http:
             await session.http.close()
@@ -379,6 +388,10 @@ Or disconnect to close that desktop without opening another. Your saved profile 
         session = self.selected(request)
         if not session:
             raise web.HTTPForbidden()
+        # Authorization is checked by logout before any session mutation.
+        if not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), session.owner['csrf']):
+            raise web.HTTPForbidden()
+        await self.revoke_session_views(session)
         response = await session.logout(request)
         if session.state == 'IDLE':
             for key, candidate in list(self.sessions.items()):
@@ -396,6 +409,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
     async def monitor(self):
         while True:
             await asyncio.sleep(1)
+            await self.prune_shares()
             for identity, session in list(self.sessions.items()):
                 if session.lock.locked():
                     continue

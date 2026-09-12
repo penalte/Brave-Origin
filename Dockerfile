@@ -226,6 +226,7 @@ COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
 COPY scripts/session-manager.py /usr/local/bin/session-manager.py
 COPY scripts/multi-session.py /usr/local/bin/multi-session.py
+COPY scripts/view-sharing.py /usr/local/bin/view-sharing.py
 COPY scripts/browser-network.py /usr/local/bin/browser-network.py
 COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
 COPY scripts/session-gpu.sh /usr/local/bin/session-gpu.sh
