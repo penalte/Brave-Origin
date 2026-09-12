@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.31 (Pocket ID fork)
+
+- Upgrade Selkies backend and dashboard together to v2.0.0rc0, with matching Pixelflux and pcmflux 2.1.0rc0 wheels pinned by checksum. Preserve private desktop integration and nested window sizing patches.
+- Match the Pocket ID login page to the shared-session ending screen.
+- Correct a late-starting browser sooner. The screen configuration that repairs a window which came up after its session was sized now runs 2.5 seconds in rather than 5, which is about as long as the wrong size stayed visible. Verified on a GPU host as a rare remaining fault; the earlier moment still lands after the browser has finished starting.
+
 ## 1.2.0-beta.30 (Pocket ID fork)
 
 - Replace frozen guest frames after sharing ends with a styled thank-you screen.

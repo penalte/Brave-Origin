@@ -49,12 +49,12 @@
 +
 +    async def _settle_app_screen(self) -> None:
 +        try:
-+            await asyncio.wait_for(self.shutdown_event.wait(), timeout=5.0)
++            await asyncio.wait_for(self.shutdown_event.wait(), timeout=2.5)
 +            return
 +        except asyncio.TimeoutError:
 +            pass
 +        async with self._reconfigure_guard():
-+            await self._configure_app_screen("settle +5s")
++            await self._configure_app_screen("settle +2.5s")
  
      async def _scale_wayland_screen(self) -> None:
          """Give the primary's screen (output 0) the primary's capture scale, at
