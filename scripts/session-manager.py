@@ -613,7 +613,10 @@ class Manager:
         if path.startswith('/desktop/'):
             path = path[len('/desktop'):]
         allowed = path == '/' or path.startswith(('/assets/', '/src/', '/nginx/')) or path in (
-            '/api/websockets', '/api/websockets/', '/favicon.ico', '/icon.png', '/icon-512.png', '/manifest.json')
+            # The client reads /api/status to pick its streaming mode; refusing it
+            # leaves that choice to a fallback. It carries only the mode names.
+            '/api/status', '/api/websockets', '/api/websockets/',
+            '/favicon.ico', '/icon.png', '/icon-512.png', '/manifest.json')
         private = getattr(self.browser, 'directory', None) is not None
         upload = private and path == '/api/upload' and request.method == 'POST'
         files = private and path.startswith('/api/files/') and request.method == 'GET'
@@ -826,7 +829,12 @@ class Manager:
             return web.FileResponse('/usr/local/share/brave-origin/portal.html')
         async def script(request):
             return web.FileResponse('/usr/local/share/brave-origin/portal.js')
+        async def favicon(request):
+            # Served here rather than proxied: the sign-in page needs it before a
+            # session exists, and the streaming web root carries no .ico.
+            return web.FileResponse('/usr/share/selkies/web/icon.png')
         app.add_routes([web.get('/', portal), web.get('/portal.js', script), web.get('/health', self.health),
+                        web.get('/favicon.ico', favicon),
                         web.get('/session/status', self.status), web.get('/auth/login', self.login),
                         web.get('/auth/callback', self.callback), web.post('/auth/logout', self.logout),
                         web.route('*', '/{path:.*}', self.proxy)])

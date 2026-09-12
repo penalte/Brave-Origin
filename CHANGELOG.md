@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.18 (Pocket ID fork)
+
+- The session page no longer reports a refused request while loading. The client reads the streaming mode from the server before connecting, and the gateway was declining that one read, leaving the choice to a fallback. Token and control endpoints stay refused.
+- The sign-in and session pages now carry an icon instead of requesting one that does not exist.
+
 ## 1.2.0-beta.17 (Pocket ID fork)
 
 - Completed validation of the coordinated Selkies/Pixelflux/pcmflux upgrade. Updated regression tests to use the renamed manual-resolution setting and native clipboard API.
