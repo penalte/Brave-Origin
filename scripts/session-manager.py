@@ -32,6 +32,35 @@ HOP = {'connection', 'upgrade', 'keep-alive', 'transfer-encoding', 'te', 'traile
 HELPER_ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
 
 
+def profile_picture(claims):
+    """Use only an HTTPS avatar URL from the verified identity claims."""
+    value = claims.get('picture')
+    if not isinstance(value, str) or len(value) > 4096:
+        return ''
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme == 'https' and parsed.hostname and not parsed.username and not parsed.password:
+            return value
+    except ValueError:
+        pass
+    return ''
+
+
+def network_status():
+    """Public routing state only; never expose proxy addresses or registration."""
+    try:
+        data = json.loads(Path('/run/brave-network/status.json').read_text())
+        mode = data.get('mode')
+        state = data.get('state')
+        if mode not in ('direct', 'proxy', 'warp'):
+            raise ValueError('Unknown mode')
+        if state not in ('direct', 'connected', 'unavailable') or time.time() - data.get('checked_at', 0) > 45:
+            state = 'unavailable'
+        return {'mode': mode, 'state': state}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {'mode': 'unknown', 'state': 'unavailable'}
+
+
 def https_url(value):
     parsed = urlsplit(value)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -503,7 +532,9 @@ class Manager:
         own = self.owns(request)
         return web.json_response({'state': self.state, 'owner': own,
             'name': self.owner['name'] if own else '', 'csrf': self.owner['csrf'] if own else '',
-            'admin': bool(own and self.owner.get('admin'))})
+            'admin': bool(own and self.owner.get('admin')),
+            'picture': self.owner.get('picture', '') if own else '',
+            'network': network_status() if own else None})
 
     async def login(self, request):
         if self.owns(request):
@@ -547,7 +578,7 @@ class Manager:
                 raise web.HTTPConflict(text='Browser currently in use')
             self.state = 'STARTING'
             self.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
-                          'origin': flow['origin'],
+                          'origin': flow['origin'], 'picture': profile_picture(claims),
                           'name': str(claims.get('name') or claims.get('preferred_username') or 'Private browser')[:120],
                           'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
             try:

@@ -149,14 +149,15 @@
      return { wire, unwire };
 --- a/addons/selkies-dashboard/src/components/Sidebar.jsx
 +++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
-@@ -72,6 +72,30 @@
+@@ -72,6 +72,43 @@
    writeInstalledApps,
  } from "../../../selkies-web-core/lib/app-commands.js";
  import * as yaml from "js-yaml";
 +
 +// The authenticated outer portal owns session state and the logout token.
-+function PrivateSessionControls() {
++function PrivateSessionControls({actions = false}) {
 +  const [session, setSession] = useState(null);
++  const [failedPicture, setFailedPicture] = useState(null);
 +  useEffect(() => {
 +    const receive = event => {
 +      if (event.origin !== window.location.origin || event.source !== window.parent) return;
@@ -167,14 +168,26 @@
 +    return () => window.removeEventListener('message', receive);
 +  }, []);
 +  if (!session?.active) return null;
-+  return <section aria-label="Browser session" style={{padding:'12px 16px',borderBottom:'1px solid var(--border-color)'}}>
-+    <div title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:'8px'}}>{session.name}</div>
-+    <button type="button" disabled={session.ending} onClick={() => window.parent.postMessage({type:'brave-session-end'}, window.location.origin)}
-+      style={{width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer'}}>
-+      {session.ending ? 'Ending session…' : 'End session'}
-+    </button>
-+    {session.admin && <button type="button" style={{width:'100%',marginTop:'8px'}} onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel</button>}
++  const mode = session.network?.mode;
++  const connected = mode === 'warp' && session.network?.state === 'connected';
++  const disabled = mode === 'direct' || mode === 'proxy';
++  const color = connected ? '#39db83' : disabled ? '#f06a73' : '#f4bd50';
++  const label = connected ? 'WARP ENABLED' : disabled ? 'WARP DISABLED' : mode === 'warp' ? 'WARP UNAVAILABLE' : 'WARP STATUS UNKNOWN';
++  const buttonStyle = {width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer',fontSize:'13px',fontWeight:600};
++  if (actions) return <section aria-label="Session actions" style={{marginTop:'auto',paddingTop:'16px',flexShrink:0}}>
++    {session.admin && <button type="button" style={{...buttonStyle,marginBottom:'8px'}} onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel</button>}
++    <button type="button" disabled={session.ending} style={buttonStyle} onClick={() => window.parent.postMessage({type:'brave-session-end'}, window.location.origin)}>{session.ending ? 'Ending session…' : 'End session'}</button>
 +    {session.error && <p role="alert" style={{fontSize:'12px',marginTop:'8px'}}>{session.error}</p>}
++  </section>;
++  return <section aria-label="Browser session" style={{padding:'0 0 14px',marginBottom:'14px',borderBottom:'1px solid var(--border-color)',flexShrink:0}}>
++    <div style={{display:'flex',alignItems:'center',gap:'9px',minWidth:0}}>
++      {session.picture && failedPicture !== session.picture ? <img src={session.picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(session.picture)} style={{width:'28px',height:'28px',borderRadius:'50%',objectFit:'cover',flexShrink:0}} /> : <span aria-hidden="true" style={{width:'28px',height:'28px',borderRadius:'50%',background:'var(--border-color)',display:'grid',placeItems:'center',flexShrink:0}}>{(session.name || '?').slice(0,1).toUpperCase()}</span>}
++      <span title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{session.name}</span>
++    </div>
++    <div role="status" aria-live="polite" style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'12px',fontSize:'11px',fontWeight:700,letterSpacing:'.06em',color}}>
++      <span aria-hidden="true" style={{width:'7px',height:'7px',flexShrink:0,borderRadius:'50%',background:color,boxShadow:`0 0 8px ${color}`}} />
++      <span>{label}</span>
++    </div>
 +  </section>;
 +}
  
@@ -196,7 +209,8 @@
 @@ -3102,6 +3125,7 @@
          );
        })()}
-       <div className={sidebarClasses}>
+-      <div className={sidebarClasses}>
++      <div className={sidebarClasses} style={{display:'flex',flexDirection:'column'}}>
 +          <PrivateSessionControls />
            <div className="sidebar-header">
              {uiShowLogo && (
@@ -221,6 +235,14 @@
                      </div>
                      {(renderableSettings.binaryClipboard ?? true) &&
                        enableBinaryClipboard && (
+@@ -4808,6 +4850,7 @@
+             )}
+           </>
+         )}
++        <PrivateSessionControls actions />
+       </div>
+ 
+ 
 --- a/src/selkies/stream_server.py
 +++ b/src/selkies/stream_server.py
 @@ -992,6 +992,17 @@

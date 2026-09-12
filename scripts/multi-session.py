@@ -180,12 +180,7 @@ class Broker(single.Manager):
 
     async def admin_status(self, request):
         self.require_admin(request)
-        try:
-            network = json.loads(Path('/run/brave-network/status.json').read_text())
-            if time.time() - network.get('checked_at', 0) > 45:
-                network['state'] = 'unavailable'
-        except (OSError, ValueError):
-            network = {'mode': 'direct', 'state': 'unavailable'}
+        network = single.network_status()
         return web.json_response({'network': network,
             'warp_available': shutil.which('warp-svc') is not None,
             'tos_accepted': os.environ.get('WARP_ACCEPT_TOS') == 'true',
@@ -251,6 +246,7 @@ class Broker(single.Manager):
             session = single.Manager(self.config, browser=self.factory())
             session.state = 'STARTING'
             session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
+                'picture': single.profile_picture(claims),
                 'origin': flow['origin'], 'name': str(claims.get('name') or 'Private browser')[:120],
                 'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
             session.owner['admin'] = admin_claim(claims, self.config.group_claim)

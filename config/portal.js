@@ -1,9 +1,11 @@
 let csrf = '', opened = false;
 let isAdmin = false, warpEnabled = false;
+let picture = '';
+let network = {mode:'unknown', state:'unavailable'};
 let sessionName = 'Private browser', ending = false, sessionError = '';
 function notifyDesktop() {
   document.getElementById('desktop').contentWindow.postMessage({type:'brave-session-state',
-    active:opened, name:sessionName, admin:isAdmin, ending, error:sessionError}, location.origin);
+    active:opened, name:sessionName, admin:isAdmin, picture, network, ending, error:sessionError}, location.origin);
 }
 async function update() {
   try {
@@ -11,6 +13,8 @@ async function update() {
     const state = await response.json();
     csrf = state.csrf || '';
     isAdmin = state.admin === true;
+    picture = state.picture || '';
+    network = state.network || {mode:'unknown', state:'unavailable'};
     if (!isAdmin) document.getElementById('admin-panel').close();
     const active = state.owner && state.state === 'RUNNING';
     document.getElementById('welcome').hidden = active;
@@ -24,7 +28,10 @@ async function update() {
     if (active && !opened) { document.getElementById('desktop').src = '/desktop/'; opened = true; }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; }
     notifyDesktop();
-  } catch { document.getElementById('message').textContent = 'Reconnecting to the service…'; }
+  } catch {
+    network = {mode:'unknown', state:'unavailable'}; notifyDesktop();
+    document.getElementById('message').textContent = 'Reconnecting to the service…';
+  }
 }
 async function endSession() {
   if (!opened || ending) return;

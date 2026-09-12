@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.24 (Pocket ID fork)
+
+- Show the Pocket ID avatar and user name at the top of Selkies, with a live WARP status indicator. Missing avatars fall back to the user initial.
+- Move Admin panel and End session to the bottom of the sidebar with matching orange buttons.
+
 ## 1.2.0-beta.23 (Pocket ID fork)
 
 - Add optional shared WARP and generic browser proxy routing with browser-UID egress enforcement. WARP is disabled by default and requires explicit terms acceptance plus NET_ADMIN.
