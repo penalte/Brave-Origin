@@ -16,6 +16,9 @@ spec.loader.exec_module(m)
 
 class Provider:
     run = str(time.time_ns())
+    async def discovery(self, http):
+        return {'authorization_endpoint': 'https://id.example.test/authorize'}
+
     async def authenticate(self, http, code, flow):
         return {'iss': 'https://id.example.test', 'sub': code + self.run, 'name': code, 'exp': time.time()+900}
 
@@ -51,7 +54,30 @@ async def main():
                 assert b'XKB_DEFAULT_LAYOUT=pt\0' in process_env
                 assert b'OIDC_CLIENT_SECRET=' not in process_env
             response = await client.get(server.make_url('/auth/login'), headers=headers, allow_redirects=False)
-            assert response.status == 409, 'Capacity limit must reject another login'
+            assert response.status == 302, 'Authentication must remain available for takeover at capacity'
+            broker.flows['charlie'] = {'cookie':'charlie', 'origin':headers['Origin'], 'expires':time.time()+60}
+            response = await client.get(server.make_url('/auth/callback'), params={'state':'charlie','code':'charlie'},
+                headers={**headers,'Cookie':m.single.FLOW_COOKIE+'=charlie'}, allow_redirects=False)
+            assert response.status == 409, 'Capacity must reject a new authenticated identity'
+            assert len(broker.sessions) == 2
+            broker.flows['alice-again'] = {'cookie':'again', 'origin':headers['Origin'], 'expires':time.time()+60}
+            response = await client.get(server.make_url('/auth/callback'), params={'state':'alice-again','code':'alice'},
+                headers={**headers,'Cookie':m.single.FLOW_COOKIE+'=again'}, allow_redirects=False)
+            assert response.status == 302 and response.headers['Location'] == '/session/resolve'
+            token = response.cookies['__Host-brave-handoff'].value
+            choice_headers = {**headers,'Cookie':'__Host-brave-handoff='+token}
+            response = await client.get(server.make_url('/session/resolve'),headers=choice_headers)
+            assert response.status == 200 and 'Take over existing desktop' in await response.text()
+            response = await client.post(server.make_url('/session/resolve'),headers=choice_headers,
+                data={'action':'disconnect','csrf':'wrong'},allow_redirects=False)
+            assert response.status == 403 and len(broker.sessions) == 2
+            csrf = broker.handoffs[token]['csrf']
+            response = await client.post(server.make_url('/session/resolve'),headers=choice_headers,
+                data={'action':'cancel','csrf':csrf},allow_redirects=False)
+            assert response.status == 302 and len(broker.sessions) == 2
+            response = await client.post(server.make_url('/session/resolve'),headers=choice_headers,
+                data={'action':'disconnect','csrf':csrf},allow_redirects=False)
+            assert response.status == 403, 'Consumed handoff must not be replayable'
             for user, auth in (('alice',a), ('bob',b)):
                 response = await client.post(server.make_url('/desktop/api/upload'), headers={**auth,'X-Upload-Path':'same.txt'}, data=user.encode())
                 assert response.status == 200, (response.status,await response.text())

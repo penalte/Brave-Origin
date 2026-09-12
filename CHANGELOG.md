@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.28 (Pocket ID fork)
+
+- Update capacity tests for authenticated session takeover: permit login at capacity, reject new identities, and verify existing-user confirmation, CSRF rejection, cancellation, and replay protection. Beta.27 failed the old admission test and was not published.
+
 ## 1.2.0-beta.27 (Pocket ID fork)
 
 - Hide the sidebar scrollbar while preserving scrolling.
