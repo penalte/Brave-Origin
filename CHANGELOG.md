@@ -1,8 +1,10 @@
 # Release notes
 
-## 1.2.0-beta.25 (Pocket ID fork)
+## 1.2.0-beta.26 (Pocket ID fork)
 
-- Replace the Selkies header logo and title with the signed-in user avatar and name. Keep WARP status below the header and session buttons at the bottom.
+- Remove the sidebar theme toggle.
+- Prevent expanded sidebar sections from shrinking and clipping when the session buttons sit at the bottom; overflow scrolls normally.
+- Replace the Selkies header logo and title with the signed-in user avatar and name. Show WARP as a colored tile beside the media controls, clickable by admins to open WARP controls. Keep session buttons at the bottom.
 
 ## 1.2.0-beta.24 (Pocket ID fork)
 

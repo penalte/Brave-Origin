@@ -183,12 +183,12 @@
 +      {session.picture && failedPicture !== session.picture ? <img src={session.picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(session.picture)} style={{width:'28px',height:'28px',borderRadius:'50%',objectFit:'cover',flexShrink:0}} /> : <span aria-hidden="true" style={{width:'28px',height:'28px',borderRadius:'50%',background:'var(--border-color)',display:'grid',placeItems:'center',flexShrink:0}}>{(session.name || '?').slice(0,1).toUpperCase()}</span>}
 +      <span title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{session.name}</span>
 +    </div>;
-+  return <section aria-label="Browser network" style={{paddingBottom:'14px',flexShrink:0}}>
-+    <div role="status" aria-live="polite" style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'11px',fontWeight:700,letterSpacing:'.06em',color}}>
-+      <span aria-hidden="true" style={{width:'7px',height:'7px',flexShrink:0,borderRadius:'50%',background:color,boxShadow:`0 0 8px ${color}`}} />
-+      <span>{label}</span>
-+    </div>
-+  </section>;
++  return <button type="button" className="action-button" disabled={!session.admin}
++    title={session.admin ? `${label} — Open WARP controls` : label} aria-label={label}
++    onClick={() => { if (session.admin) window.parent.postMessage({type:'brave-session-admin'}, window.location.origin); }}
++    style={{color,borderColor:color,backgroundColor:`${color}20`,fontSize:'10px',fontWeight:700,letterSpacing:'.02em',cursor:session.admin ? 'pointer' : 'default',opacity:1}}>
++    WARP
++  </button>;
 +}
  
  const urlHash = window.location.hash;
@@ -206,7 +206,7 @@
        window.location.origin
      );
    };
-@@ -3102,21 +3140,6 @@
+@@ -3102,42 +3140,7 @@
          );
        })()}
 -      <div className={sidebarClasses}>
@@ -232,14 +232,35 @@
 +          <div className="sidebar-header" style={{flexShrink:0}}>
 +            <PrivateSessionControls identity />
 +            <div className="header-controls" style={{flexShrink:0}}>
-@@ -3157,6 +3170,7 @@
-           </div>
-         </div>
- 
-+        <PrivateSessionControls />
-         {(showCoreButtons || showKeyboardTile || showTrackpadTile) && (
-           <div className="sidebar-action-buttons">
-             {showCoreButtons && (renderableSettings.videoToggle ?? true) && (
+-            <div
+-              className={`theme-toggle ${theme}`}
+-              onClick={toggleTheme}
+-              title={t("toggleThemeTitle")}
+-            >
+-              <svg className="icon moon-icon" viewBox="0 0 24 24">
+-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+-              </svg>
+-              <svg className="icon sun-icon" viewBox="0 0 24 24">
+-                <circle cx="12" cy="12" r="5"></circle>
+-                <line x1="12" y1="1" x2="12" y2="3"></line>
+-                <line x1="12" y1="21" x2="12" y2="23"></line>
+-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+-                <line x1="1" y1="12" x2="3" y2="12"></line>
+-                <line x1="21" y1="12" x2="23" y2="12"></line>
+-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+-              </svg>
+-            </div>
+             {(renderableSettings.fullscreen ?? true) && (
+@@ -3219,6 +3240,7 @@
+                 <WebcamIcon />
+               </button>
+             )}
++            <PrivateSessionControls />
+             {showCoreButtons && (renderableSettings.gamepadToggle ?? true) && (
+               <button
+                 className={`action-button ${isGamepadEnabled ? "active" : ""}`}
 @@ -4432,11 +4456,18 @@
                          id="dashboardClipboardTextarea"
                          value={dashboardClipboardContent}
@@ -391,3 +412,16 @@
          ]
          if self.settings.enable_metrics_http[0]:
              routes.append(web.get(f"{api_prefix}/api/metrics", self.handle_metrics))
+--- a/addons/selkies-dashboard/src/styles/Overlay.css
++++ b/addons/selkies-dashboard/src/styles/Overlay.css
+@@ -200,5 +200,10 @@
+ }
+ 
++/* Keep expanded sections at their natural height; the sidebar scrolls. */
++.sidebar > * {
++  flex-shrink: 0;
++}
++
+ .sidebar::-webkit-scrollbar {
+   width: 8px;
+ }
