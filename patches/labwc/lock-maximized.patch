@@ -55,3 +55,35 @@
    license: 'GPL-2.0-only',
    meson_version: '>=0.59.0',
    default_options: [
+--- a/src/xdg.c
++++ b/src/xdg.c
+@@ -206,6 +206,15 @@
+ 		view->pending_configure_serial = 0;
+ 		view->pending_configure_timeout = NULL;
+ 		update_required = true;
++	}
++
++	if (update_required && view->maximized == VIEW_AXIS_BOTH
++			&& (size.width != view->pending.width
++				|| size.height != view->pending.height)) {
++		wlr_log(WLR_INFO, "[browser-geometry] maximized commit: "
++			"received=%dx%d pending=%dx%d serial=%u ack=%u",
++			size.width, size.height, view->pending.width, view->pending.height,
++			view->pending_configure_serial, xdg_surface->current.configure_serial);
+ 	}
+ 
+ 	if (update_required) {
+@@ -749,6 +758,13 @@
+ 		view_moved(view);
+ 	}
+ 
++	if (!view->been_mapped && view->output) {
++		wlr_log(WLR_INFO, "[browser-geometry] first map: "
++			"maximized=%d pending=%dx%d output=%dx%d scale=%.3f",
++			view->maximized, view->pending.width, view->pending.height,
++			view->output->wlr_output->width, view->output->wlr_output->height,
++			view->output->wlr_output->scale);
++	}
+ 	view_impl_map(view);
+ 	view->been_mapped = true;
+ }

@@ -196,6 +196,14 @@ at most five archives, five logs per archive, 64 KiB per log. These are diagnost
 logs and may contain browser activity; normal logout does not create an archive.
 The supervisor log includes GPU access checks and the component exit status.
 
+The occasional small Brave startup window still receives one recovery at five
+seconds. `selkies.log` records the requested mode, desktop scale, acceptance and
+application-screen readback. The private session's `labwc.log` records
+`[browser-geometry]` first-map dimensions and mismatched maximized commits with
+configure serials. These entries omit page titles and URLs and do not change
+window behavior. Collect both logs while the affected session is still active;
+a normal logout removes its runtime logs.
+
 ## Streaming stack compatibility
 
 The backend and dashboard are pinned together at Selkies

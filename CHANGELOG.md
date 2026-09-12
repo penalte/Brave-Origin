@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.22 (Pocket ID fork)
+
+- Preserve the single five-second startup recovery, using the latest dimensions and desktop DPI. Serialize application-screen writes, skip recovery for disconnected clients, and finish the recovery task at shutdown.
+- Add application-screen recovery readback and Labwc window geometry diagnostics without changing window policy.
+- Run five recovery regressions against patched Selkies during image builds, covering resize, DPI, reconnect, disconnect and shutdown.
+
 ## 1.2.0-beta.21 (Pocket ID fork)
 
 - The browser now fills its desktop when it starts slowly. The previous release configured the inner session's screen at the moment the resolution was decided, which for a session's first sizing is while the browser is still starting: the session accepted the mode and the window that came up afterwards kept the size it opened with. Switching away from the streamed tab and back corrected it by accident, because that re-ran the same step. That configuration is now applied once more five seconds into a session, and recorded in the session log. Later resizes are unchanged: they already reach a running browser.

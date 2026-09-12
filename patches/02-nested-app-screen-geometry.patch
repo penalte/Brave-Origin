@@ -1,42 +1,70 @@
 --- a/src/selkies/selkies.py
 +++ b/src/selkies/selkies.py
-@@ -4638,6 +4638,39 @@
+@@ -4638,6 +4638,57 @@
                  data_logger.warning(f"Wayland screen resize to {width}x{height} refused.")
          except Exception as e:
              data_logger.error(f"Wayland resize_output failed: {e}")
-+        # A nested application compositor is a client of that screen, and a
-+        # client that does not lay out again keeps the geometry it had: the
-+        # desktop then carries the new size while its windows keep the old one.
-+        app_display = (getattr(app_settings, "app_wayland_display", "")
-+                       or getattr(app_settings, "wayland_host_display", "") or "")
-+        if not app_display:
-+            return
 +
-+        async def configure_app_screen(tag: str) -> None:
++        # Keep startup recovery, but never replay its first size or capture scale.
++        if self.shutdown_event.is_set():
++            return
++        self._app_screen_size = (width, height)
++        await self._configure_app_screen("immediate")
++        if not getattr(self, "_app_screen_settled", False):
++            self._app_screen_settled = True
++            self._app_screen_settle = asyncio.create_task(self._settle_app_screen())
++
++    async def _configure_app_screen(self, tag: str) -> None:
++        if not hasattr(self, "_app_screen_lock"):
++            self._app_screen_lock = asyncio.Lock()
++        async with self._app_screen_lock:
++            app_display = (getattr(app_settings, "app_wayland_display", "")
++                           or getattr(app_settings, "wayland_host_display", "") or "")
++            module = self._wayland_control_module()
++            if not app_display or module is None or self.shutdown_event.is_set():
++                return
++            if tag != "immediate" and not self.display_clients.get('primary'):
++                return
++            width, height = self._app_screen_size
++            # Nested capture scale remains 1.0 even when desktop DPI is 144.
 +            try:
-+                laid_out = await asyncio.to_thread(
-+                    module.set_app_screen_geometry, app_display, width, height, scale, 0)
++                dpi = float(self._display_dpi('primary'))
++                if not 0 < dpi < float('inf'):
++                    raise ValueError("invalid DPI")
++                app_scale = max(0.1, dpi / 96.0)
++            except (ValueError, TypeError):
++                data_logger.warning("App screen configuration skipped: invalid desktop DPI")
++                return
++            try:
++                accepted = await asyncio.to_thread(
++                    module.set_app_screen_geometry, app_display, width, height, app_scale, 0)
 +                data_logger.info(
 +                    f"App compositor '{app_display}' screen set to {width}x{height} "
-+                    f"scale {scale} ({tag}, accepted={bool(laid_out)}).")
++                    f"scale {app_scale} ({tag}, accepted={bool(accepted)}).")
++                if tag != "immediate":
++                    screens = await asyncio.to_thread(module.list_app_screens, app_display)
++                    data_logger.info(f"App screen recovery readback: {screens!r}")
 +            except Exception as e:
 +                data_logger.warning(f"App screen geometry for '{app_display}' failed: {e}")
 +
-+        async def settle_app_screen() -> None:
-+            # A session accepts a screen mode whether or not the windows on it
-+            # are ready to lay out, and the first sizing of a session lands
-+            # while its application is still starting: the window that comes up
-+            # afterwards keeps whatever geometry it was given. Configure the
-+            # screen once more when startup has finished. Only the first sizing
-+            # needs it -- a later resize reaches an application already running
-+            # -- and laying the desktop out costs a frame, so it is not repeated.
-+            await asyncio.sleep(5.0)
-+            await configure_app_screen("settle +5s")
-+
-+        await configure_app_screen("immediate")
-+        if not getattr(self, "_app_screen_settled", False):
-+            self._app_screen_settled = True
-+            self._app_screen_settle = asyncio.create_task(settle_app_screen())
++    async def _settle_app_screen(self) -> None:
++        try:
++            await asyncio.wait_for(self.shutdown_event.wait(), timeout=5.0)
++            return
++        except asyncio.TimeoutError:
++            pass
++        async with self._reconfigure_guard():
++            await self._configure_app_screen("settle +5s")
  
      async def _scale_wayland_screen(self) -> None:
          """Give the primary's screen (output 0) the primary's capture scale, at
+@@ -5877,6 +5928,9 @@
+ 
+     async def stop(self) -> None:
+         self.shutdown_event.set()
++        task = getattr(self, "_app_screen_settle", None)
++        if task is not None:
++            await task
+ 
+     def register_routes(self, api_prefix: str, main_router: web.UrlDispatcher) -> None:
+         """Register the data WebSocket and token endpoints on the shared router.

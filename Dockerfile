@@ -3,7 +3,7 @@ FROM ghcr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:7f4f69e5184e3e187
 
 # Selkies backend and dashboard are built from the same tested revision.
 FROM node:22-trixie-slim AS selkies-build
-RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends patch python3 && rm -rf /var/lib/apt/lists/*
 ADD --checksum=sha256:2c2fd6e9e43356d18d2919f016a70d7e9a099832aaef18999d105f459d154712 \
     https://codeload.github.com/selkies-project/selkies/tar.gz/9762dd8c21af0292e069b05cdc49ad449fa04f54 /tmp/selkies.tar.gz
 RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-components=1 && rm /tmp/selkies.tar.gz
@@ -12,8 +12,10 @@ COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies
 COPY dependencies/selkies-dashboard.package-lock.json /selkies-src/addons/selkies-dashboard/package-lock.json
 COPY tests/client-clipboard.mjs /tmp/client-clipboard.mjs
 COPY tests/client-audio.mjs /tmp/client-audio.mjs
+COPY tests/app-screen-recovery.py /tmp/app-screen-recovery.py
 RUN cd /selkies-src && \
     for p in patches/*.patch; do [ -f "$p" ] && patch -p1 < "$p"; done && \
+    python3 /tmp/app-screen-recovery.py /selkies-src/src/selkies/selkies.py && \
     node /tmp/client-clipboard.mjs /selkies-src/addons/selkies-web-core/lib/clipboard-sync.js && \
     node /tmp/client-audio.mjs /selkies-src/addons/selkies-web-core/selkies-ws-core.js && \
     cd /selkies-src/addons/selkies-web-core && \

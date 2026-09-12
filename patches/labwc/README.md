@@ -19,3 +19,8 @@ hardening, and runs upstream tests. No build tools enter the final image.
 The complete modified Labwc source, its license, and the Dockerfile build recipe
 are shipped in `/usr/local/share/brave-origin/labwc-source.tar.xz`. The patch in
 this directory and the Dockerfile reproduce those sources and the binary.
+
+Geometry diagnostics log the first window map and changed maximized commits that
+differ from the pending configure size, using the `[browser-geometry]` prefix.
+They include dimensions, scale and configure serials, but no titles or URLs.
+The diagnostics do not issue configure requests or change window policy.
