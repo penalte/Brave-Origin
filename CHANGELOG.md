@@ -1,9 +1,10 @@
 # Release notes
 
-## 1.2.0-beta.20 (Pocket ID fork)
+## 1.2.0-beta.21 (Pocket ID fork)
 
-- The browser now fills its desktop when it starts slowly. The previous release configured the inner session's screen at the moment the resolution was decided, which on a session's first seconds is before the browser has a window to lay out: the session accepted the mode and the late window kept the size it opened with. Switching away from the streamed tab and back corrected it by accident, because that re-ran the same step. The configuration is now applied again over the session's first twenty seconds, and each attempt is recorded in the session log.
+- The browser now fills its desktop when it starts slowly. The previous release configured the inner session's screen at the moment the resolution was decided, which for a session's first sizing is while the browser is still starting: the session accepted the mode and the window that came up afterwards kept the size it opened with. Switching away from the streamed tab and back corrected it by accident, because that re-ran the same step. That configuration is now applied once more five seconds into a session, and recorded in the session log. Later resizes are unchanged: they already reach a running browser.
 - Requires host verification: the reported fault appears only on a GPU host, which no test environment here provides.
+- The 1.2.0-beta.20 publication failed its own sizing test and published nothing. It re-applied the configuration three times, and laying the desktop out repeatedly while a session was still filling its first frames cost the test client its connection. One application is enough.
 
 ## 1.2.0-beta.19 (Pocket ID fork)
 
