@@ -4,8 +4,8 @@ FROM ghcr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:7f4f69e5184e3e187
 # Selkies backend and dashboard are built from the same tested revision.
 FROM node:22-trixie-slim AS selkies-build
 RUN apt-get update && apt-get install -y --no-install-recommends patch python3 && rm -rf /var/lib/apt/lists/*
-ADD --checksum=sha256:2c2fd6e9e43356d18d2919f016a70d7e9a099832aaef18999d105f459d154712 \
-    https://codeload.github.com/selkies-project/selkies/tar.gz/9762dd8c21af0292e069b05cdc49ad449fa04f54 /tmp/selkies.tar.gz
+ADD --checksum=sha256:f242f01ef26e124f7e97d4f441596571e5b4121f5b63a9ae1c537b978d894f67 \
+    https://codeload.github.com/selkies-project/selkies/tar.gz/f5eb10c8b1bdbb9c8e0d8ed3deb8387bc566630e /tmp/selkies.tar.gz
 RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-components=1 && rm /tmp/selkies.tar.gz
 COPY patches/*.patch /selkies-src/patches/
 COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies-web-core/package-lock.json
@@ -182,10 +182,10 @@ RUN mkdir -p /etc/brave/policies/managed && \
 # 3. Use the donor's supporting libraries and override both capture components.
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
-ADD --checksum=sha256:67deb00f5ad2fc3c05fa04896827432cb6a330d7f8b6cb5db7df06d157441887 \
-    https://github.com/selkies-project/pixelflux/releases/download/f23caf4/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
-ADD --checksum=sha256:e6d5c339a057b59d7fedae55698d04d39dd4dfbb4221d2071e231c496dabb180 \
-    https://github.com/selkies-project/pcmflux/releases/download/584f875/pcmflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pcmflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+ADD --checksum=sha256:bcf673ada7cb96e65b344058969ee84ed63d7e21fb6fa6ed7e710411b527e66f \
+    https://github.com/selkies-project/pixelflux/releases/download/2.1.0rc0/pixelflux-2.1.0rc0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0rc0-cp313-cp313-manylinux_2_28_x86_64.whl
+ADD --checksum=sha256:2239ad3f52a050df1a68cdcfbfa5a7a366fa68c6cbab690221b54c68b4e5e438 \
+    https://github.com/selkies-project/pcmflux/releases/download/2.1.0rc0/pcmflux-2.1.0rc0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pcmflux-2.1.0rc0-cp313-cp313-manylinux_2_28_x86_64.whl
 RUN pip install --no-deps --break-system-packages /tmp/pixelflux-*.whl /tmp/pcmflux-*.whl && \
     rm /tmp/pixelflux-*.whl /tmp/pcmflux-*.whl
 COPY dependencies/runtime.txt /tmp/runtime-requirements.txt
@@ -196,7 +196,9 @@ RUN rm -rf /usr/local/lib/python3.13/dist-packages/pelorus /usr/local/lib/python
 # Install the matching Selkies Python backend and web dashboard.
 COPY --from=selkies-build /selkies-package /tmp/selkies-src
 COPY --from=selkies-build /selkies-src/addons/selkies-dashboard/dist/ /usr/share/selkies/web/
-RUN pip install --no-deps --no-build-isolation /tmp/selkies-src --break-system-packages && \
+# The upstream source leaves a placeholder that its release workflow replaces.
+RUN sed -i 's/^version = "0.0.0.dev0"$/version = "2.0.0rc0"/' /tmp/selkies-src/pyproject.toml && \
+    pip install --no-deps --no-build-isolation /tmp/selkies-src --break-system-packages && \
     mkdir -p /usr/share/selkies/web && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon.png && \
     cp /opt/brave.com/brave-origin/product_logo_256.png /usr/share/selkies/web/icon-512.png && \

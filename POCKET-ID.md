@@ -206,9 +206,9 @@ a normal logout removes its runtime logs.
 
 ## Streaming stack compatibility
 
-The backend and dashboard are pinned together at Selkies
-`9762dd8c21af0292e069b05cdc49ad449fa04f54`. Capture wheels are pinned by
-checksum to Pixelflux `2.1.0` (`f23caf4`) and pcmflux `2.1.0` (`584f875`).
+The backend and dashboard are pinned together at Selkies `v2.0.0rc0`
+(`f5eb10c8b1bdbb9c8e0d8ed3deb8387bc566630e`). Capture wheels are pinned by
+checksum to the matching Pixelflux `2.1.0rc0` and pcmflux `2.1.0rc0` releases.
 The stack uses upstream screen/view sizing and nested-compositor scale adoption;
 the partial local resize patch has been removed. Test first login, reconnect and
 resize after changing these components as a set. The viewport test checks page
