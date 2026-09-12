@@ -213,3 +213,45 @@ The stack uses upstream screen/view sizing and nested-compositor scale adoption;
 the partial local resize patch has been removed. Test first login, reconnect and
 resize after changing these components as a set. The viewport test checks page
 corners, not only video dimensions, at 96 and 144 DPI.
+
+## Browser network and administration
+
+`WARP_ENABLED=false` uses the normal connection; `true` selects the shared WARP
+SOCKS5 proxy. The official WARP package is included by default (build with
+`INSTALL_WARP=false` to omit it), but no WARP daemon runs in direct mode.
+WARP requires `WARP_ACCEPT_TOS=true`, accepting Cloudflare's terms, and
+`NET_ADMIN`. With Compose, add `-f compose.warp.yaml` to the usual command.
+On Unraid add `--cap-add=NET_ADMIN` to Extra Parameters and map a private
+persistent appdata directory to `/var/lib/cloudflare-warp`. Do not use host
+network mode or expose port 40000. No privileged container is needed.
+
+Alternatively set `BROWSER_NETWORK_MODE=proxy` and `BROWSER_PROXY_URL` to an
+unauthenticated `socks5://host:port` or `http://host:port` endpoint. Proxy DNS is
+resolved once at startup; recreate the container if its address changes.
+Credentials in proxy URLs are deliberately unsupported. With WARP disabled,
+`BROWSER_NETWORK_MODE` supplies the boot routing choice.
+
+The firewall allows browser-session accounts to initiate TCP connections only
+to the configured proxy, blocks direct IPv4/IPv6 and DNS/UDP, and preserves
+responses to incoming streaming connections. Pocket ID and nginx retain their
+normal network access. Browser QUIC is disabled and WebRTC disallows
+non-proxied UDP. Some website calls/games may therefore be unavailable.
+A proxy outage blocks browsing; it never selects direct routing as a fallback.
+A remote proxy is trusted to implement its own tunnel/fail-closed behavior.
+
+Users with the exact group `admin` in the verified Pocket ID groups claim see
+**Admin panel** in Selkies. `OIDC_ADMIN_GROUP` changes that group name;
+`OIDC_GROUPS_CLAIM` selects the claim as for login admission. Group strings and
+unverified client messages cannot grant administration. Permissions are checked
+on each request against the authenticated, unexpired session; changes in Pocket
+ID take effect on the next login or session expiry.
+
+The panel shows online users and checked network status. Changing WARP closes
+all desktops after explicit confirmation, preserves their profiles, and changes
+the route before allowing new logins. Panel overrides last until the container
+restarts; `WARP_ENABLED` remains the startup default. Disabling WARP in the panel
+selects direct mode. The panel needs an active admin browser session, but remains
+reachable when WARP cannot connect because ingress does not use the tunnel.
+Network health checks send one HTTPS request through the configured proxy to
+Cloudflare's trace endpoint about every 15 seconds; WARP health requires
+`warp=on` or `warp=plus`, not just a listening port.

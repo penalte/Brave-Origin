@@ -20,6 +20,12 @@ single = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(single)
 LOG = logging.getLogger('multi-session')
 
+
+def admin_claim(claims, group_claim, env=os.environ):
+    groups = claims.get(group_claim, [])
+    return (isinstance(groups, list) and env.get('OIDC_ADMIN_GROUP', 'admin') in
+            [group for group in groups if isinstance(group, str)])
+
 # Never inherit the broker environment: it contains the OIDC client secret.
 # Socket paths, authentication, sharing and command execution stay broker-owned.
 SESSION_ENV = frozenset('''ENABLE_GPU ENABLE_AUDIO DRI_NODE DRINODE AUTO_GPU
@@ -160,6 +166,67 @@ class Broker(single.Manager):
         return web.json_response({'state': 'IDLE' if available else 'BUSY', 'owner': False,
                                   'name': '', 'csrf': ''})
 
+    def admin_routes(self):
+        return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp)]
+
+    def require_admin(self, request, mutate=False):
+        session = self.selected(request)
+        if not session or session.state != 'RUNNING' or not session.owner.get('admin'):
+            raise web.HTTPForbidden(text='Administrator session required')
+        if mutate and (request.headers.get('Origin') != request['app_origin'] or
+                       not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), session.owner['csrf'])):
+            raise web.HTTPForbidden(text='Invalid admin request')
+        return session
+
+    async def admin_status(self, request):
+        self.require_admin(request)
+        try:
+            network = json.loads(Path('/run/brave-network/status.json').read_text())
+            if time.time() - network.get('checked_at', 0) > 45:
+                network['state'] = 'unavailable'
+        except (OSError, ValueError):
+            network = {'mode': 'direct', 'state': 'unavailable'}
+        return web.json_response({'network': network,
+            'warp_available': shutil.which('warp-svc') is not None,
+            'tos_accepted': os.environ.get('WARP_ACCEPT_TOS') == 'true',
+            'users': [{'name': s.owner['name'], 'state': s.state,
+                       'started_at': s.owner.get('started_at'), 'admin': s.owner.get('admin', False)}
+                      for s in self.sessions.values() if s.owner]})
+
+    async def admin_warp(self, request):
+        self.require_admin(request, mutate=True)
+        data = await request.json()
+        if not isinstance(data, dict) or type(data.get('enabled')) is not bool:
+            raise web.HTTPBadRequest(text='enabled must be a boolean')
+        # Env is the boot default. A panel change applies only to this container run.
+        env = dict(os.environ, WARP_ENABLED=str(data['enabled']).lower(), BROWSER_NETWORK_MODE='direct')
+        async with self.lock:
+            self.require_admin(request, mutate=True)
+            process = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-network.py',
+                'validate', env=env, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            await process.communicate()
+            if process.returncode:
+                LOG.warning('Admin network validation failed')
+                raise web.HTTPBadRequest(text='WARP requires an enabled WARP image, WARP_ACCEPT_TOS=true and NET_ADMIN.')
+            self.state = 'STOPPING'
+            try:
+                for key, session in list(self.sessions.items()):
+                    async with session.lock:
+                        await self.end(key, session)
+                if self.sessions:
+                    raise RuntimeError('Desktop cleanup incomplete; network change refused')
+                process = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-network.py',
+                    'setup', env=env)
+                if await process.wait():
+                    raise RuntimeError('Could not apply browser routing')
+                self.state = 'IDLE'
+                LOG.info('Administrator changed WARP to %s; all desktops were closed', data['enabled'])
+            except Exception:
+                self.state = 'ERROR'
+                LOG.exception('Admin network change failed; admission blocked')
+                raise web.HTTPServiceUnavailable(text='Network change failed; administrator attention required') from None
+        return web.json_response({'changed': True, 'sign_in_again': True})
+
     async def login(self, request):
         if not self.owns(request) and len(self.sessions) >= self.config.maximum:
             raise web.HTTPConflict(text='All desktop slots are occupied')
@@ -186,6 +253,8 @@ class Broker(single.Manager):
             session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
                 'origin': flow['origin'], 'name': str(claims.get('name') or 'Private browser')[:120],
                 'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
+            session.owner['admin'] = admin_claim(claims, self.config.group_claim)
+            session.owner['started_at'] = time.time()
             self.sessions[identity] = session
         async with session.lock:
             try:

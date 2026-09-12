@@ -149,7 +149,7 @@
      return { wire, unwire };
 --- a/addons/selkies-dashboard/src/components/Sidebar.jsx
 +++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
-@@ -72,6 +72,29 @@
+@@ -72,6 +72,30 @@
    writeInstalledApps,
  } from "../../../selkies-web-core/lib/app-commands.js";
  import * as yaml from "js-yaml";
@@ -173,6 +173,7 @@
 +      style={{width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer'}}>
 +      {session.ending ? 'Ending session…' : 'End session'}
 +    </button>
++    {session.admin && <button type="button" style={{width:'100%',marginTop:'8px'}} onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel</button>}
 +    {session.error && <p role="alert" style={{fontSize:'12px',marginTop:'8px'}}>{session.error}</p>}
 +  </section>;
 +}

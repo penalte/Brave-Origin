@@ -61,6 +61,10 @@ def policies(download_directory, env=os.environ):
             raise ValueError(f'BROWSER_POLICY must be valid JSON: {error}') from None
         if not isinstance(added, dict):
             raise ValueError('BROWSER_POLICY must be a JSON object of policy names')
+        protected = {'ProxySettings', 'ProxyMode', 'ProxyServer', 'ProxyPacUrl', 'ProxyBypassList',
+                     'QuicAllowed', 'DnsOverHttpsMode', 'WebRtcIPHandling', 'NetworkPredictionOptions'}
+        if protected.intersection(added):
+            raise ValueError('Use browser network settings instead of proxy/DNS/WebRTC policy overrides')
         policy.update(added)
     policy['DownloadDirectory'] = download_directory
     return policy
@@ -498,7 +502,8 @@ class Manager:
     async def status(self, request):
         own = self.owns(request)
         return web.json_response({'state': self.state, 'owner': own,
-            'name': self.owner['name'] if own else '', 'csrf': self.owner['csrf'] if own else ''})
+            'name': self.owner['name'] if own else '', 'csrf': self.owner['csrf'] if own else '',
+            'admin': bool(own and self.owner.get('admin'))})
 
     async def login(self, request):
         if self.owns(request):
@@ -835,10 +840,14 @@ class Manager:
             return web.FileResponse('/usr/share/selkies/web/icon.png')
         app.add_routes([web.get('/', portal), web.get('/portal.js', script), web.get('/health', self.health),
                         web.get('/favicon.ico', favicon),
+                        *self.admin_routes(),
                         web.get('/session/status', self.status), web.get('/auth/login', self.login),
                         web.get('/auth/callback', self.callback), web.post('/auth/logout', self.logout),
                         web.route('*', '/{path:.*}', self.proxy)])
         return app
+
+    def admin_routes(self):
+        return []
 
     async def health(self, request):
         return web.json_response({'state': self.state}, status=503 if self.state == 'ERROR' else 200)

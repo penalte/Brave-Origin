@@ -16,6 +16,11 @@ services:
       # Container always listens on 8443 (nginx.conf); WEB_PORT only selects the host-side port.
       - "${WEB_PORT:-8443}:8443"
     environment:
+      - WARP_ENABLED=${WARP_ENABLED:-false}
+      - WARP_ACCEPT_TOS=${WARP_ACCEPT_TOS:-false}
+      - BROWSER_NETWORK_MODE=${BROWSER_NETWORK_MODE:-direct}
+      - BROWSER_PROXY_URL=${BROWSER_PROXY_URL:-}
+      - OIDC_ADMIN_GROUP=${OIDC_ADMIN_GROUP:-admin}
       - OIDC_ENABLED=${OIDC_ENABLED:-false}
       - MAX_CONCURRENT_SESSIONS=${MAX_CONCURRENT_SESSIONS:-2}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-1024}

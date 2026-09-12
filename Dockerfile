@@ -92,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     procps \
     iproute2 \
+    nftables \
     openssl \
     nginx \
     apache2-utils \
@@ -164,6 +165,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN apt-get update && apt-get install -y --no-install-recommends tini tzdata util-linux && rm -rf /var/lib/apt/lists/*
 
+# Optional official WARP client. No registration or tunnel during image build.
+ARG INSTALL_WARP=true
+RUN if [ "$INSTALL_WARP" = true ]; then \
+      curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg -o /etc/apt/keyrings/cloudflare-warp.asc && \
+      echo 'deb [signed-by=/etc/apt/keyrings/cloudflare-warp.asc] https://pkg.cloudflareclient.com/ trixie main' > /etc/apt/sources.list.d/cloudflare-warp.list && \
+      apt-get update && apt-get install -y --no-install-recommends cloudflare-warp=2026.7.1377.0 && \
+      rm -rf /var/lib/apt/lists/*; \
+    elif [ "$INSTALL_WARP" != false ]; then exit 1; fi
+
 # 2.5 Brave managed policy: bookmarks bar always visible in the locked session
 RUN mkdir -p /etc/brave/policies/managed && \
     printf '%s\n' '{"BookmarkBarEnabled": true, "DownloadDirectory": "/config/downloads", "IncognitoModeAvailability": 1, "TorDisabled": true, "BrowserGuestModeEnabled": false, "BrowserAddPersonEnabled": false, "EnableMediaRouter": false, "ShowCastIconInToolbar": false}' > /etc/brave/policies/managed/policies.json && \
@@ -216,6 +226,7 @@ COPY scripts/profile-control.sh /usr/local/bin/profile-control.sh
 COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
 COPY scripts/session-manager.py /usr/local/bin/session-manager.py
 COPY scripts/multi-session.py /usr/local/bin/multi-session.py
+COPY scripts/browser-network.py /usr/local/bin/browser-network.py
 COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
 COPY scripts/session-gpu.sh /usr/local/bin/session-gpu.sh
 RUN chmod 755 /usr/local/bin/user-desktop.sh

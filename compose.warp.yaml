@@ -1,0 +1,9 @@
+# Use with compose.yaml when proxy/WARP routing or the admin WARP toggle is needed.
+services:
+  brave-origin:
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - warp-state:/var/lib/cloudflare-warp
+volumes:
+  warp-state:

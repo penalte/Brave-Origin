@@ -49,8 +49,10 @@ python3 -m py_compile scripts/file-picker.py tests/file-picker.py tests/picker_b
 python3 -m py_compile tests/cursor_browser.py
 python3 -m py_compile tests/session-operations.py
 python3 -m py_compile tests/desktop-sizing.py
+python3 -m py_compile scripts/browser-network.py tests/browser-network.py tests/admin-panel.py
 python3 tests/release.py
 docker compose config --quiet
 docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
 docker compose -f compose.yaml -f compose.nvidia.yaml config --quiet
+docker compose -f compose.yaml -f compose.warp.yaml config --quiet
 if command -v shellcheck >/dev/null; then shellcheck entrypoint.sh scripts/*.sh; fi

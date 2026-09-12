@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.23 (Pocket ID fork)
+
+- Add optional shared WARP and generic browser proxy routing with browser-UID egress enforcement. WARP is disabled by default and requires explicit terms acceptance plus NET_ADMIN.
+- Add a Pocket ID admin-group panel in Selkies with online users and a WARP toggle. Routing changes close existing desktops safely before new logins; Docker variables remain the startup defaults.
+
 ## 1.2.0-beta.22 (Pocket ID fork)
 
 - Preserve the single five-second startup recovery, using the latest dimensions and desktop DPI. Serialize application-screen writes, skip recovery for disconnected clients, and finish the recovery task at shutdown.

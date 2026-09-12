@@ -27,6 +27,10 @@ cleanup() {
     if [ "${SESSION_PID:-0}" -gt 0 ]; then
         pkill -TERM -P "$SESSION_PID" -u braveuser 2>/dev/null || true
     fi
+    if [ -n "${NETWORK_PID:-}" ]; then
+        kill -TERM "$NETWORK_PID" 2>/dev/null || true
+        wait "$NETWORK_PID" 2>/dev/null || true
+    fi
     nginx -s stop 2>/dev/null || true
 
     # The profile lock (/config/state/profile.lock) is released automatically
@@ -240,6 +244,11 @@ if [ "${AUTO_UPDATE:-true}" = "true" ]; then
     echo "[updater] [$(date -u +"%Y-%m-%d %H:%M:%S UTC")] Performing startup update verification..."
     /usr/local/bin/update-brave.sh --startup || true
 fi
+
+# Install browser-only routing before any unprivileged desktop starts.
+python3 /usr/local/bin/browser-network.py setup
+python3 /usr/local/bin/browser-network.py serve 7>&- &
+NETWORK_PID=$!
 
 # 7. Start Nginx Ingress Proxy
 if [ "${OIDC_ENABLED:-false}" = true ]; then
