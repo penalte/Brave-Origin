@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM ghcr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:7f4f69e5184e3e1876e96ca0c5d66bc3ef5ffe3d47a910cbf6366fe59db3e972 AS selkies-upstream
 
-# Pinned Selkies Source & Web Dashboard Build at exact commit 92dea42fc70bfcb52e6d98c4e6854872badfe621
+# Selkies backend and dashboard are built from the same tested revision.
 FROM node:22-trixie-slim AS selkies-build
 RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf /var/lib/apt/lists/*
-ADD --checksum=sha256:9065cea8eeea43942f1ac513a92b51d669031a4a4ec9907356471eff14e05d4a \
-    https://codeload.github.com/selkies-project/selkies/tar.gz/92dea42fc70bfcb52e6d98c4e6854872badfe621 /tmp/selkies.tar.gz
+ADD --checksum=sha256:2c2fd6e9e43356d18d2919f016a70d7e9a099832aaef18999d105f459d154712 \
+    https://codeload.github.com/selkies-project/selkies/tar.gz/9762dd8c21af0292e069b05cdc49ad449fa04f54 /tmp/selkies.tar.gz
 RUN mkdir /selkies-src && tar -xzf /tmp/selkies.tar.gz -C /selkies-src --strip-components=1 && rm /tmp/selkies.tar.gz
 COPY patches/*.patch /selkies-src/patches/
 COPY dependencies/selkies-web-core.package-lock.json /selkies-src/addons/selkies-web-core/package-lock.json
@@ -167,19 +167,21 @@ RUN mkdir -p /etc/brave/policies/managed && \
     printf '%s\n' '{"BookmarkBarEnabled": true, "DownloadDirectory": "/config/downloads", "IncognitoModeAvailability": 1, "TorDisabled": true, "BrowserGuestModeEnabled": false, "BrowserAddPersonEnabled": false, "EnableMediaRouter": false, "ShowCastIconInToolbar": false}' > /etc/brave/policies/managed/policies.json && \
     chmod 644 /etc/brave/policies/managed/policies.json
 
-# 3. Ingest pinned upstream Pixelflux and pcmflux from LinuxServer, and Selkies Backend + Dashboard from 92dea42f
+# 3. Use the donor's supporting libraries and override both capture components.
 COPY --from=selkies-upstream /lsiopy/lib/python3.13/site-packages/ /usr/local/lib/python3.13/dist-packages/
 COPY --from=selkies-upstream /usr/bin/wtype /usr/local/bin/wtype
-ADD --checksum=sha256:659a8c2202bbfad10eb925e75656ff714cf13816a77107d9b530102b017e07b9 \
-    https://github.com/selkies-project/pixelflux/releases/download/a3290fd/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
-RUN pip install --no-deps --break-system-packages /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl && \
-    rm /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+ADD --checksum=sha256:67deb00f5ad2fc3c05fa04896827432cb6a330d7f8b6cb5db7df06d157441887 \
+    https://github.com/selkies-project/pixelflux/releases/download/f23caf4/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pixelflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+ADD --checksum=sha256:e6d5c339a057b59d7fedae55698d04d39dd4dfbb4221d2071e231c496dabb180 \
+    https://github.com/selkies-project/pcmflux/releases/download/584f875/pcmflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl /tmp/pcmflux-2.1.0-cp313-cp313-manylinux_2_28_x86_64.whl
+RUN pip install --no-deps --break-system-packages /tmp/pixelflux-*.whl /tmp/pcmflux-*.whl && \
+    rm /tmp/pixelflux-*.whl /tmp/pcmflux-*.whl
 COPY dependencies/runtime.txt /tmp/runtime-requirements.txt
 # Pelorus is the donor desktop's launcher; it is not used by this browser image.
 RUN rm -rf /usr/local/lib/python3.13/dist-packages/pelorus /usr/local/lib/python3.13/dist-packages/pelorus-*.dist-info && \
     pip install --break-system-packages --no-cache-dir --no-deps --require-hashes -r /tmp/runtime-requirements.txt && \
     rm /tmp/runtime-requirements.txt
-# Install matching Selkies Python backend and web dashboard built at 92dea42f
+# Install the matching Selkies Python backend and web dashboard.
 COPY --from=selkies-build /selkies-package /tmp/selkies-src
 COPY --from=selkies-build /selkies-src/addons/selkies-dashboard/dist/ /usr/share/selkies/web/
 RUN pip install --no-deps --no-build-isolation /tmp/selkies-src --break-system-packages && \

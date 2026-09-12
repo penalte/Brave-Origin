@@ -1,0 +1,338 @@
+--- a/addons/selkies-web-core/selkies-ws-core.js
++++ b/addons/selkies-web-core/selkies-ws-core.js
+@@ -147,6 +147,7 @@
+ 
+ /** Timestamp of the newest Opus frame handed to the decoder; `null` before RED starts. */
+ let lastAudioTs = null;
++function resetAudioTimestamp() { lastAudioTs = null; }
+ /**
+  * 32-bit wrap-safe comparison of audio timestamps.
+  * @param {number} a
+@@ -4398,6 +4399,8 @@
+         pipelinesToggledByUser.add('audio');
+         if (isAudioPipelineActive !== desiredState) {
+           isAudioPipelineActive = desiredState;
++          resetAudioTimestamp();
++          if (audioWorkletProcessorPort) audioWorkletProcessorPort.postMessage({ type: 'reset' });
+           stateChangedFromControl = true;
+           wsMessage = desiredState ? 'START_AUDIO' : 'STOP_AUDIO';
+           if (audioDecoderWorker) {
+@@ -4929,6 +4932,14 @@
+     binaryEnabled: () => !!enable_binary_clipboard,
+     getSendInFlight: () => localClipboardSender.getSendInFlight(),
+     getDeferredWriteInFlight: () => deferredClipboardWriter.getInFlight(),
++    pasteRemote: () => {
++      const input = window.webrtcInput;
++      if (!input) return;
++      input.resetKeyboard();
++      for (const message of ['kd,65507', 'kd,118', 'ku,118', 'ku,65507']) {
++        input.send(message);
++      }
++    },
+   });
+   clipboardGestures.wire();
+ 
+@@ -5011,6 +5022,9 @@
+       if (!videoPausedForHiddenTab && isVideoPipelineActive) armVisibleFrameProbe();
+       if (videoPausedForHiddenTab) {
+         videoPausedForHiddenTab = false;
++        if (audioWorkletProcessorPort) {
++          try { audioWorkletProcessorPort.postMessage({ type: 'reset' }); } catch (_) {}
++        }
+         console.log('Tab is visible, resuming the video pipeline paused on hide.');
+         if (websocket && websocket.readyState === WebSocket.OPEN) {
+           websocket.send('START_VIDEO');
+@@ -6270,6 +6284,7 @@
+     pendingInitialAudioStart = false;
+     isVideoPipelineActive = true;
+     isAudioPipelineActive = (displayId === 'primary');
++    resetAudioTimestamp();
+     window.postMessage({
+       type: 'pipelineStatusUpdate',
+       video: true,
+@@ -7331,6 +7346,8 @@
+             }
+         }
+         else if (event.data === 'AUDIO_STARTED' && !isSharedMode) {
++          resetAudioTimestamp();
++          if (audioWorkletProcessorPort) audioWorkletProcessorPort.postMessage({ type: 'reset' });
+           isAudioPipelineActive = true;
+           window.postMessage({ type: 'pipelineStatusUpdate', audio: true }, window.location.origin);
+           if (audioDecoderWorker) audioDecoderWorker.postMessage({ type: 'updatePipelineStatus', data: { isActive: true } });
+@@ -7793,7 +7810,7 @@
+           }
+         };
+         break;
+-      case 'updatePipelineStatus': pipelineActive = data.isActive; break;
++      case 'updatePipelineStatus': lastAudioTs = null; pipelineActive = data.isActive; break;
+       case 'close':
+         if (decoderAudio && decoderAudio.state !== 'closed') { try { decoderAudio.close(); } catch (e) { /* ignore */ } }
+         decoderAudio = null; self.close(); break;
+@@ -8194,6 +8211,9 @@
+  * @param {string} [reason] Logged.
+  */
+ function performServerInitiatedVideoReset(reason = "unknown") {
++  if (audioWorkletProcessorPort) {
++    try { audioWorkletProcessorPort.postMessage({ type: 'reset' }); } catch (_) {}
++  }
+   console.log(`Performing server-initiated video reset. Reason: ${reason}. Current lastReceivedVideoFrameId before reset: ${lastReceivedVideoFrameId}`);
+ 
+   lastReceivedVideoFrameId = -1;
+--- a/addons/selkies-web-core/lib/clipboard-sync.js
++++ b/addons/selkies-web-core/lib/clipboard-sync.js
+@@ -869,6 +869,7 @@
+     binaryEnabled,
+     getSendInFlight,
+     getDeferredWriteInFlight,
++    pasteRemote = null,
+ }) {
+     function inPageFormField() {
+         const ae = document.activeElement;
+@@ -1002,6 +1003,13 @@
+      * @param {ClipboardEvent} event
+      */
+     function onPaste(event) {
++        if (isChromium && !pasteRemote) return;
++        // Chromium menu/native paste has no forwarded Ctrl+V key event.
++        // Consume it here and inject the chord only after clipboard transfer.
++        const transfer = (data, mime) => Promise.resolve()
++            .then(() => sendClipboardData(data, mime))
++            .then(() => { if (isChromium && pasteRemote) pasteRemote(); })
++            .catch((err) => console.warn(`Paste transfer failed: ${err && err.name}`));
+         if (!canSync() || !canRead()) return;
+         if (inPageFormField()) return;
+         const cd = event.clipboardData;
+@@ -1012,8 +1020,9 @@
+                 if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+                     const file = it.getAsFile();
+                     if (file) {
++                        if (isChromium) event.preventDefault();
+                         file.arrayBuffer()
+-                            .then((buf) => sendClipboardData(buf, it.type))
++                            .then((buf) => transfer(buf, it.type))
+                             .catch((err) => console.warn(`Paste image read failed: ${err && err.name}`));
+                         return;
+                     }
+@@ -1021,7 +1030,10 @@
+             }
+         }
+         const text = cd.getData('text/plain');
+-        if (text) sendClipboardData(text);
++        if (text) {
++            if (isChromium) event.preventDefault();
++            transfer(text, 'text/plain');
++        }
+     }
+ 
+     /** Registers the listeners; called before input attaches so the hold runs first. */
+@@ -1030,8 +1042,8 @@
+         window.addEventListener('keyup', holdPasteWhileClipboardInFlight, true);
+         if (!isChromium) {
+             window.addEventListener('keydown', onCopyKeydown, true);
+-            window.addEventListener('paste', onPaste, true);
+-        }
++        }
++        window.addEventListener('paste', onPaste, true);
+     }
+ 
+     /** Removes the listeners `wire` registered. */
+@@ -1040,8 +1052,8 @@
+         window.removeEventListener('keyup', holdPasteWhileClipboardInFlight, true);
+         if (!isChromium) {
+             window.removeEventListener('keydown', onCopyKeydown, true);
+-            window.removeEventListener('paste', onPaste, true);
+-        }
++        }
++        window.removeEventListener('paste', onPaste, true);
+     }
+ 
+     return { wire, unwire };
+--- a/addons/selkies-dashboard/src/components/Sidebar.jsx
++++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
+@@ -72,6 +72,29 @@
+   writeInstalledApps,
+ } from "../../../selkies-web-core/lib/app-commands.js";
+ import * as yaml from "js-yaml";
++
++// The authenticated outer portal owns session state and the logout token.
++function PrivateSessionControls() {
++  const [session, setSession] = useState(null);
++  useEffect(() => {
++    const receive = event => {
++      if (event.origin !== window.location.origin || event.source !== window.parent) return;
++      if (event.data?.type === 'brave-session-state') setSession(event.data);
++    };
++    window.addEventListener('message', receive);
++    if (window.parent !== window) window.parent.postMessage({type:'brave-session-ready'}, window.location.origin);
++    return () => window.removeEventListener('message', receive);
++  }, []);
++  if (!session?.active) return null;
++  return <section aria-label="Browser session" style={{padding:'12px 16px',borderBottom:'1px solid var(--border-color)'}}>
++    <div title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:'8px'}}>{session.name}</div>
++    <button type="button" disabled={session.ending} onClick={() => window.parent.postMessage({type:'brave-session-end'}, window.location.origin)}
++      style={{width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer'}}>
++      {session.ending ? 'Ending session…' : 'End session'}
++    </button>
++    {session.error && <p role="alert" style={{fontSize:'12px',marginTop:'8px'}}>{session.error}</p>}
++  </section>;
++}
+ 
+ const urlHash = window.location.hash;
+ const displayId = urlHash.startsWith('#display2') ? 'display2' : 'primary';
+@@ -2453,10 +2476,10 @@
+     event.target.value = "";
+   };
+   /** Pushes the edited clipboard text to the server on blur, never a truncated preview. */
+-  const handleClipboardBlur = (event) => {
++  const sendClipboardToSession = () => {
+     if (dashboardClipboardTruncated) return;
+     window.postMessage(
+-      { type: "clipboardUpdateFromUI", text: event.target.value },
++      { type: "clipboardUpdateFromUI", text: dashboardClipboardContent },
+       window.location.origin
+     );
+   };
+@@ -3102,6 +3125,7 @@
+         );
+       })()}
+       <div className={sidebarClasses}>
++          <PrivateSessionControls />
+           <div className="sidebar-header">
+             {uiShowLogo && (
+               <a
+@@ -4432,11 +4456,18 @@
+                         id="dashboardClipboardTextarea"
+                         value={dashboardClipboardContent}
+                         onChange={handleClipboardChange}
+-                        onBlur={handleClipboardBlur}
++                        onBlur={sendClipboardToSession}
+                         readOnly={dashboardClipboardTruncated}
+                         rows="5"
+                         placeholder={t("sections.clipboard.placeholder")}
+                       />
++                      <button
++                        className="app-action-button install"
++                        onClick={sendClipboardToSession}
++                        disabled={dashboardClipboardTruncated}
++                      >
++                        {t("sections.clipboard.sendToSession", "Send to session")}
++                      </button>
+                     </div>
+                     {(renderableSettings.binaryClipboard ?? true) &&
+                       enableBinaryClipboard && (
+--- a/src/selkies/stream_server.py
++++ b/src/selkies/stream_server.py
+@@ -1000,6 +1000,41 @@
+                 // ahead of it, and the token joins a query already there.
+                 if (!href.split('?')[0].endsWith('/')) {
+                     a.setAttribute('download', '');
++            if (window.__MY_FILES_DELETE__) {
++                const heading = document.createElement('th');
++                heading.textContent = 'Delete';
++                heading.style.textAlign = 'center';
++                document.querySelector('table#list thead tr').appendChild(heading);
++                document.querySelectorAll('table#list tbody tr').forEach(function(row) {
++                    const cell = row.insertCell();
++                    cell.className = 'delete-cell';
++                    cell.style.cssText = 'text-align:center;width:56px';
++                });
++            }
++                    if (window.__MY_FILES_DELETE__) {
++                        const button = document.createElement('button');
++                        button.type = 'button';
++                        button.title = 'Delete ' + a.textContent;
++                        button.setAttribute('aria-label', 'Delete ' + a.textContent);
++                        button.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
++                        button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;color:#f59dc4;border:0;border-radius:4px;cursor:pointer';
++                        button.addEventListener('click', async function() {
++                            if (!window.confirm('Permanently delete "' + a.textContent + '"?')) return;
++                            button.disabled = true;
++                            try {
++                                const response = await fetch(a.href, {
++                                    method: 'DELETE', credentials: 'same-origin',
++                                    headers: {'X-My-Files-Action': 'delete'}
++                                });
++                                if (!response.ok) throw new Error('Delete failed (' + response.status + ').');
++                                a.closest('tr').remove();
++                            } catch (error) {
++                                window.alert(error.message);
++                                button.disabled = false;
++                            }
++                        });
++                        a.closest('tr').querySelector('.delete-cell').appendChild(button);
++                    }
+                 }
+                 if (sessionToken) {
+                     a.setAttribute('href', href + (href.includes('?') ? '&' : '?')
+@@ -2387,6 +2422,42 @@
+             dst.mkdir(exist_ok=True)
+             for child in src.iterdir():
+                 self._copy_traversable(child, dst / child.name)
++
++    async def delete_file_handler(self, request):
++        # Enabled only by the private-desktop launcher. The gateway authenticates
++        # the user; this handler still requires an explicit same-origin mutation.
++        if os.environ.get("BRAVE_PRIVATE_FILES") != "true":
++            raise web.HTTPForbidden()
++        if request.headers.get("X-My-Files-Action") != "delete":
++            raise web.HTTPForbidden()
++        origin = urllib.parse.urlsplit(request.headers.get("Origin", ""))
++        if origin.scheme not in ("http", "https") or origin.netloc != request.host:
++            raise web.HTTPForbidden()
++        parts = request.match_info.get("path", "").split("/")
++        if not parts or any(not x or x in (".", "..") or "\\" in x or "\x00" in x for x in parts):
++            raise web.HTTPForbidden()
++        # Traverse relative to directory descriptors without following links.
++        # unlink never follows the final entry, even if it changes after stat.
++        import stat
++        fd = None
++        try:
++            fd = os.open(self.upload_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
++            for part in parts[:-1]:
++                nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
++                os.close(fd)
++                fd = nxt
++            info = os.stat(parts[-1], dir_fd=fd, follow_symlinks=False)
++            if not stat.S_ISREG(info.st_mode):
++                raise web.HTTPForbidden(text="Only regular files can be deleted")
++            os.unlink(parts[-1], dir_fd=fd)
++        except FileNotFoundError:
++            raise web.HTTPNotFound()
++        except OSError:
++            raise web.HTTPForbidden(text="File cannot be deleted")
++        finally:
++            if fd is not None:
++                os.close(fd)
++        return web.Response(status=204)
+ 
+     async def fancy_index_handler(self, request: web.Request) -> web.StreamResponse:
+         """GET /api/files/...: serve the file-manager tree for download.
+@@ -2551,10 +2622,10 @@
+ 
+         # The header template leaves the H1 open; the current path closes it here.
+         escaped_rel_path = html.escape(rel_path)
+-        current_display_path = f"/api/files/{escaped_rel_path}"
++        current_display_path = "My files" + (f" / {escaped_rel_path}" if rel_path else "")
+ 
+         # json.dumps yields a safely quoted/escaped JavaScript string literal.
+-        js_safe_upload_dir = json.dumps(str(self.upload_dir))
++        js_safe_upload_dir = json.dumps("My files")
+         path_injection = f"<script>window.__SELKIES_INJECTED_PATH_PREFIX__ = {js_safe_upload_dir};</script>"
+ 
+         html_content = f"""
+@@ -2573,6 +2644,7 @@
+                 {rows}
+             </tbody>
+         </table>
++        <script>window.__MY_FILES_DELETE__ = {str(os.environ.get('BRAVE_PRIVATE_FILES') == 'true').lower()};</script>
+         {FILE_INDEX_FOOTER}
+         """
+ 
+@@ -2609,6 +2681,7 @@
+             web.post(f"{api_prefix}/api/switch", self.handle_switch),
+             web.post(f"{api_prefix}/api/upload", self.handle_upload),
+             web.get(f"{api_prefix}/api/files/{{path:.*}}", self.fancy_index_handler),
++            web.delete(f"{api_prefix}/api/files/{{path:.*}}", self.delete_file_handler),
+         ]
+         if self.settings.enable_metrics_http[0]:
+             routes.append(web.get(f"{api_prefix}/api/metrics", self.handle_metrics))

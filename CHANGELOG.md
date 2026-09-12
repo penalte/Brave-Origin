@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.16 (Pocket ID fork)
+
+- The browser now fills its desktop on the first connection. Earlier releases sized the capture and the desktop correctly while the browser window kept the size it started with, so a session could open small until the viewer was resized twice.
+- Updated Selkies, Pixelflux and pcmflux to matching tested revisions. The private-desktop changes previously carried across eight separate patches are now one rebased patch against that revision, and both web dependency lockfiles were regenerated for it.
+- Added a sizing test that checks the browser's lower corners reach the streamed desktop's corners, on first connection and after each resize, rather than only checking the encoded frame size.
+
 ## 1.2.0-beta.15 (Pocket ID fork)
 
 - Forward supported streaming quality, cursor, clipboard, GPU, locale and keyboard settings into private desktops while excluding broker credentials and session routing overrides.
