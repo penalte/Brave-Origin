@@ -149,13 +149,13 @@
      return { wire, unwire };
 --- a/addons/selkies-dashboard/src/components/Sidebar.jsx
 +++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
-@@ -72,6 +72,44 @@
+@@ -72,6 +72,46 @@
    writeInstalledApps,
  } from "../../../selkies-web-core/lib/app-commands.js";
  import * as yaml from "js-yaml";
 +
 +// The authenticated outer portal owns session state and the logout token.
-+function PrivateSessionControls({actions = false, identity = false}) {
++function PrivateSessionControls({actions = false, identity = false, panels = false}) {
 +  const [session, setSession] = useState(null);
 +  const [failedPicture, setFailedPicture] = useState(null);
 +  useEffect(() => {
@@ -174,9 +174,11 @@
 +  const color = connected ? '#39db83' : disabled ? '#f06a73' : '#f4bd50';
 +  const label = connected ? 'WARP ENABLED' : disabled ? 'WARP DISABLED' : mode === 'warp' ? 'WARP UNAVAILABLE' : 'WARP STATUS UNKNOWN';
 +  const buttonStyle = {width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer',fontSize:'13px',fontWeight:600};
++  if (panels) return <>
++    <button type="button" className="sidebar-section sidebar-section-header private-panel-button" aria-haspopup="dialog" onClick={() => window.parent.postMessage({type:'brave-session-share'}, window.location.origin)}>Share desktop<span className="section-toggle-icon" aria-hidden="true">▾</span></button>
++    {session.admin && <button type="button" className="sidebar-section sidebar-section-header private-panel-button" aria-haspopup="dialog" onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel<span className="section-toggle-icon" aria-hidden="true">▾</span></button>}
++  </>;
 +  if (actions) return <section aria-label="Session actions" style={{marginTop:'auto',paddingTop:'16px',flexShrink:0}}>
-+    <button type="button" style={{...buttonStyle,marginBottom:'8px'}} onClick={() => window.parent.postMessage({type:'brave-session-share'}, window.location.origin)}>Share desktop</button>
-+    {session.admin && <button type="button" style={{...buttonStyle,marginBottom:'8px'}} onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel</button>}
 +    <button type="button" disabled={session.ending} style={buttonStyle} onClick={() => window.parent.postMessage({type:'brave-session-end'}, window.location.origin)}>{session.ending ? 'Ending session…' : 'End session'}</button>
 +    {session.error && <p role="alert" style={{fontSize:'12px',marginTop:'8px'}}>{session.error}</p>}
 +  </section>;
@@ -282,6 +284,11 @@
                      </div>
                      {(renderableSettings.binaryClipboard ?? true) &&
                        enableBinaryClipboard && (
+@@ -4706,3 +4740,4 @@
+ 
++            <PrivateSessionControls panels />
+             {(renderableSettings.shortcuts ?? true) && (
+               <div className="sidebar-section">
 @@ -4808,6 +4850,7 @@
              )}
            </>
@@ -431,6 +438,21 @@
 +  width: 0;
 +  display: none;
  }
+@@ -432,3 +432,14 @@
+ /* --- Collapsible Sidebar Sections --- */
++.private-panel-button {
++    width: 100%;
++    font-family: inherit;
++    font-size: 13px;
++    font-weight: 700;
++    text-transform: uppercase;
++    letter-spacing: 0.04em;
++    color: var(--text);
++    text-align: left;
++}
++.private-panel-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+ .sidebar-section {
+     margin-bottom: 10px;
 --- a/src/selkies/input_handler.py
 +++ b/src/selkies/input_handler.py
 @@ -156,3 +156,5 @@

@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.30 (Pocket ID fork)
+
+- Replace frozen guest frames after sharing ends with a styled thank-you screen.
+- Match Share desktop and Admin panel to the Selkies section design and place them above Shortcuts.
+
 ## 1.2.0-beta.29 (Pocket ID fork)
 
 - Add expiring guest links in Selkies, with optional mouse and keyboard control selected by the owner. Guests do not need Pocket ID. Owners can grant/revoke control and stop sharing.

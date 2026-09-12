@@ -66,6 +66,9 @@ async def main():
         r = await broker.admit_viewer(invite, {'iss':'https://id.test','sub':'guest','name':'Guest','exp':time.time()+900})
         token = r.cookies[m.sharing.VIEW_COOKIE].value
         view = {**headers,'Cookie':m.sharing.VIEW_COOKIE+'='+token}
+        assert (await client.get(server.make_url('/watch/session-status'),headers=view)).status == 200
+        page = await client.get(server.make_url('/watch/'),headers=view)
+        assert '/view-lifecycle.js' in await page.text()
         for path in ('api/files/test', 'api/upload', 'api/tokens', '../admin/status'):
             r = await client.get(server.make_url('/watch/'+path),headers=view)
             assert r.status in (403,404)
@@ -97,6 +100,11 @@ async def main():
         assert (await post('/shares/revoke',{})).status == 200
         assert (await ws.receive(timeout=2)).type in (WSMsgType.CLOSE, WSMsgType.CLOSED)
         assert not broker.shares
+        assert (await client.get(server.make_url('/watch/session-status'),headers=view)).status == 403
+        ended = await client.get(server.make_url('/watch/'),headers=view,allow_redirects=False)
+        assert ended.status == 302 and ended.headers['Location'] == '/view/ended'
+        ended = await client.get(server.make_url('/view/ended'),headers=headers)
+        assert ended.status == 200 and 'Thanks for joining.' in await ended.text()
         await ws.close()
         r = await post('/shares/create',{'minutes':15,'control':True})
         control_invite = (await r.json())['url'].split('#')[1]

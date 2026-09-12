@@ -23,6 +23,8 @@ class ViewSharing:
                 web.post('/shares/control', self.share_control),
                 web.post('/admin/view', self.admin_view),
                 web.get('/view/', self.view_page), web.get('/view.js', self.view_script),
+                web.get('/view/ended', self.view_ended),
+                web.get('/view-lifecycle.js', self.view_lifecycle),
                 web.route('*', '/watch/{path:.*}', self.view_proxy)]
 
     def share_owner(self, request, mutate=False):
@@ -146,14 +148,37 @@ const data=await r.json();location.replace(data.login || '/watch/#shared'); } ca
         return await self.admit_viewer(token, {'iss': 'guest-link', 'sub': secrets.token_urlsafe(16),
             'name': 'Guest ' + secrets.token_hex(2), 'exp': grant['expires']})
 
+    async def view_ended(self, request):
+        return web.FileResponse('/usr/local/share/brave-origin/view-ended.html')
+
+    async def view_lifecycle(self, request):
+        return web.Response(content_type='application/javascript', text="""(() => {
+let checking = false;
+async function check() {
+  if (checking) return;
+  checking = true;
+  try {
+    const response = await fetch('/watch/session-status', {cache:'no-store'});
+    if (response.status === 403 || response.status === 410) location.replace('/view/ended');
+  } catch {} // A temporary network outage is not a revoked invitation.
+  finally { checking = false; }
+}
+check(); setInterval(check, 1500);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+})();""")
+
     async def view_proxy(self, request):
         token = request.cookies.get(VIEW_COOKIE, '')
         grant = self.shares.get(token)
         if not grant or not grant.get('participant') or not self.grant_valid(grant, request):
+            if request.method == 'GET' and request.match_info['path'] == '':
+                raise web.HTTPFound('/view/ended')
             raise web.HTTPForbidden(text='Viewing ended. Ask the owner for a new link.')
         if request.method != 'GET':
             raise web.HTTPForbidden()
         path = request.match_info['path']
+        if path == 'session-status':
+            return web.json_response({'active': True})
         if path == 'api/status':
             return web.json_response({'current_mode':'websockets', 'available_modes':['websockets'], 'enable_dual_mode':False})
         if path == 'api/websockets':
@@ -167,6 +192,9 @@ const data=await r.json();location.replace(data.login || '/watch/#shared'); } ca
         target = (root / (path or 'index.html')).resolve()
         if not target.is_relative_to(root) or not target.is_file():
             raise web.HTTPNotFound()
+        if not path:
+            html = target.read_text(encoding='utf-8').replace('</head>', '<script src="/view-lifecycle.js" defer></script></head>', 1)
+            return web.Response(text=html, content_type='text/html')
         return web.FileResponse(target)
 
     async def viewer_socket(self, request, token, grant):

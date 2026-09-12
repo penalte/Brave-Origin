@@ -234,7 +234,7 @@ RUN chmod 755 /usr/local/bin/user-desktop.sh
 COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
 COPY scripts/file-picker.py /usr/local/bin/file-picker.py
 COPY config/nginx-oidc.conf /etc/nginx/nginx-oidc.conf
-COPY config/portal.html config/portal.js /usr/local/share/brave-origin/
+COPY config/portal.html config/portal.js config/view-ended.html /usr/local/share/brave-origin/
 RUN pip install --break-system-packages --no-cache-dir 'PyJWT[crypto]==2.13.0' && \
     chmod 755 /usr/local/bin/browser-session.sh
 
