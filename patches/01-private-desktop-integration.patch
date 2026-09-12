@@ -155,7 +155,7 @@
  import * as yaml from "js-yaml";
 +
 +// The authenticated outer portal owns session state and the logout token.
-+function PrivateSessionControls({actions = false}) {
++function PrivateSessionControls({actions = false, identity = false}) {
 +  const [session, setSession] = useState(null);
 +  const [failedPicture, setFailedPicture] = useState(null);
 +  useEffect(() => {
@@ -179,12 +179,12 @@
 +    <button type="button" disabled={session.ending} style={buttonStyle} onClick={() => window.parent.postMessage({type:'brave-session-end'}, window.location.origin)}>{session.ending ? 'Ending session…' : 'End session'}</button>
 +    {session.error && <p role="alert" style={{fontSize:'12px',marginTop:'8px'}}>{session.error}</p>}
 +  </section>;
-+  return <section aria-label="Browser session" style={{padding:'0 0 14px',marginBottom:'14px',borderBottom:'1px solid var(--border-color)',flexShrink:0}}>
-+    <div style={{display:'flex',alignItems:'center',gap:'9px',minWidth:0}}>
++  if (identity) return <div style={{display:'flex',alignItems:'center',gap:'8px',minWidth:0,flex:1}}>
 +      {session.picture && failedPicture !== session.picture ? <img src={session.picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(session.picture)} style={{width:'28px',height:'28px',borderRadius:'50%',objectFit:'cover',flexShrink:0}} /> : <span aria-hidden="true" style={{width:'28px',height:'28px',borderRadius:'50%',background:'var(--border-color)',display:'grid',placeItems:'center',flexShrink:0}}>{(session.name || '?').slice(0,1).toUpperCase()}</span>}
 +      <span title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{session.name}</span>
-+    </div>
-+    <div role="status" aria-live="polite" style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'12px',fontSize:'11px',fontWeight:700,letterSpacing:'.06em',color}}>
++    </div>;
++  return <section aria-label="Browser network" style={{paddingBottom:'14px',flexShrink:0}}>
++    <div role="status" aria-live="polite" style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'11px',fontWeight:700,letterSpacing:'.06em',color}}>
 +      <span aria-hidden="true" style={{width:'7px',height:'7px',flexShrink:0,borderRadius:'50%',background:color,boxShadow:`0 0 8px ${color}`}} />
 +      <span>{label}</span>
 +    </div>
@@ -206,15 +206,40 @@
        window.location.origin
      );
    };
-@@ -3102,6 +3125,7 @@
+@@ -3102,21 +3140,6 @@
          );
        })()}
 -      <div className={sidebarClasses}>
+-          <div className="sidebar-header">
+-            {uiShowLogo && (
+-              <a
+-                href="https://github.com/selkies-project/selkies"
+-                target="_blank"
+-                rel="noopener noreferrer"
+-              >
+-                <SelkiesLogo width={30} height={30} t={t} />
+-              </a>
+-            )}
+-            <a
+-              href="https://github.com/selkies-project/selkies"
+-              target="_blank"
+-              rel="noopener noreferrer"
+-            >
+-              <h2>{uiTitle}</h2>
+-            </a>
+-            <div className="header-controls">
 +      <div className={sidebarClasses} style={{display:'flex',flexDirection:'column'}}>
-+          <PrivateSessionControls />
-           <div className="sidebar-header">
-             {uiShowLogo && (
-               <a
++          <div className="sidebar-header" style={{flexShrink:0}}>
++            <PrivateSessionControls identity />
++            <div className="header-controls" style={{flexShrink:0}}>
+@@ -3157,6 +3170,7 @@
+           </div>
+         </div>
+ 
++        <PrivateSessionControls />
+         {(showCoreButtons || showKeyboardTile || showTrackpadTile) && (
+           <div className="sidebar-action-buttons">
+             {showCoreButtons && (renderableSettings.videoToggle ?? true) && (
 @@ -4432,11 +4456,18 @@
                          id="dashboardClipboardTextarea"
                          value={dashboardClipboardContent}

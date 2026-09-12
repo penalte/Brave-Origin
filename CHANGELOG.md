@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.25 (Pocket ID fork)
+
+- Replace the Selkies header logo and title with the signed-in user avatar and name. Keep WARP status below the header and session buttons at the bottom.
+
 ## 1.2.0-beta.24 (Pocket ID fork)
 
 - Show the Pocket ID avatar and user name at the top of Selkies, with a live WARP status indicator. Missing avatars fall back to the user initial.
