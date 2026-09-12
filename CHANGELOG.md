@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.15 (Pocket ID fork)
+
+- Forward supported streaming quality, cursor, clipboard, GPU, locale and keyboard settings into private desktops while excluding broker credentials and session routing overrides.
+- Validate explicit GPU node access as the private UID, support separate compositor and encoder selection, probe Intel i965 compatibility, and record GPU and component startup diagnostics.
+- Check both the broker and HTTPS proxy for readiness, report aggregate failed-session health, and retain bounded root-only diagnostic log tails after session failure.
+
 ## 1.2.0-beta.14 (Pocket ID fork)
 
 - Completed the previous release's fix. The screen is now sized on the paths a new session actually takes, ahead of the capture start that sizes the browser's view over it, and the result is recorded in the session log. In 1.2.0-beta.13 the new step never ran.

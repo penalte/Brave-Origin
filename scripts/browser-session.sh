@@ -48,8 +48,8 @@ if [ "${ENABLE_GPU:-true}" = true ]; then
     elif [ -e /dev/nvidiactl ]; then
         echo '[browser-session] NVIDIA device present but its EGL driver is missing.' >&2
         echo '[browser-session] Start the container with NVIDIA_DRIVER_CAPABILITIES=all.' >&2
-    elif [ -e "${DRI_NODE:-/dev/dri/renderD128}" ]; then
-        echo "[browser-session] Render node ${DRI_NODE:-/dev/dri/renderD128} detected." >&2
+    elif [ -e "${DRINODE:-${DRI_NODE:-/dev/dri/renderD128}}" ]; then
+        echo "[browser-session] Render node ${DRINODE:-${DRI_NODE:-/dev/dri/renderD128}} detected." >&2
         gpu=(--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-features=Vulkan)
     else
         echo '[browser-session] No GPU device found - software rasterization.' >&2

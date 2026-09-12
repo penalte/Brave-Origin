@@ -21,6 +21,10 @@ class Provider:
 
 
 async def main():
+    os.environ['SELKIES_FRAMERATE'] = '30'
+    os.environ['SELKIES_USE_BROWSER_CURSORS'] = 'true'
+    os.environ['XKB_DEFAULT_LAYOUT'] = 'pt'
+    os.environ['OIDC_CLIENT_SECRET'] = 'must-not-reach-desktop'
     config = m.single.Config({'OIDC_ISSUER_URL': 'https://id.example.test', 'OIDC_CLIENT_ID': 'test',
                               'OIDC_CLIENT_SECRET': 'test', 'AUTO_UPDATE': 'false', 'MAX_UPLOAD_MB': '1'})
     config.maximum, config.launch_timeout = 2, 90
@@ -41,6 +45,11 @@ async def main():
             desktops = {s.owner['name']:s for s in broker.sessions.values()}
             assert desktops['alice'].browser.uid != desktops['bob'].browser.uid
             assert desktops['alice'].browser.directory != desktops['bob'].browser.directory
+            for session in desktops.values():
+                process_env = (m.Path('/proc') / str(session.browser.process.pid) / 'environ').read_bytes()
+                assert b'SELKIES_FRAMERATE=30\0' in process_env
+                assert b'XKB_DEFAULT_LAYOUT=pt\0' in process_env
+                assert b'OIDC_CLIENT_SECRET=' not in process_env
             response = await client.get(server.make_url('/auth/login'), headers=headers, allow_redirects=False)
             assert response.status == 409, 'Capacity limit must reject another login'
             for user, auth in (('alice',a), ('bob',b)):

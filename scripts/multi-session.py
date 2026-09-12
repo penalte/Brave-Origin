@@ -1,6 +1,7 @@
 """OIDC broker for independently supervised per-identity desktop stacks."""
 import asyncio
 import contextlib
+import errno
 import hashlib
 import importlib.util
 import json
@@ -9,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import stat
 import time
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector, web
@@ -18,12 +20,66 @@ single = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(single)
 LOG = logging.getLogger('multi-session')
 
+# Never inherit the broker environment: it contains the OIDC client secret.
+# Socket paths, authentication, sharing and command execution stay broker-owned.
+SESSION_ENV = frozenset('''ENABLE_GPU ENABLE_AUDIO DRI_NODE DRINODE AUTO_GPU
+LIBVA_DRIVER_NAME BRAVE_FLAGS TZ LANG LC_ALL XKB_DEFAULT_LAYOUT
+XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS DISPLAY_WIDTH DISPLAY_HEIGHT
+DISPLAY_AUTO_RESIZE BROWSER_LOCK_MAXIMIZED SELKIES_FRAMERATE
+SELKIES_VIDEO_BITRATE SELKIES_VIDEO_CRF SELKIES_AUDIO_BITRATE
+SELKIES_SCALING_DPI SELKIES_USE_BROWSER_CURSORS SELKIES_USE_CSS_SCALING
+SELKIES_ENABLE_CLIPBOARD SELKIES_ENABLE_BINARY_CLIPBOARD
+SELKIES_MICROPHONE_ENABLED'''.split())
+
+
+def session_environment(home, name, runtime, source=None):
+    source = os.environ if source is None else source
+    env = {'HOME': str(home), 'USER': name, 'LOGNAME': name,
+           'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8',
+           'XDG_RUNTIME_DIR': str(runtime)}
+    env.update((key, source[key]) for key in SESSION_ENV if key in source)
+    return env
+
+
+def retain_failure_logs(directory, root=Path('/config/session-failures')):
+    """Keep at most five archives, each with five 64-KiB log tails."""
+    root.mkdir(mode=0o700, exist_ok=True)
+    if root.is_symlink() or root.stat().st_uid != 0:
+        raise RuntimeError('Failure archive must be a root-owned directory')
+    root.chmod(0o700)
+    archive = root / (str(time.time_ns()) + '-' + secrets.token_hex(4))
+    archive.mkdir(mode=0o700)
+    for name in ('supervisor.log', 'browser.log', 'selkies.log', 'labwc.log', 'picker.log'):
+        try:
+            fd = os.open(directory / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            if error.errno != errno.ELOOP:
+                raise
+            LOG.warning('Refusing symlink diagnostic log: %s', name)
+            continue
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                continue
+            os.lseek(fd, max(0, os.fstat(fd).st_size - 65536), os.SEEK_SET)
+            with (archive / name).open('xb') as output:
+                os.chmod(output.name, 0o600)
+                output.write(os.read(fd, 65536))
+        finally:
+            os.close(fd)
+    archives = sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink())
+    for old in archives[:-5]:
+        shutil.rmtree(old)
+    LOG.error('Private desktop failure logs retained in %s', archive)
+
 
 class Desktop(single.Browser):
     def __init__(self, config):
         super().__init__()
         self.config = config
         self.directory = None
+        self.failed = False
 
     async def clear_shared(self):
         # All clipboard, audio and compositor state belongs to this UID.
@@ -47,13 +103,7 @@ class Desktop(single.Browser):
             gid = device.stat().st_gid
             if gid:
                 await self.command('usermod', '-aG', str(gid), name)
-        env = {'HOME': str(self.home), 'USER': name, 'LOGNAME': name,
-               'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8',
-               'XDG_RUNTIME_DIR': str(self.directory)}
-        for key in ('ENABLE_GPU', 'ENABLE_AUDIO', 'DRI_NODE', 'BRAVE_FLAGS', 'TZ',
-                    'DISPLAY_WIDTH', 'DISPLAY_HEIGHT', 'DISPLAY_AUTO_RESIZE', 'BROWSER_LOCK_MAXIMIZED'):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        env = session_environment(self.home, name, self.directory)
         with (self.directory / 'supervisor.log').open('ab') as log:
             self.process = await asyncio.create_subprocess_exec('/usr/sbin/runuser', '-u', name,
                 '--', 'dbus-run-session', '--', '/usr/local/bin/user-desktop.sh',
@@ -69,6 +119,11 @@ class Desktop(single.Browser):
     async def stop(self):
         await super().stop()
         if self.directory:
+            if self.failed:
+                try:
+                    retain_failure_logs(self.directory)
+                except Exception:
+                    LOG.exception('Could not retain private desktop failure logs')
             # Exact broker-generated path, only after the UID has no processes.
             shutil.rmtree(self.directory)
             self.directory = None
@@ -88,6 +143,14 @@ class Broker(single.Manager):
 
     def owns(self, request):
         return self.selected(request) is not None
+
+    async def health(self, request):
+        failed = sum(s.state == 'ERROR' or
+                     (s.state == 'RUNNING' and not s.browser.running())
+                     for s in self.sessions.values())
+        return web.json_response({'state': self.state, 'sessions': len(self.sessions),
+                                  'failed_sessions': failed},
+                                 status=503 if self.state == 'ERROR' or failed else 200)
 
     async def status(self, request):
         session = self.selected(request)
@@ -132,6 +195,7 @@ class Broker(single.Manager):
                 session.state = 'RUNNING'
                 session.last_disconnect = time.monotonic()
             except Exception:
+                session.browser.failed = True
                 LOG.exception('Private desktop launch failed for %s', identity[:12])
                 await self.end(identity, session)
                 raise web.HTTPServiceUnavailable(text='Your desktop could not start') from None
@@ -174,6 +238,8 @@ class Broker(single.Manager):
                     continue
                 async with session.lock:
                     if session.state == 'RUNNING':
+                        if not session.browser.running():
+                            session.browser.failed = True
                         grace = self.config.grace if session.connected_once else self.config.start_timeout
                         if (time.time() >= session.owner['expires'] or not session.browser.running()
                                 or not session.connections and time.monotonic() - session.last_disconnect >= grace):

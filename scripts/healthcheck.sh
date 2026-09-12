@@ -2,6 +2,7 @@
 set -euo pipefail
 if [ "${OIDC_ENABLED:-false}" = true ]; then
     curl -fsS --max-time 5 http://127.0.0.1:8084/health >/dev/null
+    curl -kfsS --max-time 5 https://127.0.0.1:8443/ >/dev/null
     exit
 fi
 code=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:8443/)

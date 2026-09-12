@@ -129,6 +129,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-vulkan-drivers \
     mesa-va-drivers \
     intel-media-va-driver \
+    i965-va-driver \
+    vainfo \
     libva2 \
     libva-drm2 \
     libva-wayland2 \
@@ -211,6 +213,7 @@ COPY scripts/reset-password.sh /usr/local/bin/reset-password.sh
 COPY scripts/session-manager.py /usr/local/bin/session-manager.py
 COPY scripts/multi-session.py /usr/local/bin/multi-session.py
 COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
+COPY scripts/session-gpu.sh /usr/local/bin/session-gpu.sh
 RUN chmod 755 /usr/local/bin/user-desktop.sh
 COPY scripts/browser-session.sh /usr/local/bin/browser-session.sh
 COPY scripts/file-picker.py /usr/local/bin/file-picker.py

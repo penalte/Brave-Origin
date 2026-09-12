@@ -6,6 +6,7 @@ image="${1:?Usage: test-oidc.sh IMAGE}"
 # Separate disposable container: this test stubs drivers and never gets a GPU.
 docker run --rm -i --entrypoint python3 "$image" - < tests/browser-gpu.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/file-picker.py
+docker run --rm -i --entrypoint python3 "$image" - < tests/session-operations.py
 name="brave-oidc-test-$$"
 cleanup() {
     code=$?
@@ -37,4 +38,10 @@ done
 [ "$(docker inspect --format '{{.State.StartedAt}}' "$name")" = "$identity" ]
 docker exec "$name" bash /usr/local/bin/healthcheck.sh
 docker exec "$name" sh -c '! pgrep -x brave'
+docker exec "$name" nginx -s stop
+sleep 1
+if docker exec "$name" bash /usr/local/bin/healthcheck.sh >/dev/null 2>&1; then
+    echo 'Health check incorrectly accepted a stopped nginx' >&2
+    exit 1
+fi
 echo 'OIDC tests passed; container stayed running throughout user transitions.'

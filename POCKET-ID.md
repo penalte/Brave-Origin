@@ -159,3 +159,39 @@ browser processes and Selkies video. Token tests independently exercise real sig
 JWT verification. These do not prove a live Pocket ID registration, your reverse
 proxy, GPU compatibility or every browser client. Upstream dependency security
 findings in `SECURITY.md` remain relevant; this feature is not a clean image scan.
+
+## Private desktop configuration and diagnostics
+
+Docker variables are forwarded through an explicit allowlist to each identity.
+OIDC secrets, authentication, socket paths, command execution and sharing cannot
+be overridden through the private desktop environment.
+
+Supported tuning variables: `SELKIES_FRAMERATE`, `SELKIES_VIDEO_BITRATE`,
+`SELKIES_VIDEO_CRF`, `SELKIES_AUDIO_BITRATE`, `SELKIES_SCALING_DPI`,
+`SELKIES_USE_BROWSER_CURSORS`, `SELKIES_USE_CSS_SCALING`,
+`SELKIES_ENABLE_CLIPBOARD`, `SELKIES_ENABLE_BINARY_CLIPBOARD`, and
+`SELKIES_MICROPHONE_ENABLED`. Values use the bundled Selkies settings syntax;
+for example `SELKIES_FRAMERATE=30` sets the initial frame rate.
+
+`AUTO_GPU` defaults to `true` and supports the bundled Selkies vendor selection
+(for example `nvidia`). `DRINODE` selects the compositor render device;
+`DRI_NODE` selects the encoder device. Explicit nodes must be accessible to the
+private UID. `LIBVA_DRIVER_NAME` overrides VA-API driver selection. An Intel
+i965 compatibility probe runs when no driver override is supplied and a matching
+device is identified. `ENABLE_GPU=false` disables desktop GPU auto-selection and
+Brave acceleration. GPU detection does not prove hardware encoding is active;
+inspect the selected encoder in `selkies.log`.
+
+`LANG`, `LC_ALL`, `TZ`, `XKB_DEFAULT_LAYOUT`, `XKB_DEFAULT_VARIANT`, and
+`XKB_DEFAULT_OPTIONS` reach the private desktop. Locale names must be installed
+in the image (`locale -a`); the default remains `C.UTF-8`.
+
+Docker health checks now test both the broker and the HTTPS nginx endpoint.
+Broker health includes aggregate session and failure counts, without identities.
+An idle container with no signed-in users is healthy.
+
+Failed launches and unexpectedly ended desktops retain log tails in
+`/config/session-failures` before runtime cleanup. Only root can read this folder:
+at most five archives, five logs per archive, 64 KiB per log. These are diagnostic
+logs and may contain browser activity; normal logout does not create an archive.
+The supervisor log includes GPU access checks and the component exit status.

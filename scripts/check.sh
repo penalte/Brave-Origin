@@ -47,6 +47,7 @@ python3 -m py_compile scripts/session-manager.py tests/oidc-session.py tests/oid
 python3 -m py_compile scripts/multi-session.py tests/multi-session.py tests/oidc-recovery.py tests/browser-gpu.py
 python3 -m py_compile scripts/file-picker.py tests/file-picker.py tests/picker_browser.py
 python3 -m py_compile tests/cursor_browser.py
+python3 -m py_compile tests/session-operations.py
 python3 tests/release.py
 docker compose config --quiet
 docker compose -f compose.yaml -f compose.gpu.yaml config --quiet

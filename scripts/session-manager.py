@@ -207,9 +207,10 @@ class Browser:
     def gpu_devices():
         """Render/NVIDIA character devices a browser needs to reach the GPU."""
         devices = sorted(Path('/dev/dri').glob('renderD*')) + sorted(Path('/dev').glob('nvidia*'))
-        node = os.environ.get('DRI_NODE')
-        if node:
-            devices.append(Path(node))
+        for key in ('DRI_NODE', 'DRINODE'):
+            node = os.environ.get(key)
+            if node:
+                devices.append(Path(node))
         return [device for device in devices if device.is_char_device()]
 
     @staticmethod
@@ -825,13 +826,14 @@ class Manager:
             return web.FileResponse('/usr/local/share/brave-origin/portal.html')
         async def script(request):
             return web.FileResponse('/usr/local/share/brave-origin/portal.js')
-        async def health(request):
-            return web.json_response({'state': self.state}, status=503 if self.state == 'ERROR' else 200)
-        app.add_routes([web.get('/', portal), web.get('/portal.js', script), web.get('/health', health),
+        app.add_routes([web.get('/', portal), web.get('/portal.js', script), web.get('/health', self.health),
                         web.get('/session/status', self.status), web.get('/auth/login', self.login),
                         web.get('/auth/callback', self.callback), web.post('/auth/logout', self.logout),
                         web.route('*', '/{path:.*}', self.proxy)])
         return app
+
+    async def health(self, request):
+        return web.json_response({'state': self.state}, status=503 if self.state == 'ERROR' else 200)
 
 
 if __name__ == '__main__':

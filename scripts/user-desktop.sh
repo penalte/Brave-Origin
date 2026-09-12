@@ -2,6 +2,8 @@
 # One private desktop stack; invoked as the identity UID by the broker.
 set -euo pipefail
 umask 077
+# shellcheck source=scripts/session-gpu.sh
+source /usr/local/bin/session-gpu.sh
 : "${HOME:?}" "${XDG_RUNTIME_DIR:?}"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
 export XDG_DATA_HOME="$HOME/.local/share"
@@ -38,6 +40,7 @@ trap cleanup EXIT
 trap 'exit 0' TERM INT
 export SELKIES_AUDIO_ENABLED=false
 if [ "${ENABLE_AUDIO:-true}" = true ]; then
+    echo '[desktop] Starting private audio service.'
     pulseaudio --exit-idle-time=-1 --daemonize=true
     pactl load-module module-null-sink sink_name=output >/dev/null
     pactl set-default-sink output
@@ -49,6 +52,7 @@ fi
 # A private capture compositor keeps cursor sprites separate from video.
 # The nested application compositor forwards cursor changes to Selkies.
 export WAYLAND_DISPLAY=wayland-1
+echo '[desktop] Starting Selkies; waiting for capture display wayland-1.'
 python3 -m selkies --addr=127.0.0.1 --mode=websockets --wayland=true \
     --app-wayland-display=wayland-0 --enable-basic-auth=false > "$XDG_RUNTIME_DIR/selkies.log" 2>&1 &
 stream_pid=$!
@@ -58,12 +62,14 @@ for ((i=0; i<300; i++)); do
     sleep 0.1
 done
 test -S "$XDG_RUNTIME_DIR/wayland-1"
+echo '[desktop] Capture display ready.'
 cat > "$XDG_CONFIG_HOME/labwc/rc.xml" <<'XML'
 <?xml version="1.0"?>
 <labwc_config><windowRules><windowRule identifier="brave-origin" serverDecoration="no"><action name="Maximize" /></windowRule><windowRule identifier="brave-files" serverDecoration="no" /></windowRules><keyboard><keybind key="A-F4"><action name="None" /></keybind><keybind key="A-Tab"><action name="None" /></keybind><keybind key="A-space"><action name="None" /></keybind></keyboard><mouse/></labwc_config>
 XML
 compositor=labwc-browser
 if [ "${BROWSER_LOCK_MAXIMIZED:-true}" = false ]; then compositor=labwc; fi
+echo '[desktop] Starting Labwc; waiting for application display wayland-0.'
 WLR_BACKENDS=wayland "$compositor" -c "$XDG_CONFIG_HOME/labwc/rc.xml" > "$XDG_RUNTIME_DIR/labwc.log" 2>&1 &
 compositor_pid=$!
 for ((i=0; i<300; i++)); do
@@ -72,6 +78,7 @@ for ((i=0; i<300; i++)); do
     sleep 0.1
 done
 test -S "$XDG_RUNTIME_DIR/wayland-0"
+echo '[desktop] Application display ready; starting private file picker.'
 export WAYLAND_DISPLAY=wayland-0
 /usr/bin/python3 /usr/local/bin/file-picker.py > "$XDG_RUNTIME_DIR/picker.log" 2>&1 &
 picker_pid=$!
@@ -82,7 +89,18 @@ for ((i=0; i<100; i++)); do
 done
 test -f "$XDG_RUNTIME_DIR/picker-ready"
 export GTK_USE_PORTAL=1
+echo '[desktop] File picker ready; starting Brave.'
 /usr/local/bin/browser-session.sh > "$XDG_RUNTIME_DIR/browser.log" 2>&1 &
 browser_pid=$!
 touch "$XDG_RUNTIME_DIR/ready"
-wait -n "$stream_pid" "$compositor_pid" "$browser_pid" "$picker_pid"
+status=0
+wait -n -p exited "$stream_pid" "$compositor_pid" "$browser_pid" "$picker_pid" || status=$?
+component=unknown
+case "${exited:-}" in
+    "$stream_pid") component=selkies ;;
+    "$compositor_pid") component=labwc ;;
+    "$browser_pid") component=brave ;;
+    "$picker_pid") component=file-picker ;;
+esac
+echo "[desktop] $component exited with status $status; closing private desktop."
+exit "$status"
