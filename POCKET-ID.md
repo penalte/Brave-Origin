@@ -206,6 +206,14 @@ a normal logout removes its runtime logs.
 
 ## Streaming stack compatibility
 
+Private desktops support the owner's gamepad through player slot 1. Browser
+processes preload the matching Selkies joystick and fake-udev adapters, both
+using the desktop's private `SELKIES_JS_SOCKET_PATH`. Kernel uinput gamepads
+are disabled; do not map host input devices for this feature. Shared guests
+remain unable to inject gamepad input, even when granted mouse/keyboard control.
+Virtual slots may remain discoverable while a controller is disconnected;
+Selkies releases held inputs and reuses the slots when it reconnects.
+
 The backend and dashboard are pinned together at Selkies `v2.0.0rc0`
 (`f5eb10c8b1bdbb9c8e0d8ed3deb8387bc566630e`). Capture wheels are pinned by
 checksum to the matching Pixelflux `2.1.0rc0` and pcmflux `2.1.0rc0` releases.

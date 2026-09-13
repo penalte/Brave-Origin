@@ -140,6 +140,8 @@ async def main():
                     await exercise_picker(socket, desktop, decoder, user)
                     from cursor_browser import exercise_cursor
                     await exercise_cursor(socket, decoder, user)
+            from gamepad_session import exercise_gamepads
+            await exercise_gamepads(desktops)
             # A real Selkies viewer joins without replacing either owner desktop.
             invite = await broker.new_grant(desktops['alice'], 15)
             admitted = await broker.admit_viewer(invite, {'iss':'https://id.example.test','sub':'viewer','name':'Viewer','exp':time.time()+600})

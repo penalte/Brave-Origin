@@ -276,7 +276,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
             return
         participants = [g for g in self.shares.values() if g['session'] is session and g.get('participant') and self.grant_valid(g)]
         controller = next((g for g in participants if g.get('control')), None)
-        payload = {browser.owner_token: {'role': 'controller', 'mk_control': controller is None}}
+        payload = {browser.owner_token: {'role': 'controller', 'slot': 1, 'mk_control': controller is None}}
         payload.update({g['upstream_token']: {'role':'viewer', 'mk_control': g is controller} for g in participants})
         async with session.http.post('http://localhost/api/tokens', json=payload,
                 headers={'Authorization':'Bearer '+browser.master_token}) as response:

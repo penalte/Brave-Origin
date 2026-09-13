@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.34 (Pocket ID fork)
+
+- Restore the private desktop owner's gamepad panel and controller input using the matching Selkies joystick and device-discovery adapters. Each desktop uses private Unix sockets; kernel uinput devices remain disabled.
+- Assign the authenticated owner player slot 1. Guest gamepad input remains denied, independently of mouse/keyboard grants.
+
 ## 1.2.0-beta.33 (Pocket ID fork)
 
 - Upgrade the locked compositor to Labwc 0.9.7 with pinned wlroots 0.19.3, retaining private Wayland sessions and adapting the maximization policy to the new API.

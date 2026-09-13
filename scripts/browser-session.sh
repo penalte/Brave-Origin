@@ -56,6 +56,10 @@ if [ "${ENABLE_GPU:-true}" = true ]; then
     fi
 fi
 bus=()
+# Preload only into private application processes, never the broker or capture server.
+if [ "${BRAVE_PRIVATE_FILES:-false}" = true ]; then
+    export LD_PRELOAD="/usr/local/lib/brave-gamepad/selkies_joystick_interposer.so:/usr/local/lib/brave-gamepad/libudev.so.1.0.0-fake"
+fi
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then bus=(dbus-run-session --); fi
 exec "${bus[@]}" /opt/brave.com/brave-origin/brave \
     --ozone-platform=wayland --user-data-dir="$HOME/profile" \

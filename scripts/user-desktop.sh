@@ -13,7 +13,14 @@ export PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native"
 export PIXELFLUX_WAYLAND=true SELKIES_ENABLE_BASIC_AUTH=false SELKIES_ENABLE_DUAL_MODE=false
 export SELKIES_UNIX_SOCKET="$XDG_RUNTIME_DIR/stream.sock"
 export SELKIES_JS_SOCKET_PATH="$XDG_RUNTIME_DIR"
-export SELKIES_GAMEPAD_ENABLED='false|locked'
+export SELKIES_GAMEPAD_ENABLED='true|locked'
+export SELKIES_UINPUT_GAMEPAD=false
+export SELKIES_UI_SIDEBAR_SHOW_GAMEPADS=true
+# sockaddr_un paths must fit; never let the adapter fall back to shared /tmp.
+if (( ${#SELKIES_JS_SOCKET_PATH} > 80 )); then
+    echo '[desktop] Private gamepad socket path is too long.' >&2
+    exit 1
+fi
 export SELKIES_WEB_ROOT=/usr/share/selkies/web FILE_MANAGER_PATH="$HOME/Downloads"
 export BRAVE_PRIVATE_FILES=true
 export SELKIES_FILE_TRANSFERS=upload,download SELKIES_COMMAND_ENABLED='false|locked'

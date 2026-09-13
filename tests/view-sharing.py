@@ -77,6 +77,7 @@ async def main():
         assert frame.type == WSMsgType.BINARY and frame.data == b'\x04video'
         await ws.send_str('kd,65')
         await ws.send_str('SETTINGS,{"initialClientWidth":1}')
+        await ws.send_str('js,b,0,0,1')
         await ws.send_bytes(b'\x02microphone')
         await ws.send_str('START_VIDEO')
         await asyncio.sleep(.1)
@@ -85,6 +86,7 @@ async def main():
         assert (await post('/shares/control',{'id':token,'enabled':True})).status == 200
         await ws.send_str('kd,65')
         await ws.send_str('co,end,secret')
+        await ws.send_str('js,b,0,0,1')
         await asyncio.sleep(.1)
         assert received == ['START_VIDEO','kd,65'], received
         assert (await post('/shares/control',{'id':token,'enabled':False})).status == 200

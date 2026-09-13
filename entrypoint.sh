@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Docker mounts /dev at runtime. The adapters enumerate virtual pads here;
+# their data sockets stay inside each user's private runtime directory.
+if [ ! -d /dev/input ]; then
+    mkdir -m 755 /dev/input || exit 1
+fi
 # ==============================================================================
 # Brave Origin Native Wayland Docker Appliance (Selkies + Pixelflux + Labwc)
 # ==============================================================================
