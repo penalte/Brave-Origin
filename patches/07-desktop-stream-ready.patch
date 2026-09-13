@@ -1,0 +1,10 @@
+--- a/addons/selkies-web-core/selkies-ws-core.js
++++ b/addons/selkies-web-core/selkies-ws-core.js
+@@ -3660,6 +3660,7 @@
+ const startStream = () => {
+   if (streamStarted) return;
+   streamStarted = true;
++  window.parent.postMessage({ type: 'brave-desktop-stream-ready' }, window.location.origin);
+   hideStreamOverlay();
+   console.log("Stream started (UI elements hidden).");
+ };

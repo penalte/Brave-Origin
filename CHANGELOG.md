@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.2.0-beta.39 (Pocket ID fork)
+
+- Restyle administration and sharing to match the Selkies files menu, with clear user/status cards, permission choices, invitation controls, mobile layouts, and accessible close controls.
+
+- Show a matching preparation modal on desktop connection, with a three-second countdown and a TV-style close after the stream starts. Connect Selkies behind the modal so screen sizing is not delayed; respect reduced motion. Rapid re-login also waits safely for cleanup.
+
+- Let a quick sign-in wait for the same user's previous desktop to finish starting or stopping, then continue automatically without reopening a profile during cleanup or blocking other users.
+
 ## 1.2.0-beta.38 (Pocket ID fork)
 
 - Add independent guest gamepad permission to sharing invitations and participant controls. Assign Players 2–4 per desktop, show waiting/assigned status, and release held inputs on revoke or disconnect.

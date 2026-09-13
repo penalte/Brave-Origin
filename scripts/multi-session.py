@@ -159,6 +159,7 @@ class Broker(sharing.ViewSharing, single.Manager):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
         self.handoffs = {}
+        self.preparations = {}
         self.factory = desktop_factory or (lambda: Desktop(config))
 
     def selected(self, request):
@@ -194,6 +195,7 @@ class Broker(sharing.ViewSharing, single.Manager):
         return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp),
                 web.post('/admin/users/warp-permission', self.warp_permission),
                 web.post('/session/warp', self.session_warp),
+                web.get('/session/prepare', self.prepare_page), web.post('/session/prepare', self.prepare_session),
                 web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
 
     def require_admin(self, request, mutate=False):
@@ -317,24 +319,86 @@ class Broker(sharing.ViewSharing, single.Manager):
         except Exception:
             raise web.HTTPForbidden(text='Sign-in could not be verified') from None
         identity = hashlib.sha256(json.dumps([claims['iss'], claims['sub']], separators=(',', ':')).encode()).hexdigest()
+        previous = self.sessions.get(identity)
+        if previous is not None and previous.state in ('STARTING', 'STOPPING', 'IDLE'):
+            now = time.time()
+            self.preparations = {k: v for k, v in self.preparations.items() if v['expires'] > now}
+            while len(self.preparations) >= 128:
+                del self.preparations[next(iter(self.preparations))]
+            token = secrets.token_urlsafe(32)
+            self.preparations[token] = dict(identity=identity, claims=claims, flow=flow,
+                expires=min(now + 120, float(claims['exp'])))
+            response = web.HTTPFound('/session/prepare')
+            response.set_cookie('__Host-brave-prepare', token, secure=True, httponly=True,
+                                samesite='Strict', path='/', max_age=120)
+            response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+            return response
         return await self.start_session(identity, claims, flow)
 
+    def pending_preparation(self, request):
+        token = request.cookies.get('__Host-brave-prepare', '')
+        pending = self.preparations.get(token)
+        if not pending or pending['expires'] <= time.time() or pending['flow']['origin'] != request['app_origin']:
+            self.preparations.pop(token, None)
+            raise web.HTTPForbidden(text='This sign-in expired. Please sign in again.')
+        return token, pending
+
+    async def prepare_page(self, request):
+        self.pending_preparation(request)
+        return web.FileResponse('/usr/local/share/brave-origin/preparing.html')
+
+    async def prepare_session(self, request):
+        token, pending = self.pending_preparation(request)
+        if request.headers.get('Origin') != pending['flow']['origin']:
+            raise web.HTTPForbidden(text='Invalid sign-in request')
+        # Consume before awaiting cleanup so duplicate requests cannot launch twice.
+        self.preparations.pop(token)
+        try:
+            destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'])
+            response = web.json_response({'location': destination.headers['Location']})
+            response.cookies.update(destination.cookies)
+        except web.HTTPException as error:
+            response = web.json_response({'error': error.text}, status=error.status)
+        response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
+        return response
+
     async def start_session(self, identity, claims, flow):
-        async with self.lock:
-            if identity in self.sessions:
-                return self.offer_handoff(identity, claims, flow)
-            if self.state != 'IDLE' or len(self.sessions) >= self.config.maximum:
-                raise web.HTTPConflict(text='No desktop slot is currently available')
-            session = single.Manager(self.config, browser=self.factory())
-            session.browser.display_name = str(claims.get('name') or 'Private browser')[:120]
-            session.state = 'STARTING'
-            session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
-                'picture': single.profile_picture(claims),
-                'origin': flow['origin'], 'name': str(claims.get('name') or 'Private browser')[:120],
-                'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
-            session.owner['admin'] = admin_claim(claims, self.config.group_claim)
-            session.owner['started_at'] = time.time()
-            self.sessions[identity] = session
+        deadline = time.monotonic() + self.config.launch_timeout + 30
+        while True:
+            if float(claims['exp']) <= time.time():
+                raise web.HTTPForbidden(text='Sign-in expired while waiting. Please sign in again.')
+            async with self.lock:
+                previous = self.sessions.get(identity)
+                if previous is not None and previous.state == 'RUNNING':
+                    return self.offer_handoff(identity, claims, flow)
+                if previous is not None and previous.state not in ('STARTING', 'STOPPING', 'IDLE'):
+                    raise web.HTTPServiceUnavailable(text='Your previous desktop could not close safely. Please try again shortly.')
+                if previous is None:
+                    if self.state != 'IDLE' or len(self.sessions) >= self.config.maximum:
+                        raise web.HTTPConflict(text='No desktop slot is currently available')
+                    session = single.Manager(self.config, browser=self.factory())
+                    session.browser.display_name = str(claims.get('name') or 'Private browser')[:120]
+                    session.state = 'STARTING'
+                    session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
+                        'picture': single.profile_picture(claims),
+                        'origin': flow['origin'], 'name': str(claims.get('name') or 'Private browser')[:120],
+                        'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
+                    session.owner['admin'] = admin_claim(claims, self.config.group_claim)
+                    session.owner['started_at'] = time.time()
+                    self.sessions[identity] = session
+                    break
+            # Do not hold the broker lock while another instance finishes using
+            # this profile. Recheck the identity map after cleanup removes it.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise web.HTTPServiceUnavailable(text='Your desktop is taking longer to finish. Please try again shortly.')
+            try:
+                async with asyncio.timeout(remaining):
+                    async with previous.lock:
+                        pass
+            except TimeoutError:
+                raise web.HTTPServiceUnavailable(text='Your desktop is taking longer to finish. Please try again shortly.') from None
+            await asyncio.sleep(.05)
         async with session.lock:
             try:
                 await session.browser.start(claims['iss'], claims['sub'])

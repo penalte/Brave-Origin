@@ -26,6 +26,7 @@
 !config/nginx-oidc.conf
 !config/portal.html
 !config/portal.js
+!config/preparing.html
 
 !scripts/browser-relay.py
 !scripts/user-network.py

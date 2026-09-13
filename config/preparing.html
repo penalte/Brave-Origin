@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Preparing your desktop</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 15%,#38252e 0,transparent 55%),#11151d;color:#edf1fa;font:16px/1.65 system-ui,-apple-system,sans-serif}
+main{width:min(100%,480px);text-align:center;padding:48px 32px;border:1px solid #ffffff12;border-radius:24px;background:linear-gradient(150deg,#242c39e8,#191f2be8);box-shadow:0 24px 80px #0004;animation:arrive .35s ease-out}
+.icon{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 25px;border-radius:24px;background:#f4663814;border:1px solid #f4663840;color:#ff956f}.icon svg{width:36px;height:36px}.eyebrow{font-size:11px;letter-spacing:.16em;font-weight:700;text-transform:uppercase;color:#ffab8d}h1{font-size:clamp(27px,6vw,34px);line-height:1.2;letter-spacing:-.035em;margin:12px 0 18px}p{color:#b9c5d8;margin:0}a{display:inline-block;margin-top:28px;padding:11px 22px;border-radius:10px;background:#f46638;color:white;text-decoration:none;font-weight:650;font-size:14px}a:hover{background:#ff784a}a:focus-visible{outline:3px solid #ffd4c4;outline-offset:4px}.note{margin-top:22px;font-size:12px;color:#8794aa}@keyframes arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){main{animation:none}}
+[hidden]{display:none!important}.countdown{width:112px;height:112px;border-radius:50%;border:3px solid #f4663840;border-top-color:#ff956f;margin:28px auto 20px;display:flex;flex-direction:column;justify-content:center;background:#f4663809}.countdown span{font-size:36px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}.countdown small{font-size:9px;letter-spacing:.16em;color:#ffab8d}#progress{font-size:13px}</style>
+</head>
+<body>
+<main>
+  <div class="icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="24" height="17" rx="4"/><path d="M12 27h8m-4-5v5M11 13.5l3.5 3.5 6.5-7"/></svg></div>
+  <div class="eyebrow">Private browser · Getting ready</div>
+  <h1>Preparing your desktop…</h1>
+  <p>We are finishing your previous session.<br>Your own space will be ready shortly.</p>
+  <div class="countdown" aria-hidden="true"><span id="seconds">3</span><small>SECONDS</small></div>
+  <p id="progress" role="status">Estimated wait &middot; Connecting automatically</p>
+  <a id="retry" href="/auth/login" hidden>Sign in again</a>
+  <p class="note">No need to refresh. We will take you there.</p>
+  <noscript><p>Please enable JavaScript to continue.</p></noscript>
+</main>
+<script>
+const seconds=document.getElementById('seconds'),progress=document.getElementById('progress');
+const deadline=Date.now()+3000;
+const timer=setInterval(()=>{const left=Math.max(0,Math.ceil((deadline-Date.now())/1000));seconds.textContent=left;
+if(!left){clearInterval(timer);seconds.textContent='…';progress.textContent='Taking a little longer. Still preparing your desktop…';}},250);
+(async()=>{try{
+const response=await fetch('/session/prepare',{method:'POST',credentials:'same-origin',headers:{'Accept':'application/json'}});
+const result=await response.json();
+if(!response.ok)throw Error(result.error||'Unable to prepare your desktop. Please sign in again.');
+clearInterval(timer);progress.textContent='Your desktop is ready. Opening…';location.replace(result.location);
+}catch(error){clearInterval(timer);seconds.textContent='!';progress.textContent=error.message||'Connection interrupted. Please sign in again.';document.getElementById('retry').hidden=false;}})();
+</script></body>
+</html>

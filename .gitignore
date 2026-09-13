@@ -38,6 +38,7 @@ config/*
 !config/nginx-oidc.conf
 !config/portal.html
 !config/portal.js
+!config/preparing.html
 
 # Local dependency scan output
 /security-report.json
