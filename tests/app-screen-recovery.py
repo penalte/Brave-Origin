@@ -42,7 +42,7 @@ class Recovery(unittest.IsolatedAsyncioTestCase):
             async with self.guard: yield
         self.obj._reconfigure_guard = guard
     async def asyncTearDown(self): await self.obj.stop()
-    async def test_latest_resize_and_dpi_at_five_seconds(self):
+    async def test_latest_resize_and_dpi_after_settle_delay(self):
         await self.obj._size_wayland_screen(1910, 912)
         task = self.obj._app_screen_settle
         await self.obj._size_wayland_screen(1280, 720)

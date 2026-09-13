@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.33 (Pocket ID fork)
+
+- Upgrade the locked compositor to Labwc 0.9.7 with pinned wlroots 0.19.3, retaining private Wayland sessions and adapting the maximization policy to the new API.
+- Reduce the one-time window sizing recovery delay from 2.5 to 1.2 seconds.
+
 ## 1.2.0-beta.32 (Pocket ID fork)
 
 - Label the login button "Sign in with PENALTE ID" to match the identity provider branding.

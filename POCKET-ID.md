@@ -209,6 +209,10 @@ a normal logout removes its runtime logs.
 The backend and dashboard are pinned together at Selkies `v2.0.0rc0`
 (`f5eb10c8b1bdbb9c8e0d8ed3deb8387bc566630e`). Capture wheels are pinned by
 checksum to the matching Pixelflux `2.1.0rc0` and pcmflux `2.1.0rc0` releases.
+The locked compositor uses Labwc `0.9.7` with wlroots `0.19.3`, built from
+checksum-pinned sources. The standard Debian compositor remains available via
+`BROWSER_LOCK_MAXIMIZED=false`. The one-time nested window recovery runs after
+1.2 seconds; it is retained pending NVIDIA-host validation of the newer stack.
 The stack uses upstream screen/view sizing and nested-compositor scale adoption;
 the partial local resize patch has been removed. Test first login, reconnect and
 resize after changing these components as a set. The viewport test checks page

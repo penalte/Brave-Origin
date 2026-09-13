@@ -1,12 +1,22 @@
+--- a/meson.build
++++ b/meson.build
+@@ -1,7 +1,7 @@
+ project(
+   'labwc',
+   'c',
+-  version: '0.9.7',
++  version: '0.9.7-brave1',
+   license: 'GPL-2.0-only',
+   meson_version: '>=0.59.0',
+   default_options: [
 --- a/src/view.c
 +++ b/src/view.c
-@@ -803,6 +803,16 @@
+@@ -791,6 +791,15 @@
  view_minimize(struct view *view, bool minimized)
  {
  	assert(view);
-+	/* Browser appliance: never hide the browser or its dialog hierarchy. */
++	/* Keep browser windows visible and acknowledge rejected requests. */
 +	if (minimized) {
-+		/* Chromium assumes minimization until an active configure arrives. */
 +		struct wlr_xdg_surface *xdg_surface =
 +			wlr_xdg_surface_try_from_wlr_surface(view->surface);
 +		if (xdg_surface) {
@@ -14,17 +24,16 @@
 +		}
 +		return;
 +	}
- 	/*
- 	 * Minimize the root window first because some xwayland clients send a
- 	 * request-unmap to sub-windows at this point (for example gimp and its
-@@ -1421,6 +1431,12 @@
- 		bool store_natural_geometry)
+ 	struct server *server = view->server;
+ 	bool need_refocus = false;
+ 
+@@ -1411,6 +1420,11 @@
+ view_maximize(struct view *view, enum view_axis axis)
  {
  	assert(view);
-+	/* Retain both axes once maximized, including foreign-toplevel requests. */
++	/* Preserve both axes; the 0.9 API takes an axis enum, not a bool. */
 +	if (view->maximized == VIEW_AXIS_BOTH && axis != VIEW_AXIS_BOTH) {
-+		/* A rejected xdg unset_maximized still requires a configure reply. */
-+		view->impl->maximize(view, true);
++		view->impl->maximize(view, VIEW_AXIS_BOTH);
 +		return;
 +	}
  
@@ -32,32 +41,21 @@
  		return;
 --- a/src/interactive.c
 +++ b/src/interactive.c
-@@ -64,6 +64,11 @@
- 	struct seat *seat = &server->seat;
+@@ -92,6 +92,11 @@
  
- 	if (server->input_mode != LAB_INPUT_STATE_PASSTHROUGH) {
+ 	if (server->input_mode != LAB_INPUT_STATE_PASSTHROUGH
+ 			|| view != server->grabbed_view) {
 +		return;
 +	}
 +
-+	/* Browser appliance: dragging must not restore a maximized window. */
++	/* Dragging must not restore the maximized browser. */
 +	if (view->maximized == VIEW_AXIS_BOTH) {
  		return;
  	}
  
---- a/meson.build
-+++ b/meson.build
-@@ -1,7 +1,7 @@
- project(
-   'labwc',
-   'c',
--  version: '0.8.3',
-+  version: '0.8.3-brave1',
-   license: 'GPL-2.0-only',
-   meson_version: '>=0.59.0',
-   default_options: [
 --- a/src/xdg.c
 +++ b/src/xdg.c
-@@ -206,6 +206,15 @@
+@@ -286,6 +286,15 @@
  		view->pending_configure_serial = 0;
  		view->pending_configure_timeout = NULL;
  		update_required = true;
@@ -73,7 +71,7 @@
  	}
  
  	if (update_required) {
-@@ -749,6 +758,13 @@
+@@ -863,6 +872,13 @@
  		view_moved(view);
  	}
  

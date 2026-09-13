@@ -1,7 +1,10 @@
 # Labwc browser maximization policy
 
-Based on upstream Labwc 0.8.3, licensed GPL-2.0-only. Modified for Brave Origin
-on September 8, 2026. The Dockerfile pins the official source archive by SHA-256.
+Based on upstream Labwc 0.9.7, licensed GPL-2.0-only, matching the version
+selected by LinuxServer. The Dockerfile pins the official source archive and
+the required wlroots 0.19.3 library by SHA-256. Our maximization policy is
+adapted to the new axis-enum API. LinuxServer's optional read-only IPC patch
+and Pixman signal-recovery workaround are not included.
 
 The modified compositor rejects minimization, restoring either axis of an
 already maximized window, and interactive movement/resizing of a maximized
@@ -16,7 +19,7 @@ boundary or a restriction on closing tabs or the browser.
 The build disables unused XWayland and window-icon support, enables compiler
 hardening, and runs upstream tests. No build tools enter the final image.
 
-The complete modified Labwc source, its license, and the Dockerfile build recipe
+The complete modified Labwc source, wlroots source, licenses, and Dockerfile build recipe
 are shipped in `/usr/local/share/brave-origin/labwc-source.tar.xz`. The patch in
 this directory and the Dockerfile reproduce those sources and the binary.
 

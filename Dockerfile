@@ -35,9 +35,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential meson ninja-build pkg-config patch xz-utils ca-certificates \
     libwlroots-0.18-dev libxml2-dev libglib2.0-dev libcairo2-dev \
     libpango1.0-dev libpng-dev librsvg2-dev libcmocka-dev wayland-protocols \
+    libdisplay-info-dev libliftoff-dev libseat-dev libudev-dev hwdata \
     && rm -rf /var/lib/apt/lists/*
-ADD --checksum=sha256:746be2ff2d0c0c0b795c97fa24c7058f75586685c88a1194c243b6a846f938a5 \
-    https://codeload.github.com/labwc/labwc/tar.gz/refs/tags/0.8.3 /tmp/labwc.tar.gz
+ADD --checksum=sha256:a6ff89b64ea15e424d1b0db4a22145fccf5ec2ff2e7b8af0fa35e2ac8975986f \
+    https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.19.3/wlroots-0.19.3.tar.gz /tmp/wlroots.tar.gz
+# Trixie packages wlroots 0.18; Labwc 0.9 requires 0.19. Labwc also requires
+# DRM/libinput APIs at build time; sessions still select the Wayland backend.
+RUN mkdir /wlroots && tar -xzf /tmp/wlroots.tar.gz -C /wlroots --strip-components=1 && \
+    meson setup /wlroots-build /wlroots --prefix=/usr/local --libdir=lib \
+        --buildtype=release --wrap-mode=nofallback -Dexamples=false \
+        -Dxwayland=disabled -Dbackends=drm,libinput -Dsession=enabled \
+        -Drenderers=gles2 -Dallocators=gbm -Dcolor-management=disabled && \
+    meson compile -C /wlroots-build -j 2 && meson install -C /wlroots-build
+ADD --checksum=sha256:4ad4e5e7f29e0d0704fadb4a072037173d850b46f12122b79168879b922e0f43 \
+    https://codeload.github.com/labwc/labwc/tar.gz/refs/tags/0.9.7 /tmp/labwc.tar.gz
 RUN mkdir /labwc && tar -xzf /tmp/labwc.tar.gz -C /labwc --strip-components=1 && rm /tmp/labwc.tar.gz
 COPY patches/labwc/lock-maximized.patch /tmp/lock-maximized.patch
 COPY patches/labwc/README.md /labwc/BRAVE-ORIGIN-CHANGES.md
@@ -48,7 +59,7 @@ RUN cd /labwc && patch -p1 < /tmp/lock-maximized.patch && \
         -Db_pie=true -Db_lto=true -Dc_args='-fstack-protector-strong -D_FORTIFY_SOURCE=3' \
         -Dc_link_args='-Wl,-z,relro,-z,now' && \
     meson compile -C /labwc-build -j 2 && meson test -C /labwc-build --print-errorlogs && \
-    strip /labwc-build/labwc && tar -cJf /labwc-source.tar.xz -C / labwc
+    strip /labwc-build/labwc && tar -cJf /labwc-source.tar.xz -C / labwc wlroots
 
 FROM debian:trixie-slim
 
@@ -104,6 +115,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gir1.2-gtk-3.0 \
     labwc \
     libwlroots-0.18 \
+    libdisplay-info2 libliftoff0 libseat1 \
     wtype \
     wl-clipboard \
     wayland-protocols \
@@ -217,6 +229,8 @@ RUN groupadd -r render 2>/dev/null || true && \
 
 # 5. Copy Configuration and Session Scripts
 COPY --from=labwc-build /labwc-build/labwc /usr/local/bin/labwc-browser
+COPY --from=labwc-build /usr/local/lib/libwlroots-0.19.so* /usr/local/lib/
+RUN ldconfig
 # Corresponding GPL source accompanies the modified compositor binary.
 COPY --from=labwc-build /labwc-source.tar.xz /usr/local/share/brave-origin/labwc-source.tar.xz
 COPY config/nginx.conf /etc/nginx/nginx.conf
