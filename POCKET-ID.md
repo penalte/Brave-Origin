@@ -285,16 +285,20 @@ sockets. Neither adapter is preloaded into the root broker.
 Each desktop has its own PulseAudio server. `SelkiesVirtualMic` is created and
 selected before Brave starts, with the input sink and source initialized at
 100% (unity gain). The browser's local capture processing and hardware input
-level can still affect voice volume. Forwarded media remains owner-only.
+level can still affect voice volume. Camera and microphone forwarding remain owner-only.
 
 ## Guest sharing and collaboration
 
 Use **Share desktop** in Selkies to create a unique link, choose its lifetime,
-and optionally enable **Give mouse and keyboard control**. Guests do not need
+and independently enable **Give mouse and keyboard control** or **Allow gamepad**. Guests do not need
 Pocket ID. Anyone holding the link has its selected permission until expiry or
 revocation. Keep control links private. One guest controls input at a time; the
 owner can grant/revoke it from the participant list. Control returns to the owner
-when the controlling guest disconnects. Clipboard, files, commands, microphone,
+when the controlling guest disconnects. The owner keeps Player 1; gamepad guests
+receive one available slot from Players 2–4. A full controller pool leaves the
+guest viewing and waiting for a slot. The owner can grant/revoke gamepad access
+or disconnect a participant. Revocation and disconnect neutralize held controller
+inputs before the slot is reused. Clipboard, files, commands, microphone,
 and webcam remain unavailable through guest connections.
 
 The admin panel has **View session** beside each online desktop. It opens a new

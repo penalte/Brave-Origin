@@ -15,7 +15,7 @@ export SELKIES_UNIX_SOCKET="$XDG_RUNTIME_DIR/stream.sock"
 export SELKIES_JS_SOCKET_PATH="$XDG_RUNTIME_DIR"
 export SELKIES_WEBCAM_SOCKET_PATH="$XDG_RUNTIME_DIR"
 export SELKIES_WEBCAM_SOURCE=socket
-export SELKIES_GAMEPAD_ENABLED='true|locked'
+export SELKIES_GAMEPAD_ENABLED=true
 export SELKIES_UINPUT_GAMEPAD=false
 export SELKIES_UI_SIDEBAR_SHOW_GAMEPADS=true
 # sockaddr_un paths must fit; never let the adapter fall back to shared /tmp.

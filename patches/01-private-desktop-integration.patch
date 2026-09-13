@@ -155,7 +155,7 @@
  import * as yaml from "js-yaml";
 +
 +// The authenticated outer portal owns session state and the logout token.
-+function PrivateSessionControls({actions = false, identity = false, panels = false}) {
++function PrivateSessionControls({actions = false, identity = false, panels = false, t}) {
 +  const [session, setSession] = useState(null);
 +  const [failedPicture, setFailedPicture] = useState(null);
 +  useEffect(() => {
@@ -175,7 +175,7 @@
 +  const label = connected ? 'WARP ENABLED' : disabled ? 'WARP DISABLED' : mode === 'warp' ? 'WARP UNAVAILABLE' : 'WARP STATUS UNKNOWN';
 +  const buttonStyle = {width:'100%',padding:'7px 12px',border:0,borderRadius:'6px',background:'#f46638',color:'#fff',cursor:'pointer',fontSize:'13px',fontWeight:600};
 +  if (panels) return <>
-+    <button type="button" className="sidebar-section sidebar-section-header private-panel-button" aria-haspopup="dialog" onClick={() => window.parent.postMessage({type:'brave-session-share'}, window.location.origin)}>Share desktop<span className="section-toggle-icon" aria-hidden="true">▾</span></button>
++    <button type="button" className="sidebar-section sidebar-section-header private-panel-button" aria-haspopup="dialog" onClick={() => window.parent.postMessage({type:'brave-session-share'}, window.location.origin)}>{t("sections.sharing.title", "Sharing")}<span className="section-toggle-icon" aria-hidden="true">▾</span></button>
 +    {session.admin && <button type="button" className="sidebar-section sidebar-section-header private-panel-button" aria-haspopup="dialog" onClick={() => window.parent.postMessage({type:'brave-session-admin'}, window.location.origin)}>Admin panel<span className="section-toggle-icon" aria-hidden="true">▾</span></button>}
 +  </>;
 +  if (actions) return <section aria-label="Session actions" style={{marginTop:'auto',paddingTop:'16px',flexShrink:0}}>
@@ -286,7 +286,7 @@
                        enableBinaryClipboard && (
 @@ -4706,3 +4740,4 @@
  
-+            <PrivateSessionControls panels />
++            <PrivateSessionControls panels t={t} />
              {(renderableSettings.shortcuts ?? true) && (
                <div className="sidebar-section">
 @@ -4808,6 +4850,7 @@

@@ -259,6 +259,8 @@ async def main():
                             break
                     else:
                         raise AssertionError('Control update was not delivered')
+            from guest_gamepad import exercise_guest_gamepad
+            await exercise_guest_gamepad(client,server,desktops,viewer,view_token,{**a,'X-CSRF-Token':owner_csrf})
             response = await client.post(server.make_url('/shares/revoke'),headers={**a,'X-CSRF-Token':owner_csrf},json={})
             assert response.status == 200
             await viewer.close()

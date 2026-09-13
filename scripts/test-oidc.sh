@@ -9,6 +9,7 @@ docker run --rm -i --entrypoint python3 "$image" - < tests/file-picker.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/session-operations.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/admin-panel.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/view-sharing.py
+docker run --rm -i --entrypoint python3 "$image" - < tests/network-health.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/browser-network.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/user-network.py
 name="brave-oidc-test-$$"
@@ -37,6 +38,7 @@ docker cp tests/picker_browser.py "$name:/tmp/picker_browser.py"
 docker cp tests/cursor_browser.py "$name:/tmp/cursor_browser.py"
 docker cp tests/gamepad_session.py "$name:/tmp/gamepad_session.py"
 docker cp tests/media_session.py "$name:/tmp/media_session.py"
+docker cp tests/guest_gamepad.py "$name:/tmp/guest_gamepad.py"
 for test in oidc-tokens oidc-recovery desktop-sizing multi-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
     docker exec -e TEST_PRIVATE_PICKER=true "$name" python3 "/tmp/$test.py"

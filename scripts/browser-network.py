@@ -133,6 +133,12 @@ def desired():
     return {'mode':'direct'}
 
 
+def health_check_interval(config, healthy):
+    # Retry promptly during startup/recovery without continuously probing a
+    # healthy tunnel. Status is still based on a successful end-to-end check.
+    return 2 if config['mode'] == 'warp' and not healthy else 15
+
+
 def serve():
     config = json.loads((STATE / 'config.json').read_text())
     stopping = False
@@ -193,7 +199,7 @@ def serve():
             write_json(STATE / 'status.json', {'mode': config['mode'],
                        'state': 'direct' if config['mode'] == 'direct' else 'connected' if healthy else 'unavailable',
                        'checked_at': time.time()})
-            for _ in range(15):
+            for _ in range(health_check_interval(config, healthy)):
                 if stopping or (relay is not None and relay.poll() is not None) or desired() != config:
                     break
                 time.sleep(1)

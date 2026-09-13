@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.38 (Pocket ID fork)
+
+- Add independent guest gamepad permission to sharing invitations and participant controls. Assign Players 2–4 per desktop, show waiting/assigned status, and release held inputs on revoke or disconnect.
+- Restore the owner's gamepad forwarding toggle and fit all six media/WARP controls on one sidebar row, retaining tooltips and wrapping for additional touch controls.
+- Widen the sidebar to 320px and retry WARP health checks every two seconds while unavailable, avoiding the previous 15-second pause after a failed startup probe.
+- Use Selkies' existing translation for the sharing button.
+
 ## 1.2.0-beta.37 (Pocket ID fork)
 
 - Add the matching Selkies V4L2 webcam adapter to private Brave sessions and isolate each user's camera socket, without passing through a host camera device.

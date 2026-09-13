@@ -1,0 +1,41 @@
+--- a/addons/selkies-dashboard/src/styles/Overlay.css
++++ b/addons/selkies-dashboard/src/styles/Overlay.css
+@@ -179,7 +179,8 @@
+   top: 0;
+   left: 0;
+-  width: 280px;
++  width: 320px;
++  max-width: 100vw;
+   height: calc(var(--vh, 1vh) * 100);
+   background-color: var(--sidebar-bg);
+   border-right: 1px solid var(--border-soft);
+   transform: translateX(-100%);
+@@ -384,12 +384,12 @@
+ /* --- Sidebar Action Buttons (e.g., Video, Audio, Mic, Gamepad) --- */
+ .sidebar-action-buttons {
+     display: flex;
+     /* Touch clients add the keyboard and trackpad tiles to this row; they
+-       wrap below the first five at the same size. */
++       wrap below the six media and WARP controls at the same size. */
+     flex-wrap: wrap;
+     align-items: center;
+-    gap: 8px;
++    gap: 6px;
+     margin-bottom: 16px;
+     padding-bottom: 16px;
+     border-bottom: 1px solid var(--sidebar-border);
+ }
+@@ -397,11 +397,11 @@
+-/* Individual action button: square icon tile, a fifth of the row less its
++/* Individual action button: compact icon tile, a sixth of the row less its
+    gaps, held fixed so a wrapped tile keeps the same footprint. */
+ .action-button {
+     display: flex;
+     align-items: center;
+     justify-content: center;
+-    flex: 0 0 calc((100% - 32px) / 5);
++    flex: 0 0 calc((100% - 30px) / 6);
+     height: 40px;
+     padding: 0;
+     border: 1px solid var(--item-border);
+     border-radius: var(--radius);

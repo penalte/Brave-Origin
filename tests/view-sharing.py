@@ -28,6 +28,9 @@ async def main():
     admin.owner = dict(cookie='admin', csrf='admin-csrf', origin='https://web.test', name='Admin', admin=True, expires=time.time()+900)
     broker.sessions['admin'] = admin
     received = []
+    token_updates = []
+    owner.browser.master_token = 'master'
+    owner.browser.owner_token = 'owner-upstream'
     upstream_sockets = []
     async def websocket(request):
         assert request.query.get('token') and not request.query.get('role')
@@ -49,6 +52,13 @@ async def main():
         class Stream:
             def ws_connect(self, url, **kwargs):
                 return upstream_client.ws_connect(str(upstream.make_url('/api/websockets'))+'?'+url.split('?')[1], **kwargs)
+            def post(self,url,**kwargs):
+                token_updates.append(kwargs['json'])
+                class Response:
+                    async def __aenter__(self): return self
+                    async def __aexit__(self,*args): pass
+                    def raise_for_status(self): pass
+                return Response()
         owner.http = Stream()
         headers = {'Host':'web.test', 'Origin':'https://web.test'}
         auth = {**headers, 'Cookie':m.single.COOKIE+'=owner', 'X-CSRF-Token':'csrf'}
@@ -93,6 +103,41 @@ async def main():
         await ws.send_str('kd,66')
         await asyncio.sleep(.1)
         assert received == ['START_VIDEO','kd,65']
+        assert (await post('/shares/create',{'minutes':60,'gamepad':'yes'})).status==400
+        assert (await post('/shares/gamepad',{'id':token,'enabled':True},view)).status==403
+        assert (await post('/shares/gamepad',{'id':token,'enabled':True},
+            {**auth,'X-CSRF-Token':'bad'})).status==403
+        # A controller cannot choose the owner's slot or gain keyboard access.
+        await ws.send_str('js,c,0,VGVzdA==,4,17')
+        await asyncio.sleep(.05)
+        assert (await post('/shares/gamepad',{'id':token,'enabled':True})).status==200
+        assert broker.shares[token]['slot']==2
+        received.clear()
+        for message in ('js,b,0,0,1','js,b,2,0,1','js,b,1,0,nan','js,a,1,0,2','kd,65','js,b,1,0,1'):
+            await ws.send_str(message)
+        await asyncio.sleep(.1)
+        assert received==['js,b,1,0,1'],received
+        assert not token_updates[-1][broker.shares[token]['upstream_token']]['mk_control']
+        extra=[]
+        for expected in (3,4,None):
+            invitation=await broker.new_grant(owner,15)
+            broker.shares[invitation]['allow_gamepad']=True
+            response=await broker.admit_viewer(invitation,{'iss':'guest','sub':str(expected),'exp':time.time()+600})
+            key=response.cookies[m.sharing.VIEW_COOKIE].value
+            sock=await client.ws_connect(server.make_url('/watch/api/websockets'),headers={**headers,'Cookie':m.sharing.VIEW_COOKIE+'='+key})
+            await sock.receive(timeout=2)
+            await sock.send_str('js,c,0,VGVzdA==,4,17')
+            await asyncio.sleep(.05)
+            assert broker.shares[key]['slot']==expected
+            extra.append((key,sock))
+        assert broker.shares[extra[-1][0]]['waiting']
+        assert (await post('/shares/gamepad',{'id':token,'enabled':False})).status==200
+        assert broker.shares[token]['slot'] is None
+        assert broker.shares[extra[-1][0]]['slot']==2
+        assert (await post('/shares/disconnect',{'id':extra[0][0]})).status==200
+        assert extra[0][0] not in broker.shares
+        for _,sock in extra: await sock.close()
+        await asyncio.sleep(.05)
         assert (await post('/admin/view',{'id':'owner'})).status == 403
         admin_auth = {**headers,'Cookie':m.single.COOKIE+'=admin','X-CSRF-Token':'admin-csrf'}
         r = await post('/admin/view',{'id':'owner'},admin_auth)

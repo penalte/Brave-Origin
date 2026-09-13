@@ -47,6 +47,8 @@ python3 -m py_compile scripts/session-manager.py tests/oidc-session.py tests/oid
 python3 -m py_compile scripts/multi-session.py tests/multi-session.py tests/oidc-recovery.py tests/browser-gpu.py
 python3 -m py_compile scripts/file-picker.py tests/file-picker.py tests/picker_browser.py
 python3 -m py_compile tests/cursor_browser.py tests/gamepad_session.py tests/media_session.py
+python3 -m py_compile tests/network-health.py
+python3 -m py_compile tests/guest_gamepad.py
 python3 -m py_compile tests/session-operations.py
 python3 -m py_compile tests/desktop-sizing.py
 python3 -m py_compile scripts/browser-network.py scripts/browser-relay.py scripts/user-network.py tests/browser-network.py tests/user-network.py tests/admin-panel.py

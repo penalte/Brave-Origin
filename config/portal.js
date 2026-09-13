@@ -140,12 +140,17 @@ async function refreshShare() {
       const li=document.createElement('li'); li.textContent=user.name+(user.admin?' (administrator)':'');
       const button=document.createElement('button');button.textContent=user.control?'Revoke control':'Grant mouse and keyboard';
       button.onclick=async()=>{try{await sharingPost('/shares/control',{id:user.id,enabled:!user.control});await refreshShare();}catch(e){document.getElementById('share-error').textContent=e.message;}};
-      li.append(button);list.append(li);
+      const status=document.createElement('span');status.textContent=user.slot?` · Player ${user.slot}`:user.waiting?' · All controller slots are in use':user.gamepad?' · Gamepad allowed — connect a controller':' · Gamepad not allowed';
+      const gamepad=document.createElement('button');gamepad.textContent=user.gamepad?'Revoke gamepad':'Allow gamepad';
+      gamepad.onclick=async()=>{try{await sharingPost('/shares/gamepad',{id:user.id,enabled:!user.gamepad});await refreshShare();}catch(e){document.getElementById('share-error').textContent=e.message;}};
+      const disconnect=document.createElement('button');disconnect.textContent='Disconnect';
+      disconnect.onclick=async()=>{try{await sharingPost('/shares/disconnect',{id:user.id});await refreshShare();}catch(e){document.getElementById('share-error').textContent=e.message;}};
+      li.append(status,document.createElement('br'),button,gamepad,disconnect);list.append(li);
     }
   } catch(e) {document.getElementById('share-error').textContent=e.message;}
 }
 document.getElementById('share-create').onclick=async()=>{try{
-  const data=await sharingPost('/shares/create',{minutes:Number(document.getElementById('share-expiry').value),control:document.getElementById('share-control').checked});
+  const data=await sharingPost('/shares/create',{minutes:Number(document.getElementById('share-expiry').value),control:document.getElementById('share-control').checked,gamepad:document.getElementById('share-gamepad').checked});
   document.getElementById('share-link').value=data.url;await refreshShare();
 }catch(e){document.getElementById('share-error').textContent=e.message;}};
 document.getElementById('share-copy').onclick=async()=>{try{await navigator.clipboard.writeText(document.getElementById('share-link').value);}catch{document.getElementById('share-link').select();}};

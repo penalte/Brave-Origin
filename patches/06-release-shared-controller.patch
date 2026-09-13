@@ -1,0 +1,20 @@
+--- a/src/selkies/selkies.py
++++ b/src/selkies/selkies.py
+@@ -6277,6 +6277,17 @@
+     connected_websockets = list(client_permissions.keys())
+     current_tokens = user_tokens.copy()
++    # Neutralize old slot owners before publishing any replacement assignment.
++    # Revocation must not depend on a cooperative browser sending js,d.
++    for ws in connected_websockets:
++        previous = client_permissions.get(ws) or {}
++        current = current_tokens.get(previous.get("token")) or {}
++        if previous.get("slot") is not None and (previous.get("slot") != current.get("slot")
++                or previous.get("role") != current.get("role")):
++            server = previous.get("data_server")
++            handler = getattr(server, "input_handler", None)
++            if handler is not None:
++                await handler.release_gamepads_for_conn(id(ws))
+     for ws in connected_websockets:
+         if ws.closed:
+             continue
+         perms = client_permissions.get(ws)
