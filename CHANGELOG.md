@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.32 (Pocket ID fork)
+
+- Label the login button "Sign in with PENALTE ID" to match the identity provider branding.
+
 ## 1.2.0-beta.31 (Pocket ID fork)
 
 - Upgrade Selkies backend and dashboard together to v2.0.0rc0, with matching Pixelflux and pcmflux 2.1.0rc0 wheels pinned by checksum. Preserve private desktop integration and nested window sizing patches.
