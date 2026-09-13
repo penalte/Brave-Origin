@@ -50,9 +50,9 @@ def network_status():
     """Public routing state only; never expose proxy addresses or registration."""
     try:
         data = json.loads(Path('/run/brave-network/status.json').read_text())
-        mode = data.get('mode')
-        state = data.get('state')
-        if mode not in ('direct', 'proxy', 'warp'):
+        mode = json.loads(Path('/run/brave-network/config.json').read_text()).get('mode')
+        state = data.get('state') if mode == data.get('mode') else 'unavailable'
+        if mode not in ('direct', 'warp'):
             raise ValueError('Unknown mode')
         if state not in ('direct', 'connected', 'unavailable') or time.time() - data.get('checked_at', 0) > 45:
             state = 'unavailable'

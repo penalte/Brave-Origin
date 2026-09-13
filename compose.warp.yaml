@@ -1,4 +1,4 @@
-# Use with compose.yaml when proxy/WARP routing or the admin WARP toggle is needed.
+# Required with compose.yaml for private OIDC routing, or legacy WARP routing.
 services:
   brave-origin:
     cap_add:

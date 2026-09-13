@@ -73,15 +73,21 @@ async def exercise_gamepads(desktops):
             desktop=desktops[name].browser
             ws=desktops[name].test_socket
             page=desktop.home/'Downloads/gamepad.html'
-            page.write_text('''<html><body style="margin:0;background:blue"><script>
+            page.write_text('''<html><body style="margin:0;background:blue"><div style="position:fixed;bottom:20px;left:20px;width:40px;height:40px;background:cyan"></div><script>
 function tick(){const p=Array.from(navigator.getGamepads()).find(Boolean);
 document.body.style.background=p?(p.buttons[0].pressed?'#00ff00':'#ff0000'):'#0000ff';
 requestAnimationFrame(tick)}tick();</script></body></html>''')
             os.chown(page,desktop.uid,desktop.uid)
-            for msg in ('kd,65507','kd,108','ku,108','ku,65507','co,end,file://'+str(page),'kd,65293','ku,65293'):
+            await ws.send_str('kr')
+            await asyncio.sleep(.1)
+            for msg in ('kd,65507','kd,108','ku,108','ku,65507'):
+                await ws.send_str(msg)
+            await asyncio.sleep(.1)
+            await ws.send_str('co,end,file://'+str(page))
+            await asyncio.sleep(.1)
+            for msg in ('kd,65293','ku,65293'):
                 await ws.send_str(msg)
             await asyncio.sleep(2)
-            await ws.send_str('js,c,0,VGVzdCBQYWQ=,4,17')
             decoder=av.CodecContext.create('h264','r')
             async def color(channel):
                 async with asyncio.timeout(15):
@@ -95,7 +101,14 @@ requestAnimationFrame(tick)}tick();</script></body></html>''')
                         except av.error.InvalidDataError: continue
                         for frame in frames:
                             im=frame.to_image(); rgb=im.getpixel((im.width//2,im.height//2))
-                            if rgb[channel]>180 and all(rgb[i]<80 for i in range(3) if i!=channel): return
+                            im.save('/tmp/'+name+'-gamepad-check.png')
+                            marker=im.getpixel((40,im.height-40))
+                            if not (marker[0]<80 and marker[1]>180 and marker[2]>180): continue
+                            if channel is None or rgb[channel]>180 and all(rgb[i]<80 for i in range(3) if i!=channel): return
+            # Drain old picker frames: its green success page must not satisfy
+            # the controller-pressed assertion before this page has loaded.
+            await color(None)
+            await ws.send_str('js,c,0,VGVzdCBQYWQ=,4,17')
             await ws.send_str('js,b,0,0,1')
             await color(1)
             await ws.send_str('js,b,0,0,0')

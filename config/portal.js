@@ -1,11 +1,11 @@
 let csrf = '', opened = false;
-let isAdmin = false, warpEnabled = false;
+let isAdmin = false, forceWarp = false, warpBusy = false;
 let picture = '';
 let network = {mode:'unknown', state:'unavailable'};
 let sessionName = 'Private browser', ending = false, sessionError = '';
 function notifyDesktop() {
   document.getElementById('desktop').contentWindow.postMessage({type:'brave-session-state',
-    active:opened, name:sessionName, admin:isAdmin, picture, network, ending, error:sessionError}, location.origin);
+    active:opened, name:sessionName, admin:isAdmin, picture, network:{...network, switching:warpBusy}, ending, error:sessionError}, location.origin);
 }
 async function update() {
   try {
@@ -49,6 +49,7 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-admin' && isAdmin) openAdmin();
   if (event.data?.type === 'brave-session-end') endSession();
   if (event.data?.type === 'brave-session-share') openShare();
+  if (event.data?.type === 'brave-session-warp') toggleWarp();
 });
 update(); setInterval(update, 3000);
 
@@ -60,17 +61,26 @@ async function openAdmin() {
     const response = await fetch('/admin/status', {cache:'no-store'});
     if (!response.ok) throw new Error('Administrator access unavailable.');
     const state = await response.json();
-    warpEnabled = state.network.mode === 'warp';
-    document.getElementById('admin-network').textContent = `Browser network: ${state.network.mode} — ${state.network.state}`;
+    forceWarp = state.force_warp;
+    document.getElementById('admin-network').textContent = forceWarp ? 'WARP is required for everyone.' : 'Each user has their own network route.';
     const toggle = document.getElementById('admin-warp');
-    toggle.textContent = warpEnabled ? 'Disable WARP' : 'Enable WARP';
-    toggle.disabled = !warpEnabled && (!state.warp_available || !state.tos_accepted);
+    toggle.textContent = forceWarp ? 'Stop forcing WARP' : 'Force WARP for everyone';
+    toggle.disabled = !forceWarp && (!state.warp_available || !state.tos_accepted);
     if (toggle.disabled) document.getElementById('admin-error').textContent = 'Enable WARP support in the image and set WARP_ACCEPT_TOS=true first.';
     const users = document.getElementById('admin-users');
     users.replaceChildren();
     for (const user of state.users) {
       const row = document.createElement('li');
       row.textContent = `${user.name}${user.admin ? ' (admin)' : ''} — ${user.state.toLowerCase()}`;
+      const permission = document.createElement('button');
+      permission.textContent = user.allow_direct ? 'Revoke direct access' : 'Allow disabling WARP';
+      permission.title = user.allow_direct ? 'Revoke permission and return this user to WARP' : 'Let this user toggle their own WARP connection';
+      permission.onclick = async () => {
+        permission.disabled = true;
+        try { await sharingPost('/admin/users/warp-permission', {id:user.id, allowed:!user.allow_direct}); await openAdmin(); await update(); }
+        catch(error) { document.getElementById('admin-error').textContent = error.message; permission.disabled = false; }
+      };
+      row.append(permission);
       const view = document.createElement('button');
       view.textContent = 'View session'; view.disabled = user.state !== 'RUNNING';
       view.onclick = async () => {
@@ -85,17 +95,31 @@ async function openAdmin() {
 }
 document.getElementById('admin-close').onclick = () => document.getElementById('admin-panel').close();
 document.getElementById('admin-warp').onclick = async () => {
-  if (!confirm('Change WARP for everyone? All active desktops will close. Users must sign in again.')) return;
+  if (!confirm('Change the WARP requirement for everyone? Desktops stay open; affected network connections may interrupt.')) return;
   document.getElementById('admin-warp').disabled = true;
   try {
-    const response = await fetch('/admin/warp', {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify({enabled:!warpEnabled})});
+    const response = await fetch('/admin/warp', {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify({enabled:!forceWarp})});
     if (!response.ok) throw new Error(await response.text());
-    location.reload();
+    await openAdmin();
   } catch (error) {
     document.getElementById('admin-error').textContent = error.message;
     document.getElementById('admin-warp').disabled = false;
   }
 };
+
+async function toggleWarp() {
+  if (warpBusy || !network.can_toggle) return;
+  warpBusy = true; sessionError = ''; notifyDesktop();
+  const start = performance.now();
+  try {
+    const result = await sharingPost('/session/warp', {enabled:network.mode !== 'warp'});
+    network = result.network;
+  } catch(error) { sessionError = error.message; }
+  finally {
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, 650-(performance.now()-start))));
+    warpBusy = false; notifyDesktop(); await update();
+  }
+}
 
 async function sharingPost(path, data={}) {
   const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(data)});

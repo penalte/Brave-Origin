@@ -254,6 +254,8 @@ COPY scripts/session-manager.py /usr/local/bin/session-manager.py
 COPY scripts/multi-session.py /usr/local/bin/multi-session.py
 COPY scripts/view-sharing.py /usr/local/bin/view-sharing.py
 COPY scripts/browser-network.py /usr/local/bin/browser-network.py
+COPY scripts/browser-relay.py /usr/local/bin/browser-relay.py
+COPY scripts/user-network.py /usr/local/bin/user-network.py
 COPY scripts/user-desktop.sh /usr/local/bin/user-desktop.sh
 COPY scripts/session-gpu.sh /usr/local/bin/session-gpu.sh
 RUN chmod 755 /usr/local/bin/user-desktop.sh

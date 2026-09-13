@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.35 (Pocket ID fork)
+
+- Add a private proxy worker and UID-specific firewall grant for each desktop. Route changes preserve desktops and affect only that user's connections; WARP users never fall back to direct.
+- Persist user routing preferences and admin-granted permission to disable WARP. List offline registered users and add persistent force-WARP enforcement.
+- Make the Selkies WARP tile toggle the user's route with a blue breathing transition and descriptive tooltip.
+- Remove external proxy settings. Private OIDC sessions require NET_ADMIN for per-user port isolation.
+
 ## 1.2.0-beta.34 (Pocket ID fork)
 
 - Restore the private desktop owner's gamepad panel and controller input using the matching Selkies joystick and device-discovery adapters. Each desktop uses private Unix sockets; kernel uinput devices remain disabled.

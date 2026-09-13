@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[ "${OIDC_ENABLED:-false}" = true ] || ss -ltn | awk '$4 == "127.0.0.1:40001" {found=1} END {exit !found}'
 if [ "${OIDC_ENABLED:-false}" = true ]; then
     curl -fsS --max-time 5 http://127.0.0.1:8084/health >/dev/null
     curl -kfsS --max-time 5 https://127.0.0.1:8443/ >/dev/null

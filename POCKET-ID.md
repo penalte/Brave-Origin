@@ -228,45 +228,50 @@ corners, not only video dimensions, at 96 and 144 DPI.
 
 ## Browser network and administration
 
-`WARP_ENABLED=false` uses the normal connection; `true` selects the shared WARP
-SOCKS5 proxy. The official WARP package is included by default (build with
-`INSTALL_WARP=false` to omit it), but no WARP daemon runs in direct mode.
-WARP requires `WARP_ACCEPT_TOS=true`, accepting Cloudflare's terms, and
-`NET_ADMIN`. With Compose, add `-f compose.warp.yaml` to the usual command.
-On Unraid add `--cap-add=NET_ADMIN` to Extra Parameters and map a private
-persistent appdata directory to `/var/lib/cloudflare-warp`. Do not use host
-network mode or expose port 40000. No privileged container is needed.
+`WARP_ENABLED` sets the initial preference for newly registered users. The old
+`BROWSER_NETWORK_MODE` and `BROWSER_PROXY_URL` variables are unused and can be
+removed. Each active user gets a fixed loopback SOCKS5 port and one lightweight
+relay worker; all WARP users share the official WARP proxy and tunnel. The
+relay is closed on logout. Preferences and permissions persist beside the
+profile in root-owned identity metadata.
 
-Alternatively set `BROWSER_NETWORK_MODE=proxy` and `BROWSER_PROXY_URL` to an
-unauthenticated `socks5://host:port` or `http://host:port` endpoint. Proxy DNS is
-resolved once at startup; recreate the container if its address changes.
-Credentials in proxy URLs are deliberately unsupported. With WARP disabled,
-`BROWSER_NETWORK_MODE` supplies the boot routing choice.
+Private OIDC desktops now require `NET_ADMIN` even when starting in direct mode:
+UID-specific firewall rules allow each user to connect only to their own proxy
+port, never another user's direct route or the WARP proxy itself. With Compose,
+add `-f compose.warp.yaml`; on Unraid add `--cap-add=NET_ADMIN` to Extra Parameters.
+Proxy ports 61000-61127 are reserved on loopback. Do not publish proxy ports or use host networking. No privileged container is
+needed. Legacy direct-only mode without OIDC still works without NET_ADMIN.
 
-The firewall allows browser-session accounts to initiate TCP connections only
-to the configured proxy, blocks direct IPv4/IPv6 and DNS/UDP, and preserves
-responses to incoming streaming connections. Pocket ID and nginx retain their
-normal network access. Browser QUIC is disabled and WebRTC disallows
-non-proxied UDP. Some website calls/games may therefore be unavailable.
-A proxy outage blocks browsing; it never selects direct routing as a fallback.
-A remote proxy is trusted to implement its own tunnel/fail-closed behavior.
+WARP requires the included official package and `WARP_ACCEPT_TOS=true`, accepting
+Cloudflare's terms. Map a private persistent appdata directory to
+`/var/lib/cloudflare-warp` to retain registration. The WARP daemon runs only while
+an active desktop needs it. A WARP outage blocks WARP users; direct users remain
+online. There is no automatic direct fallback. Browser QUIC and non-proxied
+WebRTC UDP remain disabled in both modes, so some calls/games may be unavailable.
+The relay does not inspect HTTPS or buffer downloads to disk.
 
-Users with the exact group `admin` in the verified Pocket ID groups claim see
-**Admin panel** in Selkies. `OIDC_ADMIN_GROUP` changes that group name;
-`OIDC_GROUPS_CLAIM` selects the claim as for login admission. Group strings and
-unverified client messages cannot grant administration. Permissions are checked
-on each request against the authenticated, unexpired session; changes in Pocket
-ID take effect on the next login or session expiry.
+The admin panel lists all locally registered profiles, including offline users.
+Names are saved on login; older profiles show a short identifier until they next
+sign in. This does not enumerate people who have never logged in from the IdP.
+Admins can grant **Allow disabling WARP** per user. Revoking it immediately
+returns that user to WARP. Admins may change their own route without a grant.
+**Force WARP for everyone** overrides all users, including admins, while retaining
+saved preferences to restore when enforcement is removed. Grants, preferences
+and enforcement persist across container restarts. These controls are checked
+server-side against the authenticated session, origin and CSRF token.
 
-The panel shows online users and checked network status. Changing WARP closes
-all desktops after explicit confirmation, preserves their profiles, and changes
-the route before allowing new logins. Panel overrides last until the container
-restarts; `WARP_ENABLED` remains the startup default. Disabling WARP in the panel
-selects direct mode. The panel needs an active admin browser session, but remains
-reachable when WARP cannot connect because ingress does not use the tunnel.
-Network health checks send one HTTPS request through the configured proxy to
-Cloudflare's trace endpoint about every 15 seconds; WARP health requires
-`warp=on` or `warp=plus`, not just a listening port.
+The WARP tile toggles only the current user's route and never opens the admin
+panel. It is disabled without permission or when WARP is enforced. Switching
+uses a blue breathing animation, followed by the resulting connection status.
+Other users' connections remain untouched. The affected user's browser tabs,
+login and Wayland session stay open; existing network connections and pending
+DNS work are terminated before acknowledging the new route, so downloads, calls
+or streams may need retrying. WARP startup can take longer than the local switch.
+
+The exact verified OIDC group `admin` grants administration. `OIDC_ADMIN_GROUP`
+changes the group name; `OIDC_GROUPS_CLAIM` selects the claim. OIDC and nginx retain
+normal network access independently of users' routes. WARP health uses a request
+to Cloudflare's trace endpoint, requiring `warp=on` or `warp=plus`.
 
 ## Guest sharing and collaboration
 

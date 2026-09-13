@@ -22,6 +22,9 @@ sharing_spec = importlib.util.spec_from_file_location('view_sharing', '/usr/loca
 sharing = importlib.util.module_from_spec(sharing_spec)
 sharing_spec.loader.exec_module(sharing)
 LOG = logging.getLogger('multi-session')
+network_spec = importlib.util.spec_from_file_location('user_network', '/usr/local/bin/user-network.py')
+user_network = importlib.util.module_from_spec(network_spec)
+network_spec.loader.exec_module(user_network)
 
 
 def admin_claim(claims, group_claim, env=os.environ):
@@ -89,6 +92,8 @@ class Desktop(single.Browser):
         self.config = config
         self.directory = None
         self.failed = False
+        self.network = None
+        self.display_name = 'Private browser'
 
     async def clear_shared(self):
         # All clipboard, audio and compositor state belongs to this UID.
@@ -96,6 +101,10 @@ class Desktop(single.Browser):
 
     async def start_locked(self, issuer, subject):
         name = await self.prepare(issuer, subject)
+        key = json.loads(self.metadata.read_text())['key']
+        user_network.register(key, self.display_name)
+        self.network = user_network.UserProxy(key, self.uid)
+        await self.network.start()
         await self.clear_profile_locks(name)
         installed = await self.command('dpkg-query', '-W', '-f=${Version}', 'brave-origin')
         saved = json.loads(self.metadata.read_text())
@@ -113,6 +122,7 @@ class Desktop(single.Browser):
             if gid:
                 await self.command('usermod', '-aG', str(gid), name)
         env = session_environment(self.home, name, self.directory)
+        env['BRAVE_PROXY_PORT'] = str(self.network.port)
         self.master_token = secrets.token_urlsafe(32)
         self.owner_token = secrets.token_urlsafe(32)
         env['SELKIES_MASTER_TOKEN'] = self.master_token
@@ -130,6 +140,9 @@ class Desktop(single.Browser):
 
     async def stop(self):
         await super().stop()
+        if self.network is not None:
+            await self.network.stop()
+            self.network = None
         if self.directory:
             if self.failed:
                 try:
@@ -168,13 +181,19 @@ class Broker(sharing.ViewSharing, single.Manager):
     async def status(self, request):
         session = self.selected(request)
         if session:
-            return await session.status(request)
+            response = await session.status(request)
+            payload = json.loads(response.body)
+            if session.browser.network:
+                payload['network'] = session.browser.network.status(session.owner.get('admin',False))
+            return web.json_response(payload)
         available = self.state == 'IDLE'  # Allow authentication at capacity to reclaim an existing desktop.
         return web.json_response({'state': 'IDLE' if available else 'BUSY', 'owner': False,
                                   'name': '', 'csrf': ''})
 
     def admin_routes(self):
         return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp),
+                web.post('/admin/users/warp-permission', self.warp_permission),
+                web.post('/session/warp', self.session_warp),
                 web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
 
     def require_admin(self, request, mutate=False):
@@ -188,47 +207,101 @@ class Broker(sharing.ViewSharing, single.Manager):
 
     async def admin_status(self, request):
         self.require_admin(request)
-        network = single.network_status()
-        return web.json_response({'network': network,
-            'warp_available': shutil.which('warp-svc') is not None,
-            'tos_accepted': os.environ.get('WARP_ACCEPT_TOS') == 'true',
-            'users': [{'id': key, 'name': s.owner['name'], 'state': s.state,
-                       'started_at': s.owner.get('started_at'), 'admin': s.owner.get('admin', False)}
-                      for key, s in self.sessions.items() if s.owner]})
+        users = []
+        for path in sorted(user_network.USERS.glob('*/identity.json')):
+            _, data = user_network.metadata(path.parent.name)
+            key = data['key']
+            session = self.sessions.get(key)
+            users.append({'id':key, 'name':data.get('name') or 'User '+key[:8],
+                'state':session.state if session and session.owner else 'OFFLINE',
+                'allow_direct':data.get('allow_direct',False), 'warp_enabled':data.get('warp_enabled',os.environ.get('WARP_ENABLED') == 'true'),
+                'last_login':data.get('last_login'),
+                'admin':bool(session and session.owner and session.owner.get('admin'))})
+        return web.json_response({'force_warp':user_network.forced(),
+            'warp_available':shutil.which('warp-svc') is not None,
+            'tos_accepted':os.environ.get('WARP_ACCEPT_TOS') == 'true', 'users':users})
+
+    async def session_warp(self, request):
+        session = self.selected(request)
+        if not session:
+            raise web.HTTPForbidden(text='Active session required')
+        session.require_owner(request)
+        if (request.headers.get('Origin') != request['app_origin'] or
+            not secrets.compare_digest(request.headers.get('X-CSRF-Token',''),session.owner['csrf'])):
+            raise web.HTTPForbidden(text='Invalid request')
+        data = await request.json()
+        if not isinstance(data,dict) or type(data.get('enabled')) is not bool:
+            raise web.HTTPBadRequest(text='enabled must be a boolean')
+        async with self.lock, session.lock:
+            session.require_owner(request)
+            proxy = session.browser.network
+            if not proxy.status(session.owner.get('admin',False))['can_toggle']:
+                raise web.HTTPForbidden(text='Your administrator has not allowed changing WARP')
+            try:
+                await proxy.switch(data['enabled'])
+                path, saved = user_network.metadata(proxy.key)
+                saved['warp_enabled'] = data['enabled']
+                user_network.save(path,saved)
+            except (ValueError, RuntimeError, OSError) as error:
+                raise web.HTTPServiceUnavailable(text=str(error)) from None
+        return web.json_response({'network':proxy.status(session.owner.get('admin',False))})
+
+    async def warp_permission(self, request):
+        self.require_admin(request,mutate=True)
+        data = await request.json()
+        if not isinstance(data,dict) or type(data.get('allowed')) is not bool:
+            raise web.HTTPBadRequest(text='allowed must be a boolean')
+        async with self.lock:
+            self.require_admin(request,mutate=True)
+            try:
+                path, saved = user_network.metadata(data.get('id'))
+                session = self.sessions.get(data['id'])
+                if not data['allowed']:
+                    # Revocation also puts the affected active desktop back on WARP.
+                    user_network.network.configuration(dict(os.environ,WARP_ENABLED='true'))
+                    if session:
+                        async with session.lock:
+                            if session.browser.network:
+                                await session.browser.network.switch(True)
+                    path, saved = user_network.metadata(data['id'])
+                    saved['warp_enabled'] = True
+                saved['allow_direct'] = data['allowed']
+                user_network.save(path,saved)
+            except (ValueError,FileNotFoundError):
+                raise web.HTTPBadRequest(text='Unknown user') from None
+            except (RuntimeError,OSError) as error:
+                raise web.HTTPServiceUnavailable(text=str(error)) from None
+        return web.json_response({'changed':True})
 
     async def admin_warp(self, request):
         self.require_admin(request, mutate=True)
         data = await request.json()
         if not isinstance(data, dict) or type(data.get('enabled')) is not bool:
             raise web.HTTPBadRequest(text='enabled must be a boolean')
-        # Env is the boot default. A panel change applies only to this container run.
-        env = dict(os.environ, WARP_ENABLED=str(data['enabled']).lower(), BROWSER_NETWORK_MODE='direct')
         async with self.lock:
             self.require_admin(request, mutate=True)
-            process = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-network.py',
-                'validate', env=env, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-            await process.communicate()
-            if process.returncode:
-                LOG.warning('Admin network validation failed')
-                raise web.HTTPBadRequest(text='WARP requires an enabled WARP image, WARP_ACCEPT_TOS=true and NET_ADMIN.')
-            self.state = 'STOPPING'
             try:
-                for key, session in list(self.sessions.items()):
+                if data['enabled']:
+                    user_network.network.configuration(dict(os.environ,WARP_ENABLED='true'))
+                user_network.save(user_network.FORCE, {'force_warp':data['enabled']})
+                failures = []
+                for session in list(self.sessions.values()):
                     async with session.lock:
-                        await self.end(key, session)
-                if self.sessions:
-                    raise RuntimeError('Desktop cleanup incomplete; network change refused')
-                process = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-network.py',
-                    'setup', env=env)
-                if await process.wait():
-                    raise RuntimeError('Could not apply browser routing')
-                self.state = 'IDLE'
-                LOG.info('Administrator changed WARP to %s; all desktops were closed', data['enabled'])
-            except Exception:
-                self.state = 'ERROR'
-                LOG.exception('Admin network change failed; admission blocked')
-                raise web.HTTPServiceUnavailable(text='Network change failed; administrator attention required') from None
-        return web.json_response({'changed': True, 'sign_in_again': True})
+                        if session.browser.network:
+                            proxy = session.browser.network
+                            try:
+                                _, saved = user_network.metadata(proxy.key)
+                                await proxy.switch(data['enabled'] or saved.get('warp_enabled',os.environ.get('WARP_ENABLED') == 'true'))
+                            except (ValueError,RuntimeError,OSError) as error:
+                                # Apply enforcement to the remaining users too.
+                                # Keep this failed route closed until recovery.
+                                await proxy.manager.stop_worker()
+                                failures.append(str(error))
+                if failures:
+                    raise RuntimeError('Some routes are unavailable: '+failures[0])
+            except (ValueError,RuntimeError,OSError) as error:
+                raise web.HTTPServiceUnavailable(text=str(error)) from None
+        return web.json_response({'changed':True})
 
     async def login(self, request):
         return await super().login(request)
@@ -253,6 +326,7 @@ class Broker(sharing.ViewSharing, single.Manager):
             if self.state != 'IDLE' or len(self.sessions) >= self.config.maximum:
                 raise web.HTTPConflict(text='No desktop slot is currently available')
             session = single.Manager(self.config, browser=self.factory())
+            session.browser.display_name = str(claims.get('name') or 'Private browser')[:120]
             session.state = 'STARTING'
             session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
                 'picture': single.profile_picture(claims),
@@ -417,6 +491,11 @@ Or disconnect to close that desktop without opening another. Your saved profile 
                     if session.state == 'RUNNING':
                         if not session.browser.running():
                             session.browser.failed = True
+                        if getattr(session.browser, 'network', None):
+                            try:
+                                await session.browser.network.recover()
+                            except (OSError,RuntimeError,ValueError):
+                                LOG.exception('Private network recovery failed')
                         grace = self.config.grace if session.connected_once else self.config.start_timeout
                         if (time.time() >= session.owner['expires'] or not session.browser.running()
                                 or not session.connections and time.monotonic() - session.last_disconnect >= grace):
@@ -439,6 +518,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
         root.mkdir(mode=0o711, exist_ok=True)
         root.chmod(0o711)
         await self.browser.recover()
+        await user_network.recover()
         for directory in root.iterdir():
             if directory.is_dir() and not directory.is_symlink():
                 shutil.rmtree(directory)

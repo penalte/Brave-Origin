@@ -6,7 +6,7 @@ import os
 import time
 import struct
 import av
-from aiohttp import ClientSession
+from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
 spec = importlib.util.spec_from_file_location('multi', '/usr/local/bin/multi-session.py')
@@ -140,6 +140,78 @@ async def main():
                     await exercise_picker(socket, desktop, decoder, user)
                     from cursor_browser import exercise_cursor
                     await exercise_cursor(socket, decoder, user)
+            # Exercise real admin route changes while both desktop streams remain open.
+            saved_owner = dict(desktops['alice'].owner)
+            desktops['alice'].owner['admin'] = True
+            previous_tos = os.environ.get('WARP_ACCEPT_TOS')
+            os.environ['WARP_ACCEPT_TOS'] = 'true'
+            identities = {name: (s.browser.process.pid, s.owner['cookie']) for name, s in desktops.items()}
+            requests = {}
+            async def network_page(request):
+                if request.path in requests:
+                    requests[request.path].set()
+                return web.Response(text='<html><body>Routing works</body></html>', content_type='text/html')
+            probe_app = web.Application()
+            probe_app.router.add_get('/{probe}', network_page)
+            probe_server = TestServer(probe_app)
+            await probe_server.start_server()
+            async def browse(step):
+                async def drain(ws, name):
+                    frames = av.CodecContext.create('h264','r')
+                    async for message in ws:
+                        raw = message.data
+                        if isinstance(raw,bytes) and len(raw)>10 and raw[0] == 4:
+                            await ws.send_str(f'CLIENT_FRAME_ACK {struct.unpack("!H",raw[2:4])[0]}')
+                            if raw[4:6] == b'\x00\x00':
+                                try:
+                                    for frame in frames.decode(av.Packet(raw[10:])):
+                                        frame.to_image().save('/tmp/'+name+'-routing.png')
+                                except av.error.InvalidDataError:
+                                    pass
+                drains = [asyncio.create_task(drain(s.test_socket,name)) for name,s in desktops.items()]
+                try:
+                    for name, session in desktops.items():
+                        path = '/'+name+'-'+step
+                        requests[path] = asyncio.Event()
+                        await session.test_socket.send_str('kr')
+                        await asyncio.sleep(.1)
+                        for message in ('kd,65507','kd,108','ku,108','ku,65507'):
+                            await session.test_socket.send_str(message)
+                        await asyncio.sleep(.1)
+                        await session.test_socket.send_str('co,end,'+str(probe_server.make_url(path)))
+                        await asyncio.sleep(.1)
+                        for message in ('kd,65293','ku,65293'):
+                            await session.test_socket.send_str(message)
+                        await asyncio.wait_for(requests[path].wait(),20)
+                finally:
+                    for task in drains:
+                        task.cancel()
+                    await asyncio.gather(*drains,return_exceptions=True)
+            try:
+                await browse('before')
+                bob_route = desktops['bob'].browser.network.manager.mode
+                for enabled in (True, False):
+                    response = await client.post(server.make_url('/session/warp'),
+                        headers={**a, 'X-CSRF-Token':desktops['alice'].owner['csrf']},
+                        json={'enabled':enabled})
+                    assert response.status == 200, await response.text()
+                    assert (await response.json())['network']['mode'] == ('warp' if enabled else 'direct')
+                    for name, session in desktops.items():
+                        assert (session.browser.process.pid, session.owner['cookie']) == identities[name]
+                        assert session.browser.process.returncode is None
+                        assert not session.test_socket.closed
+                    response = await client.get(server.make_url('/session/status'),headers=b)
+                    assert response.status == 200
+                    assert desktops['bob'].browser.network.manager.mode == bob_route
+                await browse('after')
+                print('PASS: live admin WARP toggles preserve both desktop processes, cookies, streams and HTTP browsing', flush=True)
+            finally:
+                await probe_server.close()
+                desktops['alice'].owner.update(saved_owner)
+                if previous_tos is None:
+                    os.environ.pop('WARP_ACCEPT_TOS', None)
+                else:
+                    os.environ['WARP_ACCEPT_TOS'] = previous_tos
             from gamepad_session import exercise_gamepads
             await exercise_gamepads(desktops)
             # A real Selkies viewer joins without replacing either owner desktop.

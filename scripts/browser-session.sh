@@ -55,6 +55,11 @@ if [ "${ENABLE_GPU:-true}" = true ]; then
         echo '[browser-session] No GPU device found - software rasterization.' >&2
     fi
 fi
+network=()
+if [ -n "${BRAVE_PROXY_PORT:-}" ]; then
+    [[ "$BRAVE_PROXY_PORT" =~ ^[0-9]+$ ]] || exit 1
+    network=("--proxy-server=socks5://127.0.0.1:$BRAVE_PROXY_PORT" "--proxy-bypass-list=<-loopback>")
+fi
 bus=()
 # Preload only into private application processes, never the broker or capture server.
 if [ "${BRAVE_PRIVATE_FILES:-false}" = true ]; then
@@ -66,4 +71,4 @@ exec "${bus[@]}" /opt/brave.com/brave-origin/brave \
     --disk-cache-dir="$HOME/.cache/brave" --password-store=basic \
     --no-first-run --no-default-browser-check --start-maximized \
     --force-dark-mode \
-    "${gpu[@]}" "${extra[@]}"
+    "${gpu[@]}" "${extra[@]}" "${network[@]}"

@@ -10,6 +10,7 @@ docker run --rm -i --entrypoint python3 "$image" - < tests/session-operations.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/admin-panel.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/view-sharing.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/browser-network.py
+docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/user-network.py
 name="brave-oidc-test-$$"
 cleanup() {
     code=$?
@@ -18,7 +19,7 @@ cleanup() {
     exit "$code"
 }
 trap cleanup EXIT
-docker run -d --name "$name" --shm-size=1g --security-opt seccomp=unconfined \
+docker run -d --name "$name" --shm-size=1g --cap-add NET_ADMIN --security-opt seccomp=unconfined \
     --security-opt no-new-privileges=true -e OIDC_ENABLED=true \
     -e OIDC_ISSUER_URL=https://id.example.test \
     -e OIDC_CLIENT_ID=test -e OIDC_CLIENT_SECRET=test-only \

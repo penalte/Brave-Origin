@@ -3,7 +3,6 @@
 Never inherit proxy environment into the OIDC broker. Rules cover private desktop
 UIDs and the legacy browser UID, while root/nginx retain normal ingress routing.
 """
-import ipaddress
 import json
 import logging
 import os
@@ -15,7 +14,6 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
 
 LOG = logging.getLogger('browser-network')
 STATE = Path('/run/brave-network')
@@ -26,43 +24,28 @@ def configuration(env=os.environ):
     enabled = env.get('WARP_ENABLED', 'false')
     if enabled not in ('true', 'false'):
         raise ValueError('WARP_ENABLED must be true or false')
-    mode = 'warp' if enabled == 'true' else env.get('BROWSER_NETWORK_MODE', 'direct')
-    if mode not in ('direct', 'proxy', 'warp'):
-        raise ValueError('BROWSER_NETWORK_MODE must be direct, proxy or warp')
-    if mode == 'direct':
-        return {'mode': mode}
+    mode = 'warp' if enabled == 'true' else 'direct'
     if mode == 'warp' and env.get('WARP_ACCEPT_TOS') != 'true':
         raise ValueError('WARP mode requires WARP_ACCEPT_TOS=true')
     if mode == 'warp' and not shutil.which('warp-svc'):
         raise ValueError('This image was built without WARP; rebuild with INSTALL_WARP=true')
-    value = 'socks5://127.0.0.1:40000' if mode == 'warp' else env.get('BROWSER_PROXY_URL', '')
-    parsed = urlsplit(value)
-    if (parsed.scheme not in ('http', 'socks5') or not parsed.hostname or not parsed.port
-            or parsed.username is not None or parsed.password is not None
-            or parsed.path or parsed.query or parsed.fragment
-            or any(c.isspace() for c in value)):
-        raise ValueError('Use an unauthenticated http://host:port or socks5://host:port proxy')
-    # Resolve once as root. Pin Brave and its firewall to the same endpoint.
-    address = socket.getaddrinfo(parsed.hostname, parsed.port, type=socket.SOCK_STREAM)[0][4][0]
-    ip = ipaddress.ip_address(address)
-    if ip.is_unspecified or ip.is_multicast:
-        raise ValueError('Proxy address must be a unicast destination')
-    host = f'[{ip}]' if ip.version == 6 else str(ip)
-    return {'mode': mode, 'address': str(ip), 'port': parsed.port,
-            'proxy': f'{parsed.scheme}://{host}:{parsed.port}'}
+    return {'mode': mode}
+
 
 
 def firewall(config, uid):
-    ip = ipaddress.ip_address(config['address'])
-    family = 'ip6' if ip.version == 6 else 'ip'
     return f'''table inet brave_egress {{
+ set clients {{
+  type uid . inet_service
+  elements = {{ {int(uid)} . 40001 }}
+ }}
  chain output {{
   type filter hook output priority -10; policy accept;
   meta skuid {{ {int(uid)}, 200000-1000199999 }} jump browser
  }}
  chain browser {{
   ct direction reply accept
-  {family} daddr {ip} tcp dport {int(config['port'])} accept
+  ip daddr 127.0.0.1 meta skuid . tcp dport @clients accept
   reject with icmpx type admin-prohibited
  }}
 }}
@@ -70,9 +53,7 @@ def firewall(config, uid):
 
 
 def policies(config):
-    if config['mode'] == 'direct':
-        return {}
-    return {'ProxySettings': {'ProxyMode': 'fixed_servers', 'ProxyServer': config['proxy'],
+    return {'ProxySettings': {'ProxyMode': 'fixed_servers', 'ProxyServer': 'socks5://127.0.0.1:40001',
                               'ProxyBypassList': '<-loopback>'},
             'QuicAllowed': False, 'DnsOverHttpsMode': 'off',
             'WebRtcIPHandling': 'disable_non_proxied_udp',
@@ -86,24 +67,40 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def install_firewall(config):
+    available = subprocess.run(['nft', 'list', 'tables'], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL).returncode == 0
+    if not available:
+        if config['mode'] == 'warp' or os.environ.get('OIDC_ENABLED') == 'true':
+            raise RuntimeError('Private user routing requires NET_ADMIN')
+        return  # Ordinary direct-only containers need no extra capability.
+    uid = pwd.getpwnam('braveuser').pw_uid
+    existing = subprocess.run(['nft', 'list', 'table', 'inet', 'brave_egress'],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    rules = ('delete table inet brave_egress\n' if existing else '') + firewall(config, uid)
+    subprocess.run(['nft', '-f', '-'], input=rules, text=True, check=True)
+
+
+def switch():
+    config = configuration()
+    install_firewall(config)
+    with socket.socket(socket.AF_UNIX) as control:
+        control.settimeout(15)
+        control.connect(str(STATE / 'control.sock'))
+        control.sendall(config['mode'].encode() + b'\n')
+        if control.recv(32) != b'OK\n':
+            raise RuntimeError('Routing switch was not acknowledged')
+
+
 def setup():
     config = configuration()
     STATE.mkdir(mode=0o755, exist_ok=True)
-    if config['mode'] != 'direct':
-        # No fallback: missing NET_ADMIN or an invalid ruleset aborts startup
-        # before any browser is launched. Replace only our own table atomically.
-        uid = pwd.getpwnam('braveuser').pw_uid
-        existing = subprocess.run(['nft', 'list', 'table', 'inet', 'brave_egress'],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-        rules = ('delete table inet brave_egress\n' if existing else '') + firewall(config, uid)
-        subprocess.run(['nft', '-f', '-'], input=rules, text=True, check=True)
-    else:
-        existing = subprocess.run(['nft', 'list', 'table', 'inet', 'brave_egress'],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-        if existing:
-            subprocess.run(['nft', 'delete', 'table', 'inet', 'brave_egress'], check=True)
+    install_firewall(config)
     POLICY.parent.mkdir(parents=True, exist_ok=True)
-    write_json(POLICY, policies(config))
+    policy = policies(config)
+    if os.environ.get('OIDC_ENABLED') == 'true':
+        policy.pop('ProxySettings')  # Each private browser gets its own fixed port.
+    write_json(POLICY, policy)
     write_json(STATE / 'config.json', config)
     write_json(STATE / 'status.json', {'mode': config['mode'], 'state': 'direct' if config['mode'] == 'direct' else 'unavailable'})
     return config
@@ -117,11 +114,23 @@ def cli(*args):
 def probe(config):
     # End-to-end check through the proxy; a listening socket alone is not health.
     result = subprocess.run(['curl', '--silent', '--show-error', '--fail', '--max-time', '8',
-                             '--noproxy', '', '--proxy', config['proxy'].replace('socks5:', 'socks5h:'),
+                             '--noproxy', '', '--proxy', 'socks5h://127.0.0.1:40000',
                              'https://www.cloudflare.com/cdn-cgi/trace'],
                             capture_output=True, text=True, timeout=10)
     return result.returncode == 0 and (config['mode'] != 'warp' or
                                       any(line in ('warp=on', 'warp=plus') for line in result.stdout.splitlines()))
+
+
+def desired():
+    if os.environ.get('OIDC_ENABLED') != 'true':
+        return json.loads((STATE / 'config.json').read_text())
+    for path in (STATE / 'users').glob('*/config.json'):
+        try:
+            if json.loads(path.read_text()).get('mode') == 'warp':
+                return {'mode':'warp'}
+        except FileNotFoundError:
+            continue
+    return {'mode':'direct'}
 
 
 def serve():
@@ -133,10 +142,16 @@ def serve():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     daemon = None
+    private = os.environ.get('OIDC_ENABLED') == 'true'
+    relay = None if private else subprocess.Popen([sys.executable, '/usr/local/bin/browser-relay.py'])
     initialized = False
     try:
         while not stopping:
-            updated = json.loads((STATE / 'config.json').read_text())
+            if relay is not None and relay.poll() is not None:
+                LOG.error('Browser relay exited; restarting with the selected route')
+                relay = subprocess.Popen([sys.executable, '/usr/local/bin/browser-relay.py'])
+                time.sleep(1)
+            updated = desired()
             if updated != config:
                 if daemon is not None and daemon.poll() is None:
                     daemon.terminate()
@@ -179,10 +194,17 @@ def serve():
                        'state': 'direct' if config['mode'] == 'direct' else 'connected' if healthy else 'unavailable',
                        'checked_at': time.time()})
             for _ in range(15):
-                if stopping:
+                if stopping or (relay is not None and relay.poll() is not None) or desired() != config:
                     break
                 time.sleep(1)
     finally:
+        if relay is not None:
+            relay.terminate()
+            try:
+                relay.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                relay.kill()
+                relay.wait()
         write_json(STATE / 'status.json', {'mode': config['mode'], 'state': 'unavailable'})
         if daemon is not None and daemon.poll() is None:
             daemon.terminate()
@@ -201,7 +223,9 @@ if __name__ == '__main__':
         config = configuration()
         if config['mode'] != 'direct':
             subprocess.run(['nft', 'list', 'tables'], stdout=subprocess.DEVNULL, check=True)
+    elif sys.argv[1:] == ['switch']:
+        switch()
     elif sys.argv[1:] == ['serve']:
         serve()
     else:
-        raise SystemExit('Usage: browser-network.py setup|serve')
+        raise SystemExit('Usage: browser-network.py setup|switch|validate|serve')

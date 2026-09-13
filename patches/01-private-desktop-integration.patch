@@ -186,10 +186,10 @@
 +      {session.picture && failedPicture !== session.picture ? <img src={session.picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(session.picture)} style={{width:'28px',height:'28px',borderRadius:'50%',objectFit:'cover',flexShrink:0}} /> : <span aria-hidden="true" style={{width:'28px',height:'28px',borderRadius:'50%',background:'var(--border-color)',display:'grid',placeItems:'center',flexShrink:0}}>{(session.name || '?').slice(0,1).toUpperCase()}</span>}
 +      <span title={session.name} style={{fontSize:'13px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{session.name}</span>
 +    </div>;
-+  return <button type="button" className="action-button" disabled={!session.admin}
-+    title={session.admin ? `${label} — Open WARP controls` : label} aria-label={label}
-+    onClick={() => { if (session.admin) window.parent.postMessage({type:'brave-session-admin'}, window.location.origin); }}
-+    style={{color,borderColor:color,backgroundColor:`${color}20`,fontSize:'10px',fontWeight:700,letterSpacing:'.02em',cursor:session.admin ? 'pointer' : 'default',opacity:1}}>
++  return <button type="button" className="action-button" disabled={!session.network?.can_toggle || session.network?.switching}
++    title={session.network?.switching ? 'Switching your connection…' : session.network?.can_toggle ? `${label} — Click to ${disabled ? 'enable' : 'disable'} WARP for your desktop` : `${label} — ${session.network?.forced ? 'Required by your administrator' : 'Administrator permission required'}`} aria-label={label}
++    onClick={() => { if (session.network?.can_toggle) window.parent.postMessage({type:'brave-session-warp'}, window.location.origin); }}
++    style={{color:session.network?.switching ? '#54b9ff' : color,borderColor:session.network?.switching ? '#54b9ff' : color,backgroundColor:`${color}20`,fontSize:'10px',fontWeight:700,letterSpacing:'.02em',cursor:session.network?.can_toggle ? 'pointer' : 'default',opacity:1,transition:'color .35s, border-color .35s, background-color .35s',animation:session.network?.switching ? 'warp-breathe 1.1s ease-in-out infinite' : 'none'}}>
 +    WARP
 +  </button>;
 +}
@@ -438,8 +438,9 @@
 +  width: 0;
 +  display: none;
  }
-@@ -432,3 +432,14 @@
+@@ -432,3 +432,15 @@
  /* --- Collapsible Sidebar Sections --- */
++@keyframes warp-breathe { 0%,100% { box-shadow:0 0 0 0 #54b9ff22; background-color:#54b9ff12; } 50% { box-shadow:0 0 12px 2px #54b9ff77; background-color:#54b9ff44; } }
 +.private-panel-button {
 +    width: 100%;
 +    font-family: inherit;
