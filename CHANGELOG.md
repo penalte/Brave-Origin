@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.36 (Pocket ID fork)
+
+- Fix intermittent release-test navigation by opening gamepad and routing probe pages through Brave's running profile instead of racing address-bar keyboard input. Preserve real browser, controller press/release, video and routing assertions.
+- Keep H.264 decoder state across integration-test stages and request a Selkies keyframe before checking the gamepad page, matching the stream's on-demand keyframe behavior.
+
 ## 1.2.0-beta.35 (Pocket ID fork)
 
 - Add a private proxy worker and UID-specific firewall grant for each desktop. Route changes preserve desktops and affect only that user's connections; WARP users never fall back to direct.

@@ -35,6 +35,23 @@ while time.monotonic()<until:
  if kind==1: print(f'{number}:{value}',flush=True)
 '''
 
+async def open_browser_page(desktop, url):
+    """Forward navigation to the running profile without racing keyboard focus."""
+    proc = await asyncio.create_subprocess_exec(
+        'runuser', '-u', pwd.getpwuid(desktop.uid).pw_name, '--',
+        'env', f'HOME={desktop.home}', f'XDG_RUNTIME_DIR={desktop.directory}',
+        '/opt/brave.com/brave-origin/brave',
+        f'--user-data-dir={desktop.home / "profile"}', url,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), 15)
+    except TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    assert proc.returncode == 0, (out, err)
+
+
 async def exercise_gamepads(desktops):
     readers=[]
     try:
@@ -78,17 +95,11 @@ function tick(){const p=Array.from(navigator.getGamepads()).find(Boolean);
 document.body.style.background=p?(p.buttons[0].pressed?'#00ff00':'#ff0000'):'#0000ff';
 requestAnimationFrame(tick)}tick();</script></body></html>''')
             os.chown(page,desktop.uid,desktop.uid)
-            await ws.send_str('kr')
-            await asyncio.sleep(.1)
-            for msg in ('kd,65507','kd,108','ku,108','ku,65507'):
-                await ws.send_str(msg)
-            await asyncio.sleep(.1)
-            await ws.send_str('co,end,file://'+str(page))
-            await asyncio.sleep(.1)
-            for msg in ('kd,65293','ku,65293'):
-                await ws.send_str(msg)
-            await asyncio.sleep(2)
-            decoder=av.CodecContext.create('h264','r')
+            await open_browser_page(desktop, page.as_uri())
+            decoder=desktops[name].test_decoder
+            # H.264 uses on-demand keyframes. Keep reference frames across test
+            # stages and request resynchronization rather than await a periodic IDR.
+            await ws.send_str('REQUEST_KEYFRAME')
             async def color(channel):
                 async with asyncio.timeout(15):
                     async for message in ws:

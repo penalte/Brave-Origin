@@ -130,6 +130,7 @@ async def main():
                     else:
                         raise AssertionError('No video frames')
                 desktops[user].test_socket = socket
+                desktops[user].test_decoder = decoder
                 for _ in range(50):
                     if (desktop.home/'Downloads/from-brave.txt').exists():
                         break
@@ -157,7 +158,7 @@ async def main():
             await probe_server.start_server()
             async def browse(step):
                 async def drain(ws, name):
-                    frames = av.CodecContext.create('h264','r')
+                    frames = desktops[name].test_decoder
                     async for message in ws:
                         raw = message.data
                         if isinstance(raw,bytes) and len(raw)>10 and raw[0] == 4:
@@ -173,15 +174,8 @@ async def main():
                     for name, session in desktops.items():
                         path = '/'+name+'-'+step
                         requests[path] = asyncio.Event()
-                        await session.test_socket.send_str('kr')
-                        await asyncio.sleep(.1)
-                        for message in ('kd,65507','kd,108','ku,108','ku,65507'):
-                            await session.test_socket.send_str(message)
-                        await asyncio.sleep(.1)
-                        await session.test_socket.send_str('co,end,'+str(probe_server.make_url(path)))
-                        await asyncio.sleep(.1)
-                        for message in ('kd,65293','ku,65293'):
-                            await session.test_socket.send_str(message)
+                        from gamepad_session import open_browser_page
+                        await open_browser_page(session.browser, str(probe_server.make_url(path)))
                         await asyncio.wait_for(requests[path].wait(),20)
                 finally:
                     for task in drains:
