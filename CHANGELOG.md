@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.37 (Pocket ID fork)
+
+- Add the matching Selkies V4L2 webcam adapter to private Brave sessions and isolate each user's camera socket, without passing through a host camera device.
+- Create the private virtual microphone before Brave starts; select it as the default input and initialize microphone mixer stages at unity gain.
+- Exercise camera pixels, browser media capture, microphone signal levels and cross-user media isolation alongside the existing real gamepad tests.
+
 ## 1.2.0-beta.36 (Pocket ID fork)
 
 - Fix intermittent release-test navigation by opening gamepad and routing probe pages through Brave's running profile instead of racing address-bar keyboard input. Preserve real browser, controller press/release, video and routing assertions.

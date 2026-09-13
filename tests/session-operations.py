@@ -16,6 +16,8 @@ source = {'OIDC_CLIENT_SECRET': 'never-forward', 'HOME': '/root',
           'SELKIES_UNIX_SOCKET': '/run/other-user.sock',
           'SELKIES_COMMAND_ENABLED': 'true', 'SELKIES_ENABLE_SHARING': 'true',
           'LD_PRELOAD': '/tmp/inject.so', 'SELKIES_FRAMERATE': '30',
+          'SELKIES_WEBCAM_SOCKET_PATH':'/tmp/shared-camera', 'SELKIES_JS_SOCKET_PATH':'/tmp/shared-gamepad',
+          'PULSE_SERVER':'unix:/tmp/shared-audio',
           'SELKIES_USE_BROWSER_CURSORS': 'true', 'DRINODE': '/dev/dri/renderD129',
           'AUTO_GPU': 'nvidia', 'LANG': 'C.UTF-8', 'XKB_DEFAULT_LAYOUT': 'pt'}
 env = m.session_environment('/private/home', 'identity', '/private/runtime', source)
@@ -24,7 +26,8 @@ assert env['XDG_RUNTIME_DIR'] == '/private/runtime'
 assert env['AUTO_GPU'] == 'nvidia' and env['SELKIES_FRAMERATE'] == '30'
 assert env['DRINODE'] == '/dev/dri/renderD129' and env['XKB_DEFAULT_LAYOUT'] == 'pt'
 for key in ('OIDC_CLIENT_SECRET', 'SELKIES_UNIX_SOCKET', 'SELKIES_COMMAND_ENABLED',
-            'SELKIES_ENABLE_SHARING', 'LD_PRELOAD'):
+            'SELKIES_ENABLE_SHARING', 'LD_PRELOAD', 'SELKIES_WEBCAM_SOCKET_PATH',
+            'SELKIES_JS_SOCKET_PATH', 'PULSE_SERVER'):
     assert key not in env, key
 
 off = subprocess.run(['bash', '-c', 'source /usr/local/bin/session-gpu.sh; '

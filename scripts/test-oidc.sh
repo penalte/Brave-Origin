@@ -36,6 +36,7 @@ identity=$(docker inspect --format '{{.State.StartedAt}}' "$name")
 docker cp tests/picker_browser.py "$name:/tmp/picker_browser.py"
 docker cp tests/cursor_browser.py "$name:/tmp/cursor_browser.py"
 docker cp tests/gamepad_session.py "$name:/tmp/gamepad_session.py"
+docker cp tests/media_session.py "$name:/tmp/media_session.py"
 for test in oidc-tokens oidc-recovery desktop-sizing multi-session; do
     docker cp "tests/$test.py" "$name:/tmp/$test.py"
     docker exec -e TEST_PRIVATE_PICKER=true "$name" python3 "/tmp/$test.py"

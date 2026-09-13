@@ -27,6 +27,8 @@ async def main():
     os.environ['SELKIES_FRAMERATE'] = '30'
     os.environ['SELKIES_USE_BROWSER_CURSORS'] = 'true'
     os.environ['XKB_DEFAULT_LAYOUT'] = 'pt'
+    # Accept media permission prompts only; use the real forwarded devices.
+    os.environ['BRAVE_FLAGS'] = '--use-fake-ui-for-media-stream'
     os.environ['OIDC_CLIENT_SECRET'] = 'must-not-reach-desktop'
     config = m.single.Config({'OIDC_ISSUER_URL': 'https://id.example.test', 'OIDC_CLIENT_ID': 'test',
                               'OIDC_CLIENT_SECRET': 'test', 'AUTO_UPDATE': 'false', 'MAX_UPLOAD_MB': '1'})
@@ -137,6 +139,24 @@ async def main():
                     await asyncio.sleep(0.1)
                 assert (desktop.home/'Downloads/from-brave.txt').read_text() == user, 'Browser download policy did not resolve private HOME'
                 if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
+                    # Chromium displays an infobar for the test-only media
+                    # permission flag. Dismiss it before coordinate-based UI tests.
+                    next_click = 0
+                    await socket.send_str('REQUEST_KEYFRAME')
+                    async with asyncio.timeout(15):
+                        while True:
+                            if time.monotonic() >= next_click:
+                                for event in ('m,770,142,0,0','m,770,142,1,0','m,770,142,0,0'):
+                                    await socket.send_str(event)
+                                next_click = time.monotonic()+1
+                            raw = (await socket.receive()).data
+                            if not isinstance(raw,bytes) or len(raw)<11 or raw[0]!=4: continue
+                            fid,y,_,_=struct.unpack('!4H',raw[2:10])
+                            await socket.send_str(f'CLIENT_FRAME_ACK {fid}')
+                            if y: continue
+                            frames=decoder.decode(av.Packet(raw[10:]))
+                            channel=0 if user=='alice' else 2
+                            if any((lambda p:p[channel]>180 and all(p[i]<80 for i in range(3) if i!=channel))(f.to_image().getpixel((400,155))) for f in frames): break
                     from picker_browser import exercise_picker
                     await exercise_picker(socket, desktop, decoder, user)
                     from cursor_browser import exercise_cursor
@@ -208,6 +228,9 @@ async def main():
                     os.environ['WARP_ACCEPT_TOS'] = previous_tos
             from gamepad_session import exercise_gamepads
             await exercise_gamepads(desktops)
+            from media_session import exercise_media, exercise_microphones
+            await exercise_media(desktops)
+            await exercise_microphones(desktops)
             # A real Selkies viewer joins without replacing either owner desktop.
             invite = await broker.new_grant(desktops['alice'], 15)
             admitted = await broker.admit_viewer(invite, {'iss':'https://id.example.test','sub':'viewer','name':'Viewer','exp':time.time()+600})

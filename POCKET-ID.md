@@ -273,6 +273,20 @@ changes the group name; `OIDC_GROUPS_CLAIM` selects the claim. OIDC and nginx re
 normal network access independently of users' routes. WARP health uses a request
 to Cloudflare's trace endpoint, requiring `warp=on` or `warp=plus`.
 
+## Camera, microphone and controllers
+
+Enable camera or microphone forwarding in the owner's Selkies panel, and allow
+access in the local browser. Websites inside Brave request their own permission.
+Camera forwarding uses the matching upstream V4L2 userspace adapter, with a
+private socket for each desktop; no host `/dev/video0` mapping is needed.
+Gamepads use the matching joystick and device-discovery adapters and private
+sockets. Neither adapter is preloaded into the root broker.
+
+Each desktop has its own PulseAudio server. `SelkiesVirtualMic` is created and
+selected before Brave starts, with the input sink and source initialized at
+100% (unity gain). The browser's local capture processing and hardware input
+level can still affect voice volume. Forwarded media remains owner-only.
+
 ## Guest sharing and collaboration
 
 Use **Share desktop** in Selkies to create a unique link, choose its lifetime,

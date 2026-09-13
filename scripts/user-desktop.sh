@@ -13,6 +13,8 @@ export PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native"
 export PIXELFLUX_WAYLAND=true SELKIES_ENABLE_BASIC_AUTH=false SELKIES_ENABLE_DUAL_MODE=false
 export SELKIES_UNIX_SOCKET="$XDG_RUNTIME_DIR/stream.sock"
 export SELKIES_JS_SOCKET_PATH="$XDG_RUNTIME_DIR"
+export SELKIES_WEBCAM_SOCKET_PATH="$XDG_RUNTIME_DIR"
+export SELKIES_WEBCAM_SOURCE=socket
 export SELKIES_GAMEPAD_ENABLED='true|locked'
 export SELKIES_UINPUT_GAMEPAD=false
 export SELKIES_UI_SIDEBAR_SHOW_GAMEPADS=true
@@ -51,6 +53,17 @@ if [ "${ENABLE_AUDIO:-true}" = true ]; then
     pulseaudio --exit-idle-time=-1 --daemonize=true
     pactl load-module module-null-sink sink_name=output >/dev/null
     pactl set-default-sink output
+    # Publish the input before Brave enumerates devices. Keep Selkies' standard
+    # names so its lazy microphone setup reuses this private source.
+    pactl load-module module-null-sink sink_name=input channels=1 rate=24000 >/dev/null
+    pactl load-module module-virtual-source source_name=SelkiesVirtualMic master=input.monitor channels=1 >/dev/null
+    pactl set-default-source SelkiesVirtualMic
+    pactl set-sink-volume input 100%
+    pactl set-sink-mute input 0
+    pactl set-source-volume input.monitor 100%
+    pactl set-source-mute input.monitor 0
+    pactl set-source-volume SelkiesVirtualMic 100%
+    pactl set-source-mute SelkiesVirtualMic 0
     export SELKIES_AUDIO_ENABLED=true
 fi
 if [ "${DISPLAY_AUTO_RESIZE:-true}" = false ]; then

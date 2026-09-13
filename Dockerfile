@@ -29,13 +29,14 @@ RUN cd /selkies-src && \
     cp -r /selkies-src/src /selkies-package/ && \
     rm -rf /selkies-src/.git /selkies-src/patches
 
-# Build the matching userspace gamepad adapters outside the runtime image.
+# Build the matching userspace input adapters outside the runtime image.
 FROM debian:trixie-slim AS gamepad-build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc make libc6-dev && rm -rf /var/lib/apt/lists/*
 COPY --from=selkies-build /selkies-src/addons/js-interposer/ /gamepad/js/
 COPY --from=selkies-build /selkies-src/addons/fake-udev/ /gamepad/udev/
-RUN make -C /gamepad/js && make -C /gamepad/udev && \
-    strip /gamepad/js/selkies_joystick_interposer.so /gamepad/udev/libudev.so.1.0.0-fake
+COPY --from=selkies-build /selkies-src/addons/v4l2-interposer/ /gamepad/webcam/
+RUN make -C /gamepad/js && make -C /gamepad/udev && make -C /gamepad/webcam && \
+    strip /gamepad/js/selkies_joystick_interposer.so /gamepad/udev/libudev.so.1.0.0-fake /gamepad/webcam/selkies_v4l2_interposer.so
 
 # Build only the window manager; Brave remains the official, unmodified package.
 FROM debian:trixie-slim AS labwc-build
@@ -239,6 +240,7 @@ RUN groupadd -r render 2>/dev/null || true && \
 COPY --from=labwc-build /labwc-build/labwc /usr/local/bin/labwc-browser
 COPY --from=gamepad-build /gamepad/js/selkies_joystick_interposer.so /usr/local/lib/brave-gamepad/
 COPY --from=gamepad-build /gamepad/udev/libudev.so.1.0.0-fake /usr/local/lib/brave-gamepad/
+COPY --from=gamepad-build /gamepad/webcam/selkies_v4l2_interposer.so /usr/local/lib/brave-gamepad/
 COPY --from=labwc-build /usr/local/lib/libwlroots-0.19.so* /usr/local/lib/
 RUN ldconfig
 # Corresponding GPL source accompanies the modified compositor binary.
