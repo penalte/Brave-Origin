@@ -4,6 +4,14 @@ let picture = '';
 let network = {mode:'unknown', state:'unavailable'};
 let sessionName = 'Private browser', ending = false, sessionError = '';
 let preparing = false, streamReady = false, preparationTimer, preparationCloseTimer;
+let preparationRequest = false;
+function needsPreparation() {
+  try {
+    const previous = sessionStorage.getItem('brave-prepared-session');
+    sessionStorage.setItem('brave-prepared-session', csrf);
+    return previous !== csrf;
+  } catch { return performance.getEntriesByType('navigation')[0]?.type !== 'reload'; }
+}
 function finishPreparation() {
   preparing = false;
   clearInterval(preparationTimer);
@@ -21,7 +29,11 @@ function closePreparation() {
   clearInterval(preparationTimer);
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return finishPreparation();
   document.body.classList.add('preparation-closing');
-  preparationCloseTimer = setTimeout(finishPreparation, 650);
+  const card = document.getElementById('welcome');
+  card.addEventListener('animationend', event => {
+    if (event.animationName === 'tv-close') finishPreparation();
+  }, {once:true});
+  preparationCloseTimer = setTimeout(finishPreparation, 1100);
 }
 function beginPreparation() {
   preparing = true; streamReady = false;
@@ -48,6 +60,7 @@ function notifyDesktop() {
     active:opened, name:sessionName, admin:isAdmin, picture, network:{...network, switching:warpBusy}, ending, error:sessionError}, location.origin);
 }
 async function update() {
+  if (preparationRequest) return;
   try {
     const response = await fetch('/session/status', {cache:'no-store'});
     const state = await response.json();
@@ -65,7 +78,11 @@ async function update() {
       : state.owner ? 'Preparing your browser…'
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     sessionName = state.name || 'Private browser';
-    if (active && !opened) { beginPreparation(); document.getElementById('desktop').src = '/desktop/'; opened = true; }
+    if (active && !opened) {
+      const fresh = needsPreparation();
+      if (fresh && !preparing) beginPreparation();
+      document.getElementById('desktop').src = '/desktop/'; opened = true;
+    }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; finishPreparation(); }
     notifyDesktop();
   } catch {
@@ -92,7 +109,29 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-share') openShare();
   if (event.data?.type === 'brave-session-warp') toggleWarp();
 });
-update(); setInterval(update, 3000);
+async function initializePortal() {
+  if (location.pathname === '/session/prepare') {
+    preparationRequest = true;
+    beginPreparation();
+    document.getElementById('login').hidden = true;
+    try {
+      const response = await fetch('/session/prepare', {method:'POST', headers:{Accept:'application/json'}});
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || 'Unable to prepare your desktop.');
+      if (result.location !== '/') { location.replace(result.location); return; }
+      // Keep the same countdown and animation surface while the stream connects.
+      history.replaceState(null, '', '/');
+    } catch (error) {
+      finishPreparation();
+      document.getElementById('message').textContent = error.message;
+      document.getElementById('login').hidden = false;
+      return;
+    }
+    preparationRequest = false;
+  }
+  await update();
+}
+initializePortal(); setInterval(update, 3000);
 
 async function openAdmin() {
   const panel = document.getElementById('admin-panel');

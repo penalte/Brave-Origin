@@ -345,7 +345,7 @@ class Broker(sharing.ViewSharing, single.Manager):
 
     async def prepare_page(self, request):
         self.pending_preparation(request)
-        return web.FileResponse('/usr/local/share/brave-origin/preparing.html')
+        return web.FileResponse('/usr/local/share/brave-origin/portal.html')
 
     async def prepare_session(self, request):
         token, pending = self.pending_preparation(request)

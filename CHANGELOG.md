@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.40 (Pocket ID fork)
+
+- Keep rapid-login cleanup and stream connection on one preparation surface, skip the countdown when refreshing the same session, and finish the TV close on animation completion.
+
 ## 1.2.0-beta.39 (Pocket ID fork)
 
 - Restyle administration and sharing to match the Selkies files menu, with clear user/status cards, permission choices, invitation controls, mobile layouts, and accessible close controls.
