@@ -159,10 +159,13 @@ function renderStartup(progress) {
     item.append(mark, label); row.append(item);
   }
   const countdown = progress.phase === 'countdown';
-  document.body.classList.toggle('preparation-approved', countdown || progress.phase === 'desktop');
+  const complete = countdown || progress.phase === 'opening';
+  document.body.classList.toggle('preparation-approved', complete);
   document.getElementById('prepare-countdown').hidden = !countdown;
-  document.querySelector('#welcome h1').textContent = countdown ? 'Your session is approved!' : 'Preparing your desktop…';
-  document.getElementById('message').textContent = countdown ? 'Connection checked. Launching your private space in…' : progress.phase === 'desktop' ? 'Getting your browser and desktop ready.' : 'Checking your private connection…';
+  document.querySelector('#welcome h1').textContent = complete ? 'Your session is approved!' : 'Preparing your desktop…';
+  document.getElementById('message').textContent = countdown ? 'Everything is ready. Opening your desktop in…'
+    : progress.phase === 'opening' ? 'Opening your desktop…'
+    : progress.phase === 'desktop' ? 'Getting your browser and desktop ready.' : 'Checking your private connection…';
   if (countdown) {
     document.getElementById('prepare-seconds').textContent = Math.max(1, Math.ceil(progress.remaining));
     document.getElementById('prepare-ring').style.strokeDashoffset = String(100 * (1 - Math.min(3, progress.remaining) / 3));
@@ -181,13 +184,14 @@ async function initializePortal() {
     document.getElementById('prepare-task').hidden = false;
     document.getElementById('login').hidden = true;
     document.getElementById('retry-startup').hidden = true;
-    renderStartup({phase:'connection', tasks:[{label:'Connection',state:'running'},{label:'Preparing desktop',state:'pending'}]});
+    let latest = {phase:'connection', tasks:[{label:'Connection',state:'running'},{label:'Preparing desktop',state:'pending'}]};
+    renderStartup(latest);
     let polling = true;
     const poll = async () => {
       while (polling) {
         try {
           const response = await fetch('/session/preparation-status', {cache:'no-store'});
-          if (response.ok && polling) renderStartup(await response.json());
+          if (response.ok && polling) renderStartup(latest = await response.json());
         } catch { /* The launch request reports failures; polling may recover. */ }
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -200,7 +204,7 @@ async function initializePortal() {
       polling = false; await pollingTask;
       if (result.location !== '/') { location.replace(result.location); return; }
       startupCompleted = true;
-      renderStartup({phase:'desktop', tasks:[{label:'Connection ready',state:'ready'},{label:'Desktop ready',state:'ready'}]});
+      renderStartup({phase:'opening', tasks:(latest.tasks || []).map(task => ({...task, state:'ready'}))});
       history.replaceState(null, '', '/');
     } catch (error) {
       polling = false; await pollingTask;

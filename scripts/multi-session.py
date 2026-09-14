@@ -111,10 +111,6 @@ class Desktop(single.Browser):
         await self.network.wait_ready()
         if self.startup is not None:
             self.startup['tasks'][0]['state'] = 'ready'
-            self.startup.update(phase='countdown', deadline=time.time() + 3)
-        # Enforce the grace period on the server, before Brave restores any tabs.
-        await asyncio.sleep(3)
-        if self.startup is not None:
             self.startup['phase'] = 'desktop'
             self.startup['tasks'][1]['state'] = 'running'
         await self.clear_profile_locks(name)
@@ -145,7 +141,7 @@ class Desktop(single.Browser):
         for _ in range(self.config.launch_timeout * 10):
             if (self.directory / 'ready').exists() and (self.directory / 'stream.sock').is_socket() and self.running():
                 if self.startup is not None:
-                    self.startup['tasks'][1]['state'] = 'ready'
+                    self.startup['tasks'][1].update(label='Desktop ready', state='ready')
                 return
             if self.process.returncode is not None:
                 break
@@ -383,6 +379,11 @@ class Broker(sharing.ViewSharing, single.Manager):
             {'id': 'desktop', 'label': 'Preparing desktop', 'state': 'pending'}]}
         try:
             destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'], pending['progress'])
+            if all(task['state'] == 'ready' for task in pending['progress']['tasks']):
+                # Count down only once every step is complete. The page connects
+                # the stream when this request returns, so it never starts early.
+                pending['progress'].update(phase='countdown', deadline=time.time() + 3)
+                await asyncio.sleep(3)
             response = web.json_response({'location': destination.headers['Location']})
             response.cookies.update(destination.cookies)
             self.preparations.pop(token, None)

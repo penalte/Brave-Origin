@@ -55,6 +55,27 @@ async def main():
     assert (await broker.prepare_session(request())).status == 200
     assert 'ticket' not in broker.preparations
 
+    # The countdown runs only once every step is ready, just before the stream
+    # may connect; a sign-in that ends at the take-over choice skips it.
+    async def launched(identity, claims, flow, progress):
+        for step in progress['tasks']:
+            step['state'] = 'ready'
+        return web.HTTPFound('/')
+    broker.preparations['ticket'] = dict(pending, running=False)
+    broker.start_session = launched
+    before = time.monotonic()
+    task = asyncio.create_task(broker.prepare_session(request()))
+    await asyncio.sleep(.5)
+    progress = json.loads((await broker.preparation_status(request())).text)
+    assert progress['phase'] == 'countdown' and 0 < progress['remaining'] <= 3, progress
+    assert all(step['state'] == 'ready' for step in progress['tasks']), progress
+    assert (await task).status == 200 and time.monotonic()-before >= 3
+    broker.preparations['ticket'] = dict(pending, running=False)
+    broker.start_session = AsyncMock(return_value=web.HTTPFound('/session/resolve'))
+    before = time.monotonic()
+    assert (await broker.prepare_session(request())).status == 200
+    assert time.monotonic()-before < 1, 'A take-over choice must not count down'
+
     # Exercise the real launch ordering, stopping just before native desktop setup.
     with TemporaryDirectory() as directory:
         desktop = m.Desktop(config)
@@ -71,8 +92,9 @@ async def main():
                 await desktop.start_locked('issuer', 'subject')
             except RuntimeError as error:
                 assert str(error) == 'desktop boundary'
-        assert time.monotonic()-before >= 3
+        assert time.monotonic()-before < 3, 'The countdown must wait until the desktop is prepared'
         proxy.wait_ready.assert_awaited_once()
+        assert desktop.startup['phase'] == 'desktop'
         assert desktop.startup['tasks'][0]['state'] == 'ready'
         assert desktop.startup['tasks'][1]['state'] == 'running'
         proxy.wait_ready.side_effect = RuntimeError('WARP unavailable')
@@ -83,7 +105,7 @@ async def main():
             except RuntimeError:
                 pass
         desktop.clear_profile_locks.assert_not_awaited()
-    print('PASS: private progress, duplicate protection, retry, server delay, failed WARP blocks desktop')
+    print('PASS: private progress, duplicate protection, retry, countdown after readiness, failed WARP blocks desktop')
 
 
 asyncio.run(main())

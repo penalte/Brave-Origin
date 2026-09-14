@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.45 (Pocket ID fork)
+
+- Run the three-second sign-in countdown after the connection and desktop are both ready, with every step checked, instead of before the desktop starts. Sign-in takes the same time, and the stream still connects only after the countdown.
+
 ## 1.2.0-beta.44 (Pocket ID fork)
 
 - Includes the 1.2.0-beta.43 changes below, which failed their desktop tests and were not published.
