@@ -41,3 +41,4 @@ config/*
 
 # Local dependency scan output
 /security-report.json
+!config/session-choice.html

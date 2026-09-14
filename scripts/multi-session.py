@@ -195,6 +195,7 @@ class Broker(sharing.ViewSharing, single.Manager):
         return [web.get('/admin/status', self.admin_status), web.post('/admin/warp', self.admin_warp),
                 web.post('/admin/users/warp-permission', self.warp_permission),
                 web.post('/session/warp', self.session_warp),
+                web.post('/session/connection', self.connection_choice),
                 web.get('/session/prepare', self.prepare_page), web.post('/session/prepare', self.prepare_session),
                 web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
 
@@ -446,18 +447,29 @@ class Broker(sharing.ViewSharing, single.Manager):
 
     async def resolve_page(self, request):
         _, pending = self.pending_handoff(request)
-        # Only the server-generated CSRF token is interpolated, never identity claims.
-        return web.Response(content_type='text/html', text="""<!doctype html><html lang="en">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Desktop already open</title>
-<style>:root{color-scheme:dark;font:16px system-ui;background:#11151d;color:#edf1fa}
-main{max-width:480px;margin:12vh auto;padding:28px;background:#1c2330;border-radius:16px}
-p{line-height:1.6;color:#b9c5d8}button{display:block;width:100%;margin:10px 0;padding:12px;border:0;border-radius:8px;background:#f46638;color:white;font:inherit;cursor:pointer}</style>
-<main><h1>Your desktop is already open</h1><p>Take over to keep your open tabs and disconnect the previous connection.
-Or disconnect to close that desktop without opening another. Your saved profile remains; unsaved work may be lost.</p>
-<form method="post" action="/session/resolve"><input type="hidden" name="csrf" value="""" + pending['csrf'] + """">
-<button name="action" value="takeover">Take over existing desktop</button>
-<button name="action" value="disconnect">Disconnect</button>
-<button name="action" value="cancel">Cancel</button></form></main></html>""")
+        template = Path('/usr/local/share/brave-origin/session-choice.html').read_text()
+        return web.Response(content_type='text/html', text=template.replace('__CSRF__', pending['csrf']))
+
+    async def connection_choice(self, request):
+        session = self.selected(request)
+        if (not session or request.headers.get('Origin') != request['app_origin'] or
+                not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), session.owner['csrf'])):
+            raise web.HTTPForbidden()
+        # Let a refresh release its previous socket before offering takeover.
+        for _ in range(10):
+            if not session.connections:
+                return web.json_response({'location': None})
+            await asyncio.sleep(.1)
+        if session.state != 'RUNNING' or not session.owns(request):
+            raise web.HTTPConflict(text='The desktop changed. Please reload.')
+        identity = next(k for k, v in self.sessions.items() if v is session)
+        claims = {'exp':session.owner['expires']}
+        redirect = self.offer_handoff(identity, claims, {'origin':request['app_origin']})
+        ticket = self.handoffs[redirect.cookies['__Host-brave-handoff'].value]
+        ticket['same_owner'] = True
+        response = web.json_response({'location':'/session/resolve'})
+        response.cookies.update(redirect.cookies)
+        return response
 
     async def resolve_session(self, request):
         token, pending = self.pending_handoff(request)
@@ -474,7 +486,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
                 raise web.HTTPConflict(text='This choice has already been used')
             session = self.sessions.get(pending['identity'])
             if action == 'cancel':
-                response = web.HTTPFound('/')
+                response = web.HTTPFound('/?session_cancelled=1')
             elif self.state != 'IDLE' or session is not pending['session']:
                 raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
             else:
@@ -492,7 +504,7 @@ Or disconnect to close that desktop without opening another. Your saved profile 
                         session.state = 'STARTING'
                         session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
                             'csrf': secrets.token_urlsafe(32),
-                            'admin': admin_claim(pending['claims'], self.config.group_claim),
+                            'admin': session.owner['admin'] if pending.get('same_owner') else admin_claim(pending['claims'], self.config.group_claim),
                             'expires': min(time.time() + self.config.ttl, float(pending['claims']['exp']))}
                         await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
                             for ws in list(session.connections)), return_exceptions=True)

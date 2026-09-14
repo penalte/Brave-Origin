@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.41 (Pocket ID fork)
+
+- Begin the three-second countdown only after private proxy/desktop startup completes, including rapid re-login. Drain the orange ring from full to empty in sync with the countdown.
+
+- Fix the session-choice form token, match the login page styling, and send a second tab to takeover/disconnect choices before opening a competing stream. Cancel leaves the original desktop running.
+
 ## 1.2.0-beta.40 (Pocket ID fork)
 
 - Keep rapid-login cleanup and stream connection on one preparation surface, skip the countdown when refreshing the same session, and finish the TV close on animation completion.

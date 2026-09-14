@@ -65,6 +65,7 @@ async def main():
         await broker.prepare_session(request('https://evil.test'))
         raise AssertionError('Cross-origin preparation accepted')
     except web.HTTPForbidden: pass
+
     response=await broker.prepare_session(request())
     assert response.status==200 and '/session/resolve' in response.text
     assert '__Host-brave-handoff' in response.cookies
@@ -72,6 +73,32 @@ async def main():
         await broker.prepare_session(request())
         raise AssertionError('Preparation ticket replay accepted')
     except web.HTTPForbidden: pass
+    from html.parser import HTMLParser
+    class Inputs(HTMLParser):
+        value = None
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'input' and attrs.get('name') == 'csrf': self.value = attrs.get('value')
+    for action in ('cancel', 'takeover', 'disconnect'):
+        offered=broker.offer_handoff('alice',claims('alice'),flow)
+        token=offered.cookies['__Host-brave-handoff'].value
+        req=make_mocked_request('GET','/session/resolve',headers={'Cookie':'__Host-brave-handoff='+token})
+        req['app_origin']='https://web.test'
+        rendered=await broker.resolve_page(req)
+        parser=Inputs();parser.feed(rendered.text)
+        assert parser.value==broker.handoffs[token]['csrf'], 'Broken form token'
+        class Submission(dict):
+            cookies={'__Host-brave-handoff':token}
+            headers={'Origin':'https://web.test'}
+            async def post(self): return {'csrf':parser.value,'action':action}
+        if action=='disconnect':
+            async def stop(): broker.sessions['alice'].state='IDLE'
+            broker.sessions['alice'].stop_locked=stop
+        response=await broker.resolve_session(Submission(app_origin='https://web.test'))
+        assert response.status==302
+        if action=='cancel': assert response.headers['Location']=='/?session_cancelled=1'
+        if action=='takeover': assert m.single.COOKIE in response.cookies
+    assert 'alice' not in broker.sessions
     for session in broker.sessions.values():
         if session.http: await session.http.close()
     print('PASS: rapid re-login waits for cleanup, concurrent callbacks share one launch, unrelated users proceed, failed cleanup stays closed')

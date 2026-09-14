@@ -5,6 +5,18 @@ let network = {mode:'unknown', state:'unavailable'};
 let sessionName = 'Private browser', ending = false, sessionError = '';
 let preparing = false, streamReady = false, preparationTimer, preparationCloseTimer;
 let preparationRequest = false;
+let checkingConnection = false;
+async function checkConnection() {
+  if (checkingConnection) return true;
+  checkingConnection = true;
+  try {
+    const response = await fetch('/session/connection', {method:'POST',headers:{'X-CSRF-Token':csrf}});
+    if (!response.ok) throw Error('Could not check the desktop connection. Please reload.');
+    const data = await response.json();
+    if (data.location) { location.replace(data.location); return true; }
+    return false;
+  } finally { checkingConnection = false; }
+}
 function needsPreparation() {
   try {
     const previous = sessionStorage.getItem('brave-prepared-session');
@@ -35,7 +47,9 @@ function closePreparation() {
   }, {once:true});
   preparationCloseTimer = setTimeout(finishPreparation, 1100);
 }
-function beginPreparation() {
+function beginPreparation(waitForStartup = false) {
+  clearInterval(preparationTimer);
+  preparationTimer = null;
   preparing = true; streamReady = false;
   const deadline = performance.now() + 3000;
   document.body.classList.add('preparing');
@@ -45,9 +59,17 @@ function beginPreparation() {
   document.querySelector('#welcome h1').textContent = 'Preparing your desktop…';
   document.getElementById('prepare-countdown').hidden = false;
   document.getElementById('prepare-seconds').textContent = '3';
+  document.getElementById('prepare-ring').style.strokeDashoffset = '0';
   document.getElementById('message').textContent = 'Connecting and fitting your desktop to this screen.';
+  if (waitForStartup) {
+    document.getElementById('prepare-seconds').textContent = '…';
+    document.getElementById('message').textContent = 'Finishing your previous session and preparing your connection…';
+    return;
+  }
   preparationTimer = setInterval(() => {
-    const left = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+    const remaining = Math.max(0, deadline - performance.now());
+    const left = Math.ceil(remaining / 1000);
+    document.getElementById('prepare-ring').style.strokeDashoffset = String(100 * (1 - remaining / 3000));
     document.getElementById('prepare-seconds').textContent = left || '…';
     if (!left && streamReady) closePreparation();
     else if (!left) document.getElementById('message').textContent = 'Still connecting. Your desktop will open automatically.';
@@ -60,7 +82,7 @@ function notifyDesktop() {
     active:opened, name:sessionName, admin:isAdmin, picture, network:{...network, switching:warpBusy}, ending, error:sessionError}, location.origin);
 }
 async function update() {
-  if (preparationRequest) return;
+  if (preparationRequest || checkingConnection || new URLSearchParams(location.search).has('session_cancelled')) return;
   try {
     const response = await fetch('/session/status', {cache:'no-store'});
     const state = await response.json();
@@ -79,8 +101,9 @@ async function update() {
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     sessionName = state.name || 'Private browser';
     if (active && !opened) {
+      if (await checkConnection()) return;
       const fresh = needsPreparation();
-      if (fresh && !preparing) beginPreparation();
+      if ((fresh && !preparing) || (preparing && !preparationTimer)) beginPreparation();
       document.getElementById('desktop').src = '/desktop/'; opened = true;
     }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; finishPreparation(); }
@@ -110,9 +133,14 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-warp') toggleWarp();
 });
 async function initializePortal() {
+  if (new URLSearchParams(location.search).has('session_cancelled')) {
+    document.querySelector('#welcome h1').textContent = 'Your desktop stays open.';
+    document.getElementById('message').textContent = 'Continue in the original tab. You can close this one.';
+    return;
+  }
   if (location.pathname === '/session/prepare') {
     preparationRequest = true;
-    beginPreparation();
+    beginPreparation(true);
     document.getElementById('login').hidden = true;
     try {
       const response = await fetch('/session/prepare', {method:'POST', headers:{Accept:'application/json'}});
