@@ -5,6 +5,7 @@ let network = {mode:'unknown', state:'unavailable'};
 let sessionName = 'Private browser', ending = false, sessionError = '';
 let preparing = false, streamReady = false, preparationTimer, preparationCloseTimer;
 let preparationRequest = false;
+let startupCompleted = false;
 let checkingConnection = false;
 async function checkConnection() {
   if (checkingConnection) return true;
@@ -29,6 +30,8 @@ function finishPreparation() {
   clearInterval(preparationTimer);
   clearTimeout(preparationCloseTimer);
   document.body.classList.remove('preparing', 'preparation-closing');
+  document.body.classList.remove('preparation-approved');
+  document.getElementById('prepare-task').hidden = true;
   document.getElementById('welcome').removeAttribute('role');
   document.getElementById('welcome').removeAttribute('aria-modal');
   document.getElementById('welcome').hidden = opened;
@@ -53,11 +56,12 @@ function beginPreparation(waitForStartup = false) {
   preparing = true; streamReady = false;
   const deadline = performance.now() + 3000;
   document.body.classList.add('preparing');
-  document.getElementById('welcome').setAttribute('role', 'dialog');
-  document.getElementById('welcome').setAttribute('aria-modal', 'true');
   document.getElementById('welcome').hidden = false;
   document.querySelector('#welcome h1').textContent = 'Preparing your desktop…';
-  document.getElementById('prepare-countdown').hidden = false;
+  document.getElementById('prepare-countdown').hidden = waitForStartup;
+  document.getElementById('prepare-task').hidden = false;
+  document.getElementById('task-label').textContent = waitForStartup ? 'Preparing your connection and desktop' : 'Connection and desktop prepared';
+  document.body.classList.toggle('preparation-approved', !waitForStartup);
   document.getElementById('prepare-seconds').textContent = '3';
   document.getElementById('prepare-ring').style.strokeDashoffset = '0';
   document.getElementById('message').textContent = 'Connecting and fitting your desktop to this screen.';
@@ -66,13 +70,18 @@ function beginPreparation(waitForStartup = false) {
     document.getElementById('message').textContent = 'Finishing your previous session and preparing your connection…';
     return;
   }
+  document.querySelector('#welcome h1').textContent = 'Your session is approved!';
+  document.getElementById('message').textContent = 'All set. Your private space is about to open.';
   preparationTimer = setInterval(() => {
     const remaining = Math.max(0, deadline - performance.now());
     const left = Math.ceil(remaining / 1000);
     document.getElementById('prepare-ring').style.strokeDashoffset = String(100 * (1 - remaining / 3000));
     document.getElementById('prepare-seconds').textContent = left || '…';
+    if (!left && !opened) {
+      document.getElementById('desktop').src = '/desktop/'; opened = true;
+    }
     if (!left && streamReady) closePreparation();
-    else if (!left) document.getElementById('message').textContent = 'Still connecting. Your desktop will open automatically.';
+    else if (!left) document.getElementById('message').textContent = 'Opening your desktop…';
     if (preparing && performance.now() > deadline + 17000) document.getElementById('show-connection').hidden = false;
   }, 100);
 }
@@ -101,10 +110,15 @@ async function update() {
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     sessionName = state.name || 'Private browser';
     if (active && !opened) {
+      if (preparing && preparationTimer) return;
       if (await checkConnection()) return;
       const fresh = needsPreparation();
-      if ((fresh && !preparing) || (preparing && !preparationTimer)) beginPreparation();
-      document.getElementById('desktop').src = '/desktop/'; opened = true;
+      if (startupCompleted) {
+        needsPreparation();
+        document.getElementById('desktop').src = '/desktop/'; opened = true;
+        preparationTimer = setInterval(() => { if (streamReady) closePreparation(); }, 100);
+      } else if ((fresh && !preparing) || (preparing && !preparationTimer)) beginPreparation();
+      if (!preparing) { document.getElementById('desktop').src = '/desktop/'; opened = true; }
     }
     if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; finishPreparation(); }
     notifyDesktop();
@@ -132,6 +146,28 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-share') openShare();
   if (event.data?.type === 'brave-session-warp') toggleWarp();
 });
+function renderStartup(progress) {
+  const row = document.getElementById('prepare-task');
+  row.replaceChildren();
+  for (const task of progress.tasks || []) {
+    const item = document.createElement('div');
+    item.className = 'startup-item';
+    const mark = document.createElement('span');
+    mark.textContent = task.state === 'ready' ? '\u2713' : task.state === 'pending' ? '?' : '\u2022\u2022\u2022';
+    mark.className = task.state === 'ready' ? 'ready-mark' : task.state === 'running' ? 'running-mark' : '';
+    const label = document.createElement('span'); label.textContent = task.label;
+    item.append(mark, label); row.append(item);
+  }
+  const countdown = progress.phase === 'countdown';
+  document.body.classList.toggle('preparation-approved', countdown || progress.phase === 'desktop');
+  document.getElementById('prepare-countdown').hidden = !countdown;
+  document.querySelector('#welcome h1').textContent = countdown ? 'Your session is approved!' : 'Preparing your desktop…';
+  document.getElementById('message').textContent = countdown ? 'Connection checked. Launching your private space in…' : progress.phase === 'desktop' ? 'Getting your browser and desktop ready.' : 'Checking your private connection…';
+  if (countdown) {
+    document.getElementById('prepare-seconds').textContent = Math.max(1, Math.ceil(progress.remaining));
+    document.getElementById('prepare-ring').style.strokeDashoffset = String(100 * (1 - Math.min(3, progress.remaining) / 3));
+  }
+}
 async function initializePortal() {
   if (new URLSearchParams(location.search).has('session_cancelled')) {
     document.querySelector('#welcome h1').textContent = 'Your desktop stays open.';
@@ -140,25 +176,49 @@ async function initializePortal() {
   }
   if (location.pathname === '/session/prepare') {
     preparationRequest = true;
-    beginPreparation(true);
+    document.body.classList.add('preparing'); preparing = true;
+    document.getElementById('welcome').hidden = false;
+    document.getElementById('prepare-task').hidden = false;
     document.getElementById('login').hidden = true;
+    document.getElementById('retry-startup').hidden = true;
+    renderStartup({phase:'connection', tasks:[{label:'Connection',state:'running'},{label:'Preparing desktop',state:'pending'}]});
+    let polling = true;
+    const poll = async () => {
+      while (polling) {
+        try {
+          const response = await fetch('/session/preparation-status', {cache:'no-store'});
+          if (response.ok && polling) renderStartup(await response.json());
+        } catch { /* The launch request reports failures; polling may recover. */ }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    };
+    const pollingTask = poll();
     try {
       const response = await fetch('/session/prepare', {method:'POST', headers:{Accept:'application/json'}});
       const result = await response.json();
       if (!response.ok) throw Error(result.error || 'Unable to prepare your desktop.');
+      polling = false; await pollingTask;
       if (result.location !== '/') { location.replace(result.location); return; }
-      // Keep the same countdown and animation surface while the stream connects.
+      startupCompleted = true;
+      renderStartup({phase:'desktop', tasks:[{label:'Connection ready',state:'ready'},{label:'Desktop ready',state:'ready'}]});
       history.replaceState(null, '', '/');
     } catch (error) {
-      finishPreparation();
+      polling = false; await pollingTask;
+      document.body.classList.remove('preparation-approved');
+      for (const mark of document.querySelectorAll('.running-mark')) {
+        mark.className = ''; mark.textContent = '!';
+      }
+      document.querySelector('#welcome h1').textContent = 'Let’s try that again.';
       document.getElementById('message').textContent = error.message;
-      document.getElementById('login').hidden = false;
+      document.getElementById('prepare-countdown').hidden = true;
+      document.getElementById('retry-startup').hidden = false;
       return;
     }
     preparationRequest = false;
   }
   await update();
 }
+document.getElementById('retry-startup').onclick = initializePortal;
 initializePortal(); setInterval(update, 3000);
 
 async function openAdmin() {

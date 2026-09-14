@@ -4,6 +4,7 @@ import errno
 import importlib.util
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import socket
@@ -130,6 +131,31 @@ class UserProxy:
         except BaseException:
             await self.stop()
             raise
+
+    async def wait_ready(self):
+        """Verify WARP through this user's relay and UID firewall grant."""
+        if self.manager.mode == 'direct':
+            if self.manager.worker.returncode is not None:
+                raise RuntimeError('The direct proxy stopped during startup')
+            return
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            process = await asyncio.create_subprocess_exec(
+                '/usr/sbin/runuser', '-u', pwd.getpwuid(self.uid).pw_name, '--',
+                'curl', '--disable', '--silent', '--fail', '--max-time', '5',
+                '--noproxy', '', '--proxy', f'socks5h://127.0.0.1:{self.port}',
+                'https://www.cloudflare.com/cdn-cgi/trace',
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            try:
+                output, _ = await process.communicate()
+            finally:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+            if process.returncode == 0 and any(line in (b'warp=on', b'warp=plus') for line in output.splitlines()):
+                return
+            await asyncio.sleep(.5)
+        raise RuntimeError('WARP is not ready. Please retry shortly.')
 
     async def switch(self, enabled):
         network.configuration(dict(os.environ, WARP_ENABLED=str(enabled).lower()))

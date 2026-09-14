@@ -859,7 +859,11 @@ class Manager:
                 LOG.exception('Request failed')
                 response = web.Response(status=503, text='Service temporarily unavailable')
             response.headers.update({'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-                'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "frame-ancestors 'self'"})
+                # Chromium sends Origin: null for native POST forms under
+                # no-referrer. Preserve same-origin form attribution on the
+                # handoff page without disclosing referrers to other sites.
+                'Referrer-Policy': 'same-origin' if request.path == '/session/resolve' else 'no-referrer',
+                'Content-Security-Policy': "frame-ancestors 'self'"})
             return response
         app = web.Application(middlewares=[security], client_max_size=1024*1024)
         app.cleanup_ctx.append(self.lifecycle)

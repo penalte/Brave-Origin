@@ -94,6 +94,7 @@ class Desktop(single.Browser):
         self.failed = False
         self.network = None
         self.display_name = 'Private browser'
+        self.startup = None
 
     async def clear_shared(self):
         # All clipboard, audio and compositor state belongs to this UID.
@@ -105,6 +106,17 @@ class Desktop(single.Browser):
         user_network.register(key, self.display_name)
         self.network = user_network.UserProxy(key, self.uid)
         await self.network.start()
+        if self.startup is not None:
+            self.startup['tasks'][0].update(label='WARP' if self.network.manager.mode == 'warp' else 'Direct connection', state='running')
+        await self.network.wait_ready()
+        if self.startup is not None:
+            self.startup['tasks'][0]['state'] = 'ready'
+            self.startup.update(phase='countdown', deadline=time.time() + 3)
+        # Enforce the grace period on the server, before Brave restores any tabs.
+        await asyncio.sleep(3)
+        if self.startup is not None:
+            self.startup['phase'] = 'desktop'
+            self.startup['tasks'][1]['state'] = 'running'
         await self.clear_profile_locks(name)
         installed = await self.command('dpkg-query', '-W', '-f=${Version}', 'brave-origin')
         saved = json.loads(self.metadata.read_text())
@@ -132,6 +144,8 @@ class Desktop(single.Browser):
                 env=env, stdout=log, stderr=log, start_new_session=True)
         for _ in range(self.config.launch_timeout * 10):
             if (self.directory / 'ready').exists() and (self.directory / 'stream.sock').is_socket() and self.running():
+                if self.startup is not None:
+                    self.startup['tasks'][1]['state'] = 'ready'
                 return
             if self.process.returncode is not None:
                 break
@@ -196,6 +210,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                 web.post('/admin/users/warp-permission', self.warp_permission),
                 web.post('/session/warp', self.session_warp),
                 web.post('/session/connection', self.connection_choice),
+                web.get('/session/preparation-status', self.preparation_status),
                 web.get('/session/prepare', self.prepare_page), web.post('/session/prepare', self.prepare_session),
                 web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
 
@@ -321,7 +336,7 @@ class Broker(sharing.ViewSharing, single.Manager):
             raise web.HTTPForbidden(text='Sign-in could not be verified') from None
         identity = hashlib.sha256(json.dumps([claims['iss'], claims['sub']], separators=(',', ':')).encode()).hexdigest()
         previous = self.sessions.get(identity)
-        if previous is not None and previous.state in ('STARTING', 'STOPPING', 'IDLE'):
+        if previous is None or previous.state in ('STARTING', 'STOPPING', 'IDLE'):
             now = time.time()
             self.preparations = {k: v for k, v in self.preparations.items() if v['expires'] > now}
             while len(self.preparations) >= 128:
@@ -339,31 +354,50 @@ class Broker(sharing.ViewSharing, single.Manager):
     def pending_preparation(self, request):
         token = request.cookies.get('__Host-brave-prepare', '')
         pending = self.preparations.get(token)
-        if not pending or pending['expires'] <= time.time() or pending['flow']['origin'] != request['app_origin']:
+        if not pending or pending['expires'] <= time.time():
             self.preparations.pop(token, None)
             raise web.HTTPForbidden(text='This sign-in expired. Please sign in again.')
+        if pending['flow']['origin'] != request['app_origin']:
+            raise web.HTTPForbidden(text='Invalid sign-in origin')
         return token, pending
 
     async def prepare_page(self, request):
         self.pending_preparation(request)
         return web.FileResponse('/usr/local/share/brave-origin/portal.html')
 
+    async def preparation_status(self, request):
+        _, pending = self.pending_preparation(request)
+        progress = pending.get('progress', {'phase': 'waiting', 'tasks': []})
+        return web.json_response(dict(progress, remaining=max(0, progress.get('deadline', 0)-time.time())),
+                                 headers={'Cache-Control': 'no-store'})
+
     async def prepare_session(self, request):
         token, pending = self.pending_preparation(request)
         if request.headers.get('Origin') != pending['flow']['origin']:
             raise web.HTTPForbidden(text='Invalid sign-in request')
-        # Consume before awaiting cleanup so duplicate requests cannot launch twice.
-        self.preparations.pop(token)
+        if pending.get('running'):
+            raise web.HTTPConflict(text='Preparation is already running')
+        pending['running'] = True
+        pending['progress'] = {'phase': 'connection', 'tasks': [
+            {'id': 'network', 'label': 'Connection', 'state': 'running'},
+            {'id': 'desktop', 'label': 'Preparing desktop', 'state': 'pending'}]}
         try:
-            destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'])
+            destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'], pending['progress'])
             response = web.json_response({'location': destination.headers['Location']})
             response.cookies.update(destination.cookies)
+            self.preparations.pop(token, None)
+            response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
+            return response
         except web.HTTPException as error:
-            response = web.json_response({'error': error.text}, status=error.status)
-        response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
-        return response
+            pending['progress']['phase'] = 'error'
+            for task in pending['progress']['tasks']:
+                if task['state'] == 'running':
+                    task['state'] = 'error'
+            return web.json_response({'error': error.text}, status=error.status)
+        finally:
+            pending['running'] = False
 
-    async def start_session(self, identity, claims, flow):
+    async def start_session(self, identity, claims, flow, progress=None):
         deadline = time.monotonic() + self.config.launch_timeout + 30
         while True:
             if float(claims['exp']) <= time.time():
@@ -378,6 +412,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                     if self.state != 'IDLE' or len(self.sessions) >= self.config.maximum:
                         raise web.HTTPConflict(text='No desktop slot is currently available')
                     session = single.Manager(self.config, browser=self.factory())
+                    session.browser.startup = progress
                     session.browser.display_name = str(claims.get('name') or 'Private browser')[:120]
                     session.state = 'STARTING'
                     session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
@@ -412,7 +447,9 @@ class Broker(sharing.ViewSharing, single.Manager):
                 session.browser.failed = True
                 LOG.exception('Private desktop launch failed for %s', identity[:12])
                 await self.end(identity, session)
-                raise web.HTTPServiceUnavailable(text='Your desktop could not start') from None
+                message = ('Your connection could not become ready. Please retry shortly.'
+                           if progress and progress['phase'] == 'connection' else 'Your desktop could not start. Please retry.')
+                raise web.HTTPServiceUnavailable(text=message) from None
             response = web.HTTPFound('/')
             response.set_cookie(single.COOKIE, session.owner['cookie'], secure=True, httponly=True,
                                 samesite='Lax', path='/', max_age=max(1, int(session.owner['expires'] - time.time())))

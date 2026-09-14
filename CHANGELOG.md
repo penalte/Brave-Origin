@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.42 (Pocket ID fork)
+
+- Fix session-choice buttons rejected with `Invalid origin`: use a same-origin referrer policy on the handoff page so native form submissions retain their Origin header. Origin and CSRF validation remain enforced.
+
+- Show animated preparation progress on every new login, followed by a green approval check and a three-second countdown. Connect the streaming client only after the countdown; refreshing an existing session still skips it.
+- Add private startup progress at `/session/preparation-status`. Verify WARP through the user's relay and Unix UID, enforce three seconds before starting Brave/Selkies, then report desktop readiness. Direct users verify worker startup without a WARP check. Failed preparation keeps a retryable sign-in ticket; concurrent requests cannot duplicate a launch.
+
 ## 1.2.0-beta.41 (Pocket ID fork)
 
 - Begin the three-second countdown only after private proxy/desktop startup completes, including rapid re-login. Drain the orange ring from full to empty in sync with the countdown.
