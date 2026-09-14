@@ -27,6 +27,10 @@ user_network = importlib.util.module_from_spec(network_spec)
 network_spec.loader.exec_module(user_network)
 
 
+class ProfileTooNew(RuntimeError):
+    """The installed browser is older than the one that last opened this profile."""
+
+
 def admin_claim(claims, group_claim, env=os.environ):
     groups = claims.get(group_claim, [])
     return (isinstance(groups, list) and env.get('OIDC_ADMIN_GROUP', 'admin') in
@@ -96,32 +100,44 @@ class Desktop(single.Browser):
         self.display_name = 'Private browser'
         self.startup = None
 
+    def report(self, phase=None, **steps):
+        """Update private sign-in progress. Display only: nothing here gates a launch."""
+        if self.startup is None:
+            return
+        if phase:
+            self.startup['phase'] = phase
+        for task in self.startup['tasks']:
+            task.update(steps.get(task.get('id'), {}))
+
     async def clear_shared(self):
         # All clipboard, audio and compositor state belongs to this UID.
         pass
 
     async def start_locked(self, issuer, subject):
+        self.report('profile', profile={'state': 'running'})
         name = await self.prepare(issuer, subject)
-        key = json.loads(self.metadata.read_text())['key']
-        user_network.register(key, self.display_name)
-        self.network = user_network.UserProxy(key, self.uid)
-        await self.network.start()
-        if self.startup is not None:
-            self.startup['tasks'][0].update(label='WARP' if self.network.manager.mode == 'warp' else 'Direct connection', state='running')
-        await self.network.wait_ready()
-        if self.startup is not None:
-            self.startup['tasks'][0]['state'] = 'ready'
-            self.startup['phase'] = 'desktop'
-            self.startup['tasks'][1]['state'] = 'running'
+        # Open and check the profile before any connection work, so a profile
+        # this browser must not open fails first and says why.
         await self.clear_profile_locks(name)
         installed = await self.command('dpkg-query', '-W', '-f=${Version}', 'brave-origin')
         saved = json.loads(self.metadata.read_text())
         if saved.get('version'):
             process = await asyncio.create_subprocess_exec('dpkg', '--compare-versions', installed, 'lt', saved['version'])
             if await process.wait() == 0:
-                raise RuntimeError('Installed browser is older than this profile')
+                raise ProfileTooNew('Installed browser is older than this profile')
         saved['version'] = installed
         self.metadata.write_text(json.dumps(saved) + '\n')
+        self.report('connection', profile={'state': 'ready'}, network={'state': 'running'})
+        key = json.loads(self.metadata.read_text())['key']
+        user_network.register(key, self.display_name)
+        self.network = user_network.UserProxy(key, self.uid)
+        await self.network.start()
+        self.report(network={'label': 'WARP' if self.network.manager.mode == 'warp' else 'Direct connection'})
+        await self.network.wait_ready()
+        self.report('desktop', network={'state': 'ready'}, desktop={'state': 'running'})
+        await self.launch_desktop(name)
+
+    async def launch_desktop(self, name):
         self.directory = Path('/run/brave-origin/sessions') / secrets.token_hex(12)
         self.directory.mkdir(mode=0o700)
         os.chown(self.directory, self.uid, self.uid)
@@ -139,9 +155,14 @@ class Desktop(single.Browser):
                 '--', 'dbus-run-session', '--', '/usr/local/bin/user-desktop.sh',
                 env=env, stdout=log, stderr=log, start_new_session=True)
         for _ in range(self.config.launch_timeout * 10):
+            # This account owns the session folder, so these marks only drive
+            # the page; readiness below remains the broker's own check.
+            displays = (self.directory / 'stream.sock').is_socket() and (self.directory / 'wayland-0').is_socket()
+            picker = (self.directory / 'picker-ready').exists()
+            self.report(desktop={'state': 'ready' if displays else 'running'},
+                        files={'state': 'ready' if picker else 'running' if displays else 'pending'})
             if (self.directory / 'ready').exists() and (self.directory / 'stream.sock').is_socket() and self.running():
-                if self.startup is not None:
-                    self.startup['tasks'][1].update(label='Desktop ready', state='ready')
+                self.report(desktop={'state': 'ready'}, files={'state': 'ready'})
                 return
             if self.process.returncode is not None:
                 break
@@ -374,9 +395,11 @@ class Broker(sharing.ViewSharing, single.Manager):
         if pending.get('running'):
             raise web.HTTPConflict(text='Preparation is already running')
         pending['running'] = True
-        pending['progress'] = {'phase': 'connection', 'tasks': [
-            {'id': 'network', 'label': 'Connection', 'state': 'running'},
-            {'id': 'desktop', 'label': 'Preparing desktop', 'state': 'pending'}]}
+        pending['progress'] = {'phase': 'profile', 'tasks': [
+            {'id': 'profile', 'label': 'Your profile', 'state': 'running'},
+            {'id': 'network', 'label': 'Connection', 'state': 'pending'},
+            {'id': 'desktop', 'label': 'Desktop', 'state': 'pending'},
+            {'id': 'files', 'label': 'My files', 'state': 'pending'}]}
         try:
             destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'], pending['progress'])
             if all(task['state'] == 'ready' for task in pending['progress']['tasks']):
@@ -444,12 +467,16 @@ class Broker(sharing.ViewSharing, single.Manager):
                 await self.provision_view_tokens(session)
                 session.state = 'RUNNING'
                 session.last_disconnect = time.monotonic()
-            except Exception:
+            except Exception as error:
                 session.browser.failed = True
                 LOG.exception('Private desktop launch failed for %s', identity[:12])
                 await self.end(identity, session)
-                message = ('Your connection could not become ready. Please retry shortly.'
-                           if progress and progress['phase'] == 'connection' else 'Your desktop could not start. Please retry.')
+                phase = progress['phase'] if progress else None
+                message = ("This server's Brave is older than the one that last opened your profile. Ask your administrator to update Brave."
+                           if isinstance(error, ProfileTooNew) else
+                           'Your profile could not be opened. Please retry.' if phase == 'profile' else
+                           'Your connection could not become ready. Please retry shortly.' if phase == 'connection' else
+                           'Your desktop could not start. Please retry.')
                 raise web.HTTPServiceUnavailable(text=message) from None
             response = web.HTTPFound('/')
             response.set_cookie(single.COOKIE, session.owner['cookie'], secure=True, httponly=True,

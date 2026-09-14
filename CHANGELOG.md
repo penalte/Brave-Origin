@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.46 (Pocket ID fork)
+
+- Show your profile, connection, desktop and My files as separate sign-in steps, each ticked when it is actually ready. The profile is opened and checked before the connection, so a profile last opened by a newer Brave fails first with its own message instead of a generic startup error.
+- Make the desktop sizing test save its debug picture only when it fails. Saving one for every frame that did not match yet kept the test from reading the stream fast enough, and the relay dropped it on slower CI runners.
+- Show waiting sign-in steps as still white dots, and the step in progress as green dots that jump one at a time, instead of question marks. A failed step shows a red exclamation mark.
+
 ## 1.2.0-beta.45 (Pocket ID fork)
 
 - Run the three-second sign-in countdown after the connection and desktop are both ready, with every step checked, instead of before the desktop starts. Sign-in takes the same time, and the stream still connects only after the countdown.

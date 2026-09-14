@@ -153,8 +153,14 @@ function renderStartup(progress) {
     const item = document.createElement('div');
     item.className = 'startup-item';
     const mark = document.createElement('span');
-    mark.textContent = task.state === 'ready' ? '\u2713' : task.state === 'pending' ? '?' : '\u2022\u2022\u2022';
-    mark.className = task.state === 'ready' ? 'ready-mark' : task.state === 'running' ? 'running-mark' : '';
+    if (task.state === 'ready' || task.state === 'error') {
+      mark.className = task.state === 'ready' ? 'ready-mark' : 'error-mark';
+      mark.textContent = task.state === 'ready' ? '\u2713' : '!';
+    } else {
+      // Waiting steps show still white dots; only the working step's dots jump, in green.
+      mark.className = task.state === 'running' ? 'step-dots running-mark' : 'step-dots';
+      mark.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+    }
     const label = document.createElement('span'); label.textContent = task.label;
     item.append(mark, label); row.append(item);
   }
@@ -165,7 +171,8 @@ function renderStartup(progress) {
   document.querySelector('#welcome h1').textContent = complete ? 'Your session is approved!' : 'Preparing your desktop…';
   document.getElementById('message').textContent = countdown ? 'Everything is ready. Opening your desktop in…'
     : progress.phase === 'opening' ? 'Opening your desktop…'
-    : progress.phase === 'desktop' ? 'Getting your browser and desktop ready.' : 'Checking your private connection…';
+    : progress.phase === 'desktop' ? 'Getting your browser and desktop ready.'
+    : progress.phase === 'connection' ? 'Checking your private connection…' : 'Opening your profile…';
   if (countdown) {
     document.getElementById('prepare-seconds').textContent = Math.max(1, Math.ceil(progress.remaining));
     document.getElementById('prepare-ring').style.strokeDashoffset = String(100 * (1 - Math.min(3, progress.remaining) / 3));
@@ -184,14 +191,17 @@ async function initializePortal() {
     document.getElementById('prepare-task').hidden = false;
     document.getElementById('login').hidden = true;
     document.getElementById('retry-startup').hidden = true;
-    let latest = {phase:'connection', tasks:[{label:'Connection',state:'running'},{label:'Preparing desktop',state:'pending'}]};
+    let latest = {phase:'profile', tasks:[{label:'Your profile',state:'running'},{label:'Connection',state:'pending'},
+      {label:'Desktop',state:'pending'},{label:'My files',state:'pending'}]};
     renderStartup(latest);
     let polling = true;
     const poll = async () => {
       while (polling) {
         try {
           const response = await fetch('/session/preparation-status', {cache:'no-store'});
-          if (response.ok && polling) renderStartup(latest = await response.json());
+          const next = response.ok && polling ? await response.json() : null;
+          // Until the launch request registers its steps the server has none to report.
+          if (next && polling && next.tasks?.length) renderStartup(latest = next);
         } catch { /* The launch request reports failures; polling may recover. */ }
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -210,7 +220,7 @@ async function initializePortal() {
       polling = false; await pollingTask;
       document.body.classList.remove('preparation-approved');
       for (const mark of document.querySelectorAll('.running-mark')) {
-        mark.className = ''; mark.textContent = '!';
+        mark.className = 'error-mark'; mark.textContent = '!';
       }
       document.querySelector('#welcome h1').textContent = 'Let’s try that again.';
       document.getElementById('message').textContent = error.message;

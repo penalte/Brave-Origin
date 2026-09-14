@@ -36,7 +36,8 @@ async def main():
     task = asyncio.create_task(broker.prepare_session(request()))
     await entered.wait()
     response = await broker.preparation_status(request())
-    assert json.loads(response.text)['tasks'][0]['state'] == 'running'
+    reported = json.loads(response.text)['tasks']
+    assert [t['id'] for t in reported] == ['profile', 'network', 'desktop', 'files'] and reported[0]['state'] == 'running'
     for req in (request('wrong'), request(origin='https://other.test')):
         try:
             await broker.preparation_status(req)
@@ -77,15 +78,20 @@ async def main():
     assert time.monotonic()-before < 1, 'A take-over choice must not count down'
 
     # Exercise the real launch ordering, stopping just before native desktop setup.
+    def steps():
+        return {'phase': 'profile', 'tasks': [{'id': step, 'state': 'pending'}
+                                              for step in ('profile', 'network', 'desktop', 'files')]}
     with TemporaryDirectory() as directory:
         desktop = m.Desktop(config)
         desktop.uid = 1000
         desktop.metadata = Path(directory)/'metadata.json'
         desktop.metadata.write_text('{"key":"test"}')
         desktop.prepare = AsyncMock(return_value='test')
-        desktop.clear_profile_locks = AsyncMock(side_effect=RuntimeError('desktop boundary'))
+        desktop.clear_profile_locks = AsyncMock()
+        desktop.command = AsyncMock(return_value='1.0')
+        desktop.launch_desktop = AsyncMock(side_effect=RuntimeError('desktop boundary'))
         proxy = SimpleNamespace(start=AsyncMock(), wait_ready=AsyncMock(), manager=SimpleNamespace(mode='warp'))
-        desktop.startup = {'tasks': [{'state':'running'}, {'state':'pending'}]}
+        desktop.startup = steps()
         before = time.monotonic()
         with patch.object(m.user_network, 'register'), patch.object(m.user_network, 'UserProxy', return_value=proxy):
             try:
@@ -93,19 +99,51 @@ async def main():
             except RuntimeError as error:
                 assert str(error) == 'desktop boundary'
         assert time.monotonic()-before < 3, 'The countdown must wait until the desktop is prepared'
+        desktop.clear_profile_locks.assert_awaited_once()
         proxy.wait_ready.assert_awaited_once()
+        state = {task['id']: task['state'] for task in desktop.startup['tasks']}
         assert desktop.startup['phase'] == 'desktop'
-        assert desktop.startup['tasks'][0]['state'] == 'ready'
-        assert desktop.startup['tasks'][1]['state'] == 'running'
+        assert state == {'profile': 'ready', 'network': 'ready', 'desktop': 'running', 'files': 'pending'}, state
+        # A failed connection never reaches the desktop.
         proxy.wait_ready.side_effect = RuntimeError('WARP unavailable')
-        desktop.clear_profile_locks.reset_mock()
+        desktop.launch_desktop.reset_mock()
+        desktop.startup = steps()
         with patch.object(m.user_network, 'register'), patch.object(m.user_network, 'UserProxy', return_value=proxy):
             try:
                 await desktop.start_locked('issuer', 'subject')
             except RuntimeError:
                 pass
-        desktop.clear_profile_locks.assert_not_awaited()
-    print('PASS: private progress, duplicate protection, retry, countdown after readiness, failed WARP blocks desktop')
+        desktop.launch_desktop.assert_not_awaited()
+        # A profile the installed browser must not open fails before any connection work.
+        desktop.metadata.write_text('{"key":"test","version":"2.0"}')
+        proxy.start.reset_mock()
+        desktop.startup = steps()
+        with patch.object(m.user_network, 'register'), patch.object(m.user_network, 'UserProxy', return_value=proxy):
+            try:
+                await desktop.start_locked('issuer', 'subject')
+                raise AssertionError('A profile from a newer browser was opened')
+            except m.ProfileTooNew:
+                pass
+        proxy.start.assert_not_awaited()
+        assert desktop.startup['phase'] == 'profile'
+
+    # That refusal reaches the sign-in page as its own message.
+    class Refused:
+        master_token = directory = None
+        async def start(self, issuer, subject):
+            raise m.ProfileTooNew('Installed browser is older than this profile')
+        async def stop(self):
+            pass
+    config.launch_timeout, config.maximum = 90, 2
+    refusing = m.Broker(config, desktop_factory=Refused)
+    refusing.app()  # creates the sharing state that ending a session revokes
+    try:
+        await refusing.start_session('refused', {'iss': 'https://id.test', 'sub': 'refused', 'exp': time.time()+60}, {'origin': 'https://web.test'},
+                                     {'phase': 'profile', 'tasks': [{'id': 'profile', 'state': 'running'}]})
+        raise AssertionError('A profile from a newer browser was opened')
+    except web.HTTPServiceUnavailable as error:
+        assert 'older than the one that last opened your profile' in error.text, error.text
+    print('PASS: private progress, duplicate protection, retry, countdown after readiness, profile checked before connection, failed WARP blocks desktop, profile error message')
 
 
 asyncio.run(main())

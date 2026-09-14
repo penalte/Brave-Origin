@@ -28,32 +28,39 @@ class Provider:
 
 async def corners(ws, expected, label):
     decoder = av.CodecContext.create('h264', 'r')
-    last = None
-    async with asyncio.timeout(25):
-        async for message in ws:
-            raw = message.data
-            if message.type != WSMsgType.BINARY or len(raw) < 11 or raw[0] != 4:
-                continue
-            frame_id, y, width, height = struct.unpack('!4H', raw[2:10])
-            await ws.send_str(f'CLIENT_FRAME_ACK {frame_id}')
-            if y or (width, height) != expected:
-                continue
-            try:
-                frames = decoder.decode(av.Packet(raw[10:]))
-            except av.error.InvalidDataError:
-                continue
-            for frame in frames:
-                picture = frame.to_image()
-                last = [picture.getpixel(p) for p in
-                        ((width//2, height//2), (24, height-24), (width-24, height-24))]
-                red, blue, green = last
-                if red[0] > 180 and red[1] < 80 and blue[2] > 180 and blue[0] < 80 and green[1] > 180 and green[0] < 80:
-                    print(f'PASS: {label} {width}x{height}: page fills desktop, both lower corners visible', flush=True)
-                    return
-                picture.save('/tmp/desktop-sizing-failure.png')
-                if frame_id % 60 == 0:
-                    print(f'Waiting for {label}: center/left/right={last}', flush=True)
-    raise AssertionError(f'{label} failed: {last}')
+    last = failed = None
+    try:
+        async with asyncio.timeout(25):
+            async for message in ws:
+                raw = message.data
+                if message.type != WSMsgType.BINARY or len(raw) < 11 or raw[0] != 4:
+                    continue
+                frame_id, y, width, height = struct.unpack('!4H', raw[2:10])
+                await ws.send_str(f'CLIENT_FRAME_ACK {frame_id}')
+                if y or (width, height) != expected:
+                    continue
+                try:
+                    frames = decoder.decode(av.Packet(raw[10:]))
+                except av.error.InvalidDataError:
+                    continue
+                for frame in frames:
+                    picture = frame.to_image()
+                    last = [picture.getpixel(p) for p in
+                            ((width//2, height//2), (24, height-24), (width-24, height-24))]
+                    red, blue, green = last
+                    if red[0] > 180 and red[1] < 80 and blue[2] > 180 and blue[0] < 80 and green[1] > 180 and green[0] < 80:
+                        print(f'PASS: {label} {width}x{height}: page fills desktop, both lower corners visible', flush=True)
+                        return
+                    failed = picture
+                    if frame_id % 60 == 0:
+                        print(f'Waiting for {label}: center/left/right={last}', flush=True)
+        raise AssertionError(f'{label} failed: {last}')
+    except BaseException:
+        # Encode the evidence once, on failure. Saving every mismatched frame kept
+        # this reader busy long enough for the stream relay to drop the client.
+        if failed is not None:
+            failed.save('/tmp/desktop-sizing-failure.png')
+        raise
 
 
 async def main():
