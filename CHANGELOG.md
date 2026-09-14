@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.44 (Pocket ID fork)
+
+- Includes the 1.2.0-beta.43 changes below, which failed their desktop tests and were not published.
+- A new user at the desktop limit now reaches the preparation page and a retryable error instead of being refused at sign-in; the limit is enforced when preparation launches the desktop.
+- Update the desktop sizing and multi-user login tests so new sign-ins complete through the preparation request.
+
 ## 1.2.0-beta.43 (Pocket ID fork)
 
 - Includes the 1.2.0-beta.42 changes below; that publication was cancelled before image publication to add these corrections.

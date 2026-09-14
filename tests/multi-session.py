@@ -43,8 +43,13 @@ async def main():
                 broker.flows[user] = {'cookie':user, 'origin':'https://web.example.test', 'expires':time.time()+60}
                 response = await client.get(server.make_url('/auth/callback'), params={'state':user,'code':user},
                     headers={**headers, 'Cookie':m.single.FLOW_COOKIE+'='+user}, allow_redirects=False)
-                assert response.status == 302, (response.status, await response.text())
-                return {**headers, 'Cookie':m.single.COOKIE+'='+response.cookies[m.single.COOKIE].value}
+                assert response.status == 302 and response.headers['Location'] == '/session/prepare', (response.status, await response.text())
+                # Every new sign-in finishes through its preparation request, which
+                # launches the desktop and returns the session cookie.
+                prepare = await client.post(server.make_url('/session/prepare'), headers={**headers,
+                    'Cookie':'__Host-brave-prepare='+response.cookies['__Host-brave-prepare'].value})
+                assert prepare.status == 200, (prepare.status, await prepare.text())
+                return {**headers, 'Cookie':m.single.COOKIE+'='+prepare.cookies[m.single.COOKIE].value}
             a, b = await asyncio.gather(login('alice'), login('bob'))
             assert len(broker.sessions) == 2
             desktops = {s.owner['name']:s for s in broker.sessions.values()}
@@ -60,6 +65,10 @@ async def main():
             broker.flows['charlie'] = {'cookie':'charlie', 'origin':headers['Origin'], 'expires':time.time()+60}
             response = await client.get(server.make_url('/auth/callback'), params={'state':'charlie','code':'charlie'},
                 headers={**headers,'Cookie':m.single.FLOW_COOKIE+'=charlie'}, allow_redirects=False)
+            assert response.status == 302 and response.headers['Location'] == '/session/prepare'
+            # Capacity is enforced when the preparation request tries to launch.
+            response = await client.post(server.make_url('/session/prepare'), headers={**headers,
+                'Cookie':'__Host-brave-prepare='+response.cookies['__Host-brave-prepare'].value})
             assert response.status == 409, 'Capacity must reject a new authenticated identity'
             assert len(broker.sessions) == 2
             broker.flows['alice-again'] = {'cookie':'again', 'origin':headers['Origin'], 'expires':time.time()+60}

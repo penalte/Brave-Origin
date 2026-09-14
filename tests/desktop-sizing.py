@@ -72,8 +72,13 @@ async def main():
             response = await client.get(server.make_url('/auth/callback'),
                 params={'state': 'sizing', 'code': 'sizing'}, allow_redirects=False,
                 headers={**headers, 'Cookie': m.single.FLOW_COOKIE+'=sizing'})
-            assert response.status == 302, await response.text()
-            auth = {**headers, 'Cookie': m.single.COOKIE+'='+response.cookies[m.single.COOKIE].value}
+            assert response.status == 302 and response.headers['Location'] == '/session/prepare', await response.text()
+            # Every new sign-in finishes through its preparation request, which
+            # launches the desktop and returns the session cookie.
+            prepare = await client.post(server.make_url('/session/prepare'), headers={**headers,
+                'Cookie': '__Host-brave-prepare='+response.cookies['__Host-brave-prepare'].value})
+            assert prepare.status == 200, await prepare.text()
+            auth = {**headers, 'Cookie': m.single.COOKIE+'='+prepare.cookies[m.single.COOKIE].value}
             desktop = next(iter(broker.sessions.values())).browser
             page = desktop.home/'Downloads/sizing.html'
             page.write_text('<html><body style="margin:0;background:#ff0000">'
