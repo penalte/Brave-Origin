@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.0-beta.43 (Pocket ID fork)
+
+- Includes the 1.2.0-beta.42 changes below; that publication was cancelled before image publication to add these corrections.
+- Run the sign-in WARP readiness check with a minimal environment, matching every other command started as a desktop account.
+- Add regression coverage for the session-choice origin fix: only the handoff page uses a same-origin referrer policy, and null or foreign form origins stay rejected.
+
 ## 1.2.0-beta.42 (Pocket ID fork)
 
 - Fix session-choice buttons rejected with `Invalid origin`: use a same-origin referrer policy on the handoff page so native form submissions retain their Origin header. Origin and CSRF validation remain enforced.

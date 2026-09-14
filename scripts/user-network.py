@@ -20,6 +20,9 @@ relay = module('relay', 'browser-relay.py')
 network = module('network', 'browser-network.py')
 USERS = Path('/config/users')
 FORCE = Path('/config/network-policy.json')
+# Commands run as a desktop account get only this environment; the broker's
+# own environment is not for that account to read back out.
+HELPER_ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
 
 
 def read(path):
@@ -145,7 +148,7 @@ class UserProxy:
                 'curl', '--disable', '--silent', '--fail', '--max-time', '5',
                 '--noproxy', '', '--proxy', f'socks5h://127.0.0.1:{self.port}',
                 'https://www.cloudflare.com/cdn-cgi/trace',
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env=HELPER_ENV)
             try:
                 output, _ = await process.communicate()
             finally:

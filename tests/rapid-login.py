@@ -99,6 +99,22 @@ async def main():
         if action=='cancel': assert response.headers['Location']=='/?session_cancelled=1'
         if action=='takeover': assert m.single.COOKIE in response.cookies
     assert 'alice' not in broker.sessions
+    # Native Chromium form POSTs use Origin:null under no-referrer. The
+    # handoff document needs same-origin, while foreign/null origins stay denied.
+    security = broker.app().middlewares[0]
+    async def document(request): return web.Response(text='form')
+    for path, policy in (('/session/resolve', 'same-origin'), ('/auth/callback', 'no-referrer')):
+        req = make_mocked_request('GET', path, headers={'Host':'web.test'})
+        assert (await security(req, document)).headers['Referrer-Policy'] == policy
+    for origin in ('null', 'https://evil.test'):
+        req = make_mocked_request('POST', '/session/resolve', headers={'Host':'web.test', 'Origin':origin})
+        try:
+            await security(req, document)
+            raise AssertionError('Invalid form origin accepted')
+        except web.HTTPForbidden:
+            pass
+    req = make_mocked_request('POST', '/session/resolve', headers={'Host':'web.test', 'Origin':'https://web.test'})
+    assert (await security(req, document)).status == 200
     for session in broker.sessions.values():
         if session.http: await session.http.close()
     print('PASS: rapid re-login waits for cleanup, concurrent callbacks share one launch, unrelated users proceed, failed cleanup stays closed')
