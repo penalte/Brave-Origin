@@ -578,8 +578,9 @@ class Broker(sharing.ViewSharing, single.Manager):
                             # A fresh sign-in starts a new lifetime; reopening the
                             # same session in another tab keeps the one it had.
                             'expires': session.owner['expires'] if pending.get('same_owner') else time.time() + self.config.ttl}
-                        if session.browser.network:
-                            session.browser.network.admin = session.owner['admin']
+                        proxy = getattr(session.browser, 'network', None)
+                        if proxy:
+                            proxy.admin = session.owner['admin']
                         await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
                             for ws in list(session.connections)), return_exceptions=True)
                         session.connections.clear()
