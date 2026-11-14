@@ -76,6 +76,31 @@ async def main():
                      '/api/files/Trip/../budget.xlsx', '/api/files/'):
             await refused(broker.proxy(post(path)), 404)
         assert session.browser.open_url.await_count == 1
+        # New folder, rename and delete from the My files panel: owner only, inside the tree.
+        def change(path, action, name=None, **kwargs):
+            request = post(path, action=action, **kwargs)
+            if name is None:
+                return request
+            changed = make_mocked_request('POST', path, headers={**request.headers, 'X-My-Files-Name': name})
+            changed['app_origin'] = ORIGIN
+            return changed
+        session.browser.uid = os.getuid()
+        assert (await broker.proxy(change('/api/files/Trip/Day%20one/', 'mkdir'))).status == 200
+        assert (files / 'Trip' / 'Day one').is_dir()
+        await refused(broker.proxy(change('/api/files/Trip/Day%20one', 'mkdir')), 409)
+        assert (await broker.proxy(change('/api/files/budget.xlsx', 'rename', 'plan%202025.xlsx'))).status == 200
+        assert (files / 'plan 2025.xlsx').read_bytes() == b'sheet'
+        await refused(broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', 'Trip')), 409)
+        for name in ('..%2Fout.xlsx', '.hidden', ''):
+            await refused(broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', name)), 400)
+        await refused(broker.proxy(change('/api/files/missing.txt', 'rename', 'x.txt')), 404)
+        await refused(broker.proxy(change('/api/files/Trip', 'remove', cookie='someone-else')), 403)
+        await refused(broker.proxy(change('/api/files/Trip', 'remove', origin='https://evil.test')), 403)
+        await refused(broker.proxy(change('/api/files/Trip', 'format')), 400)
+        (files / 'Trip' / 'Day one' / 'out').symlink_to('/etc')
+        assert (await broker.proxy(change('/api/files/Trip/Day%20one/', 'remove'))).status == 200
+        assert not (files / 'Trip' / 'Day one').exists() and Path('/etc/passwd').exists()
+        assert (await broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', 'budget.xlsx'))).status == 200
         # A type the browser cannot display is refused: opening it would only
         # make the browser download a duplicate into My files.
         for name in ('archive.zip', 'setup.EXE', 'clip.avi', 'photo.heic', 'no-extension'):

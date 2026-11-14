@@ -44,6 +44,8 @@ tree. `file://` addresses are limited by policy to the identity's own storage.
 Each file in the **My files** panel has an **Open** button that opens it as a tab
 in the remote browser: pictures, video, audio, PDF and text directly, and office
 documents through an optional ONLYOFFICE Docs server (`OFFICE_SERVER_URL`).
+The panel and the picker both offer a quick preview, thumbnails, search, sorting,
+new folders, rename and delete.
 
 [POCKET-ID.md](POCKET-ID.md) covers provider registration, every session setting,
 and the limits of what the isolation does and does not promise.

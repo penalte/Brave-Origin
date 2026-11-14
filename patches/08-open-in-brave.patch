@@ -1,6 +1,6 @@
 --- a/src/selkies/stream_server.py
 +++ b/src/selkies/stream_server.py
-@@ -101,6 +101,16 @@
+@@ -101,6 +101,165 @@
              self.logger.exception("Error in logging")
  
  
@@ -14,10 +14,159 @@
 +    return f"{value:.1f} TB"
 +
 +
++# Private My files: preview, thumbnails, search, sorting, folders and renaming.
++# Runs after the listing script above has built its rows and action cells.
++MY_FILES_EXTRAS = r"""
++window.addEventListener('load', function () {
++    if (!window.__MY_FILES_DELETE__) return;
++    const table = document.querySelector('table#list');
++    if (!table || !table.tBodies[0]) return;
++    const body = table.tBodies[0];
++    const kinds = {
++        image: 'jpg jpeg jfif png apng gif webp avif svg bmp ico',
++        video: 'mp4 m4v webm ogv mkv mov',
++        audio: 'mp3 wav ogg oga opus flac m4a aac weba',
++        pdf: 'pdf',
++        text: 'txt text log md json xml css js csv yaml yml ini conf py sh srt'
++    };
++    function kindOf(name) {
++        const dot = name.lastIndexOf('.');
++        const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
++        for (const kind in kinds) if (kinds[kind].split(' ').includes(ext)) return kind;
++        return '';
++    }
++    const entries = [];
++    let parentRow = null;
++    Array.from(body.rows).forEach(function (row) {
++        const a = row.querySelector('td a');
++        if (!a) return;
++        const path = (a.getAttribute('href') || '').split('?')[0];
++        if (path.startsWith('..')) { parentRow = row; return; }
++        const folder = path.endsWith('/');
++        const name = a.textContent.replace(/\/$/, '');
++        entries.push({row: row, a: a, folder: folder, name: name, kind: folder ? '' : kindOf(name),
++                      bytes: Number(row.dataset.bytes || 0), date: row.cells[1] ? row.cells[1].textContent : ''});
++    });
++    async function act(url, action, extra) {
++        const response = await fetch(url, {method: 'POST', credentials: 'same-origin',
++            headers: Object.assign({'X-My-Files-Action': action}, extra || {})});
++        if (!response.ok) throw new Error((await response.text()) || 'That did not work (' + response.status + ').');
++    }
++    function icon(title, color, path, handler) {
++        const button = document.createElement('button');
++        button.type = 'button';
++        button.title = title;
++        button.setAttribute('aria-label', title);
++        button.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
++        button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;border:0;border-radius:4px;cursor:pointer;color:' + color;
++        button.addEventListener('click', async function () {
++            button.disabled = true;
++            try { await handler(); } catch (error) { window.alert(error.message); } finally { button.disabled = false; }
++        });
++        return button;
++    }
++    function preview(entry) {
++        const list = entries.filter(function (e) { return e.kind && e.row.style.display !== 'none'; });
++        window.top.postMessage({type: 'brave-files-preview', index: list.indexOf(entry),
++            items: list.map(function (e) { return {url: e.a.href, name: e.name, kind: e.kind, bytes: e.bytes}; })},
++            window.location.origin);
++    }
++    entries.forEach(function (entry) {
++        const cell = entry.row.querySelector('.open-cell');
++        if (!cell) return;
++        if (entry.kind) {
++            cell.prepend(icon('Preview ' + entry.name, '#c9b6ff',
++                '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
++                async function () { preview(entry); }));
++        }
++        cell.appendChild(icon('Rename ' + entry.name, '#ffd08a',
++            '<path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/>', async function () {
++                const name = window.prompt('New name', entry.name);
++                if (!name || name === entry.name) return;
++                await act(entry.a.href, 'rename', {'X-My-Files-Name': encodeURIComponent(name)});
++                window.location.reload();
++            }));
++        if (entry.folder) {
++            const bin = entry.row.querySelector('.delete-cell');
++            if (bin) bin.appendChild(icon('Delete folder ' + entry.name, '#f59dc4',
++                '<path d="M3 6h18M9 6V4h6v2M6 6l1 14h10l1-14M10 10v6M14 10v6"/>', async function () {
++                    if (!window.confirm('Permanently delete the folder "' + entry.name + '" and everything in it?')) return;
++                    await act(entry.a.href, 'remove');
++                    entry.row.remove();
++                }));
++        }
++        // A small picture beside picture files, loaded only when scrolled into view.
++        if (entry.kind === 'image' && entry.bytes <= 4 * 1024 * 1024) {
++            const picture = document.createElement('img');
++            picture.loading = 'lazy';
++            picture.alt = '';
++            picture.src = entry.a.href;
++            picture.style.cssText = 'width:28px;height:28px;object-fit:cover;border-radius:4px;vertical-align:middle;margin-right:8px;cursor:pointer;background:#ffffff14';
++            picture.addEventListener('click', function () { preview(entry); });
++            picture.addEventListener('error', function () { picture.remove(); });
++            entry.a.before(picture);
++        }
++    });
++    // Search and new folder above the list.
++    const bar = document.createElement('div');
++    bar.style.cssText = 'display:flex;gap:10px;margin:12px 0;align-items:center';
++    const search = document.createElement('input');
++    search.type = 'search';
++    search.placeholder = 'Search this folder';
++    search.setAttribute('aria-label', 'Search this folder');
++    search.style.cssText = 'flex:1;min-width:0;padding:8px 10px;border-radius:6px;border:1px solid #ffffff30;background:#ffffff0d;color:inherit;font:inherit';
++    search.addEventListener('input', function () {
++        const wanted = search.value.trim().toLowerCase();
++        entries.forEach(function (entry) {
++            entry.row.style.display = !wanted || entry.name.toLowerCase().includes(wanted) ? '' : 'none';
++        });
++    });
++    const create = document.createElement('button');
++    create.type = 'button';
++    create.textContent = 'New folder';
++    create.style.cssText = 'padding:8px 12px;border-radius:6px;border:1px solid #ffffff30;background:#ffffff0d;color:inherit;font:inherit;cursor:pointer';
++    create.addEventListener('click', async function () {
++        const name = window.prompt('Name of the new folder');
++        if (!name) return;
++        try {
++            await act(window.location.pathname.replace(/\/?$/, '/') + encodeURIComponent(name) + window.location.search, 'mkdir');
++            window.location.reload();
++        } catch (error) { window.alert(error.message); }
++    });
++    bar.append(search, create);
++    table.before(bar);
++    // Click a heading to sort; folders stay on top.
++    const keys = [function (e) { return e.name.toLowerCase(); }, function (e) { return e.date; }, function (e) { return e.bytes; }];
++    let sorted = 0, descending = false;
++    Array.from(table.tHead.rows[0].cells).slice(0, 3).forEach(function (heading, column) {
++        const label = heading.textContent;
++        heading.style.cursor = 'pointer';
++        heading.title = 'Sort by ' + label.toLowerCase();
++        heading.addEventListener('click', function () {
++            descending = sorted === column ? !descending : false;
++            sorted = column;
++            const key = keys[column];
++            entries.sort(function (a, b) {
++                if (a.folder !== b.folder) return a.folder ? -1 : 1;
++                const x = key(a), y = key(b);
++                return (x < y ? -1 : x > y ? 1 : 0) * (descending ? -1 : 1);
++            });
++            if (parentRow) body.appendChild(parentRow);
++            entries.forEach(function (entry) { body.appendChild(entry.row); });
++            Array.from(table.tHead.rows[0].cells).slice(0, 3).forEach(function (cell) {
++                cell.textContent = cell.textContent.replace(/ [▲▼]$/, '');
++            });
++            heading.textContent = label.replace(/ [▲▼]$/, '') + (descending ? ' ▼' : ' ▲');
++        });
++    });
++});
++"""
++
++
  def _scan_directory(path: str, include_parent: bool) -> List[Dict[str, Any]]:
      """One directory's entries, as the file index renders them.
  
-@@ -123,7 +133,7 @@
+@@ -123,9 +282,10 @@
                  continue
              items.append({
                  "name": entry.name + ("/" if is_dir else ""),
@@ -25,23 +174,26 @@
 +                "size": _readable_size(stats.st_size) if not is_dir else "-",
                  "mtime": mtime,
                  "is_dir": is_dir,
++                "bytes": 0 if is_dir else stats.st_size,
              })
-@@ -997,7 +1007,14 @@
+     return items
+ 
+@@ -997,7 +1157,14 @@
                  heading.textContent = 'Delete';
                  heading.style.textAlign = 'center';
                  document.querySelector('table#list thead tr').appendChild(heading);
 +                const openHeading = document.createElement('th');
-+                openHeading.textContent = 'Open';
++                openHeading.textContent = 'Actions';
 +                openHeading.style.textAlign = 'center';
 +                heading.before(openHeading);
                  document.querySelectorAll('table#list tbody tr').forEach(function(row) {
 +                    const open = row.insertCell();
 +                    open.className = 'open-cell';
-+                    open.style.cssText = 'text-align:center;width:56px';
++                    open.style.cssText = 'text-align:center;white-space:nowrap';
                      const cell = row.insertCell();
                      cell.className = 'delete-cell';
                      cell.style.cssText = 'text-align:center;width:56px';
-@@ -1012,6 +1029,29 @@
+@@ -1012,6 +1179,29 @@
                  if (!href.split('?')[0].endsWith('/')) {
                      a.setAttribute('download', '');
                      if (window.__MY_FILES_DELETE__) {
@@ -71,3 +223,20 @@
                          const button = document.createElement('button');
                          button.type = 'button';
                          button.title = 'Delete ' + a.textContent;
+@@ -2614,7 +2804,7 @@
+             escaped_mtime = html.escape(item["mtime"])
+             escaped_size = html.escape(item["size"])
+             rows += f"""
+-            <tr>
++            <tr data-bytes="{int(item.get("bytes", 0))}">
+                 <td><a href="{urllib.parse.quote(item["name"])}">{escaped_name}</a></td>
+                 <td>{escaped_mtime}</td>
+                 <td>{escaped_size}</td>
+@@ -2645,6 +2835,7 @@
+             </tbody>
+         </table>
+         <script>window.__MY_FILES_DELETE__ = {str(os.environ.get('BRAVE_PRIVATE_FILES') == 'true').lower()};</script>
++        <script>{MY_FILES_EXTRAS}</script>
+         {FILE_INDEX_FOOTER}
+         """
+ 

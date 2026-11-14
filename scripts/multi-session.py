@@ -14,6 +14,7 @@ import secrets
 import shutil
 import stat
 import time
+from urllib.parse import unquote
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector, web
 
@@ -739,10 +740,40 @@ class Broker(sharing.ViewSharing, single.Manager):
         if not session:
             raise web.HTTPForbidden(text='No active desktop')
         path = request.path[len('/desktop'):] if request.path.startswith('/desktop/') else request.path
-        if (request.method == 'POST' and path.startswith('/api/files/')
-                and request.headers.get('X-My-Files-Action') == 'open'):
-            return await self.open_file(request, session, path[len('/api/files/'):])
+        action = request.headers.get('X-My-Files-Action')
+        if request.method == 'POST' and path.startswith('/api/files/') and action:
+            relative = path[len('/api/files/'):]
+            if action == 'open':
+                return await self.open_file(request, session, relative)
+            if action in ('mkdir', 'rename', 'remove'):
+                return self.change_file(request, session, relative, action)
+            raise web.HTTPBadRequest(text='Unknown My files action')
         return await session.proxy(request)
+
+    def change_file(self, request, session, relative, action):
+        """Create a folder, rename an entry or delete one in the owner's My files."""
+        if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
+            raise web.HTTPForbidden(text='Changing files requires the session that owns them')
+        parts = relative.rstrip('/').split('/')
+        try:
+            files = self.my_files(session)
+            try:
+                if action == 'mkdir':
+                    # Created by this root process; hand it to the account that owns the tree.
+                    files.mkdir(parts, owner=session.browser.uid)
+                elif action == 'rename':
+                    files.rename(parts, unquote(request.headers.get('X-My-Files-Name', '')))
+                else:
+                    files.remove(parts)
+            finally:
+                os.close(files.fd)
+        except FileExistsError:
+            raise web.HTTPConflict(text='Something with that name already exists here.') from None
+        except FileNotFoundError:
+            raise web.HTTPNotFound(text='That item is no longer in My files.') from None
+        except (OSError, ValueError):
+            raise web.HTTPBadRequest(text='Use a plain name without / or a leading dot, inside My files.') from None
+        return web.json_response({'changed': True})
 
     @staticmethod
     def my_files(session):

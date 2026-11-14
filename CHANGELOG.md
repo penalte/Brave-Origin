@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.52 (Pocket ID fork)
+
+- Add a quick preview to My files. In the panel, Preview opens pictures, video, audio, PDF and text in a full-window view with arrow keys to move between files and Esc or Space to close.
+- Add a preview pane to the website upload and save picker (Space): pictures, the first page of a PDF, a still frame of a video, the start of a text file, and file details. Previews are drawn in a separate process so a damaged file cannot close the picker.
+- Both the panel and the picker gain thumbnails for pictures, sorting by name, date or size, search, New folder, Rename and Delete, including folders with their contents.
+- The image now includes the libraries these previews need: WebP, AVIF and SVG image loaders, a PDF renderer and a video thumbnailer.
+
 ## 1.2.0-beta.51 (Pocket ID fork)
 
 - Open in My files now refuses a type Brave cannot display (archives, programs, AVI, HEIC and similar) with a message to download it instead. Before, Brave "downloaded" the file and left a duplicate in My files.

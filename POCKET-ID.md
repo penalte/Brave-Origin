@@ -137,12 +137,25 @@ public address, and the remote browser must reach the document server through
 its network route, so a public hostname is the reliable choice. Without a
 document server, Open on an office file explains that one is required.
 
+The panel also has a **Preview** button per file: pictures, video, audio, PDF and
+text open in a full-window quick look, with the arrow keys to move between files
+and Esc or Space to close. Previews are fetched by your own browser with your
+session, so video and audio play on your device. The panel can search the current
+folder, sort by name, date or size, create folders, rename, and delete folders
+with their contents. Picture files show a small thumbnail.
+
 Website upload buttons and Save dialogs use a private **My files** picker. It
 opens in the same Downloads folder used by Selkies transfers, supports subfolders,
 multiple files and filename filters, and has no root, Desktop, Other Locations,
 or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
 requests are cancelled; select individual files instead. Save names must be plain
 filenames, and existing files require overwrite confirmation.
+
+The picker has the same conveniences. Space shows a preview pane for the selected
+file: pictures, the first page of a PDF, a still frame of a video, the start of a
+text file, and its size and date. Typing jumps to a name, column headings sort,
+and New folder, Rename (F2) and Delete work on the selection. Previews are drawn
+by a separate process, so a damaged file costs one preview and nothing else.
 The picker has no window-manager title bar or menu; use Cancel or Escape to
 close it. Brave uses its own frame with a close-only button layout (plus tab search).
 “Use system titlebar and borders” is unchecked by default. This
