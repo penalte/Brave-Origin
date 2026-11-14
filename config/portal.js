@@ -122,7 +122,8 @@ async function update() {
     document.getElementById('session').hidden = !active;
     document.getElementById('login').hidden = state.state !== 'IDLE';
     if (!preparing) document.getElementById('message').textContent = state.state === 'IDLE'
-      ? 'Sign in to open your private browser and desktop.'
+      ? (new URLSearchParams(location.search).has('choice_expired')
+        ? 'That choice timed out. Sign in again to continue.' : 'Sign in to open your private browser and desktop.')
       : state.owner ? 'Preparing your browser…'
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     sessionName = state.name || 'Private browser';

@@ -9,7 +9,7 @@
 *{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 15%,#38252e 0,transparent 55%),#11151d;color:#edf1fa;font:16px/1.65 system-ui,-apple-system,sans-serif}
 main{width:min(100%,480px);text-align:center;padding:48px 32px;border:1px solid #ffffff12;border-radius:24px;background:linear-gradient(150deg,#242c39e8,#191f2be8);box-shadow:0 24px 80px #0004;animation:arrive .35s ease-out}
 .icon{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 25px;border-radius:24px;background:#f4663814;border:1px solid #f4663840;color:#ff956f}.icon svg{width:36px;height:36px}.eyebrow{font-size:11px;letter-spacing:.16em;font-weight:700;text-transform:uppercase;color:#ffab8d}h1{font-size:clamp(27px,6vw,34px);line-height:1.2;letter-spacing:-.035em;margin:12px 0 18px}p{color:#b9c5d8;margin:0}a{display:inline-block;margin-top:28px;padding:11px 22px;border-radius:10px;background:#f46638;color:white;text-decoration:none;font-weight:650;font-size:14px}a:hover{background:#ff784a}a:focus-visible{outline:3px solid #ffd4c4;outline-offset:4px}.note{margin-top:22px;font-size:12px;color:#8794aa}@keyframes arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){main{animation:none}}
-form{display:grid;gap:10px;margin-top:28px}button{border:1px solid transparent;border-radius:10px;padding:13px 18px;background:#f46638;color:#fff;font:650 14px system-ui;cursor:pointer}button:hover{background:#ff784a}button.secondary{background:#ffffff06;border-color:#ffffff25}button.quiet{background:transparent;color:#aeb9c9}button:focus-visible{outline:3px solid #ffd4c4;outline-offset:3px}</style>
+form{display:grid;gap:10px;margin-top:28px}button{border:1px solid transparent;border-radius:10px;padding:13px 18px;background:#f46638;color:#fff;font:650 14px system-ui;cursor:pointer}button:hover{background:#ff784a}button.secondary{background:#ffffff06;border-color:#ffffff25}button.quiet{background:transparent;color:#aeb9c9}button:disabled{opacity:.55;cursor:progress}button:focus-visible{outline:3px solid #ffd4c4;outline-offset:3px}</style>
 </head>
 <body>
 <main>
@@ -21,6 +21,23 @@ form{display:grid;gap:10px;margin-top:28px}button{border:1px solid transparent;b
 <button name="action" value="takeover">Take over existing desktop</button>
 <button name="action" value="disconnect" class="secondary">Disconnect previous desktop</button>
 <button name="action" value="cancel" class="quiet">Cancel</button></form>
-<p class="note">Taking over disconnects the other tab. Disconnecting closes the desktop; unsaved work may be lost.</p></main>
+<p class="note" id="note">Taking over disconnects the other tab and anyone you shared the desktop with. Disconnecting closes the desktop; unsaved work may be lost.</p></main>
+<script>
+const form = document.querySelector('form');
+form.addEventListener('submit', event => {
+  // One submission only: a second click would replace the first answer.
+  if (form.dataset.sent) { event.preventDefault(); return; }
+  form.dataset.sent = '1';
+  const taking = event.submitter && event.submitter.value === 'takeover';
+  // Disable after the browser has collected the form, or the choice is not sent.
+  setTimeout(() => {
+    for (const button of form.querySelectorAll('button')) button.disabled = true;
+    document.getElementById('note').textContent = taking
+      ? 'Taking over your desktop. This takes a few seconds…' : 'One moment…';
+  }, 0);
+});
+// This page is valid for ten minutes; ask for a fresh one when that passes.
+setTimeout(() => { if (!form.dataset.sent) location.replace('/session/resolve'); }, 601000);
+</script>
 </body>
 </html>

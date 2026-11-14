@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.2.0-beta.48 (Pocket ID fork)
+
+- Fix "This choice expired" after choosing Take over. A second click while the takeover settled was refused and replaced the first answer, which signed the user out; a repeated click now receives the first click's result. The buttons also lock and say what is happening.
+- Keep the take-over choice page valid for ten minutes instead of two. A missing or timed-out choice returns to the portal, which offers a fresh choice to a signed-in owner, instead of a dead-end error. Rejected choices are logged with their reason.
+- A takeover that is interrupted midway no longer leaves the desktop stuck in a starting state.
+- The tab that was taken over now says the session opened elsewhere instead of "Invalid Token".
+- Wait up to three seconds, instead of one, for a reloading tab to release its stream before treating it as a second tab.
+
 ## 1.2.0-beta.46 (Pocket ID fork)
 
 - Show your profile, connection, desktop and My files as separate sign-in steps, each ticked when it is actually ready. The profile is opened and checked before the connection, so a profile last opened by a newer Brave fails first with its own message instead of a generic startup error.

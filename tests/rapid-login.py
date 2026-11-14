@@ -79,6 +79,55 @@ async def main():
         def handle_starttag(self, tag, attrs):
             attrs = dict(attrs)
             if tag == 'input' and attrs.get('name') == 'csrf': self.value = attrs.get('value')
+    # The choice page must never strand its user: a second click receives the
+    # first click's result, and a missing or timed-out ticket leads back to the
+    # portal instead of a dead-end error.
+    def choice(token, csrf, action='takeover'):
+        class Submission(dict):
+            cookies={'__Host-brave-handoff':token}
+            headers={'Origin':'https://web.test'}
+            async def post(self): return {'csrf':csrf,'action':action}
+        return Submission(app_origin='https://web.test')
+    alice=broker.sessions['alice']
+    alice.connected_once=True  # A stream was open, so the takeover has to settle.
+    before=alice.owner['cookie']
+    offered=broker.offer_handoff('alice',{**claims('alice'),'exp':time.time()+3600},flow)
+    token=offered.cookies['__Host-brave-handoff'].value
+    assert 590 < broker.handoffs[token]['expires']-time.time() <= 600, 'Choice page must stay valid for ten minutes'
+    csrf=broker.handoffs[token]['csrf']
+    clicks=[asyncio.create_task(broker.resolve_session(choice(token,csrf))) for _ in range(2)]
+    await asyncio.sleep(.2)
+    abandoned=asyncio.create_task(broker.resolve_session(choice(token,csrf)))
+    await asyncio.sleep(.2)
+    abandoned.cancel()  # A browser that gives up must not stop the takeover.
+    assert alice.state=='STARTING' and not any(click.done() for click in clicks)
+    responses=await asyncio.wait_for(asyncio.gather(*clicks),10)
+    owner=alice.owner['cookie']
+    assert owner!=before and alice.state=='RUNNING', 'Takeover did not finish'
+    assert all(r.status==302 and r.cookies[m.single.COOKIE].value==owner for r in responses), 'A repeated click lost the new session'
+    late=await broker.resolve_session(choice(token,csrf,'disconnect'))
+    assert late.cookies[m.single.COOKIE].value==owner and broker.sessions.get('alice') is alice, 'A repeated choice acted twice'
+    offered=broker.offer_handoff('alice',claims('alice'),flow)
+    token=offered.cookies['__Host-brave-handoff'].value
+    csrf=broker.handoffs[token]['csrf']
+    broker.handoffs[token]['expires']=time.time()-1
+    for attempt in (lambda: broker.resolve_session(choice(token,csrf)),
+                    lambda: broker.resolve_page(choice('','')), lambda: broker.resolve_page(choice('unknown',''))):
+        try:
+            await attempt()
+            raise AssertionError('A missing or timed-out choice was accepted')
+        except web.HTTPFound as redirect:
+            assert redirect.headers['Location']=='/?choice_expired=1'
+    assert alice.owner['cookie']==owner and alice.state=='RUNNING'
+    # A takeover interrupted midway must leave the desktop usable.
+    offered=broker.offer_handoff('alice',claims('alice'),flow)
+    token=offered.cookies['__Host-brave-handoff'].value
+    alice.connected_once=True
+    interrupted=asyncio.create_task(broker.apply_choice(broker.handoffs.pop(token),'takeover'))
+    await asyncio.sleep(.2)
+    interrupted.cancel()
+    await asyncio.gather(interrupted,return_exceptions=True)
+    assert alice.state=='RUNNING', 'An interrupted takeover left the desktop stuck'
     for action in ('cancel', 'takeover', 'disconnect'):
         offered=broker.offer_handoff('alice',claims('alice'),flow)
         token=offered.cookies['__Host-brave-handoff'].value
