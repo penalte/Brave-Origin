@@ -41,16 +41,8 @@ PREPARE_SECONDS = 600
 
 # How long a document opened from My files stays readable by the document server.
 OFFICE_SECONDS = 3600
-# Formats Brave cannot render itself, by ONLYOFFICE document type.
-OFFICE_TYPES = {suffix: kind for kind, suffixes in {
-    'word': 'doc docx docm dot dotx odt ott rtf',
-    'cell': 'xls xlsx xlsm xlt xltx ods ots csv',
-    'slide': 'ppt pptx pptm pps ppsx pot potx odp otp'}.items() for suffix in suffixes.split()}
-# Formats the browser displays itself. Anything else it would "download",
-# which only leaves a duplicate of the file in My files.
-BROWSER_TYPES = frozenset('''jpg jpeg jfif png apng gif webp avif svg bmp ico
-mp4 m4v webm ogv mkv mov mp3 wav ogg oga opus flac m4a aac weba
-pdf txt text log md json xml html htm css js yaml yml ini conf'''.split())
+# One definition, shared with the picker, of what the browser and the document server can show.
+OFFICE_TYPES, BROWSER_TYPES = picker.OFFICE_TYPES, picker.BROWSER_TYPES
 
 
 class TicketExpired(web.HTTPForbidden):
@@ -178,6 +170,7 @@ class Desktop(single.Browser):
                 await self.command('usermod', '-aG', str(gid), name)
         env = session_environment(self.home, name, self.directory)
         env['BRAVE_PROXY_PORT'] = str(self.network.port)
+        env['BRAVE_OFFICE_VIEWER'] = 'true' if self.config.office_url else 'false'
         self.master_token = secrets.token_urlsafe(32)
         self.owner_token = secrets.token_urlsafe(32)
         env['SELKIES_MASTER_TOKEN'] = self.master_token
@@ -784,7 +777,10 @@ class Broker(sharing.ViewSharing, single.Manager):
         """Open one of the owner's files as a tab in their remote browser."""
         if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
             raise web.HTTPForbidden(text='Opening a file requires the session that owns it')
-        parts = relative.split('/')
+        kind = await self.open_parts(session, relative.split('/'))
+        return web.json_response({'opened': True, 'viewer': 'office' if kind else 'browser'})
+
+    async def open_parts(self, session, parts):
         try:
             files = self.my_files(session)
             try:
@@ -793,15 +789,12 @@ class Broker(sharing.ViewSharing, single.Manager):
                 os.close(files.fd)
         except (OSError, ValueError):
             raise web.HTTPNotFound(text='That file is not available in My files.') from None
-        suffix = Path(parts[-1]).suffix.lower().lstrip('.')
-        kind = OFFICE_TYPES.get(suffix)
-        if not kind and suffix not in BROWSER_TYPES:
-            raise web.HTTPUnsupportedMediaType(text="Brave can't display this type of file. "
-                                                    'Download it to open it on your device instead.')
+        reason = picker.openable(parts[-1], bool(self.config.office_url))
+        if reason:
+            raise (web.HTTPConflict if Path(parts[-1]).suffix.lower().lstrip('.') in OFFICE_TYPES
+                   else web.HTTPUnsupportedMediaType)(text=reason)
+        kind = OFFICE_TYPES.get(Path(parts[-1]).suffix.lower().lstrip('.'))
         if kind:
-            if not self.config.office_url:
-                raise web.HTTPConflict(text='Office documents need a document server, and none is configured '
-                                            '(OFFICE_SERVER_URL). Download the file to open it on your device.')
             now = time.time()
             self.documents = {k: v for k, v in self.documents.items() if v['expires'] > now}
             while len(self.documents) >= 256:
@@ -816,7 +809,50 @@ class Broker(sharing.ViewSharing, single.Manager):
         except Exception:
             LOG.exception('Could not open a file in the remote browser')
             raise web.HTTPServiceUnavailable(text='The browser did not open the file. Please try again.') from None
-        return web.json_response({'opened': True, 'viewer': 'office' if kind else 'browser'})
+        return kind
+
+    def picker_request(self, session):
+        """Take the file the user's picker asked to open in Brave, if any.
+
+        The picker has no session cookie, so it leaves a note in its private
+        runtime folder. That folder belongs to the user: the note is read
+        without following links and names a path that is checked like any other.
+        """
+        directory = getattr(session.browser, 'directory', None)
+        if not directory:
+            return
+        note = Path(directory) / 'open-request'
+        try:
+            fd = os.open(note, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return
+        except OSError:
+            # A link or something unreadable in the note's place: discard it.
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+            return
+        try:
+            info = os.fstat(fd)
+            data = os.read(fd, 8192) if stat.S_ISREG(info.st_mode) and info.st_size <= 8192 else b''
+        finally:
+            os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+        try:
+            parts = json.loads(data)['parts']
+            if not isinstance(parts, list) or not parts or not all(isinstance(part, str) for part in parts):
+                raise ValueError('Invalid request')
+        except (ValueError, KeyError, TypeError):
+            return
+
+        async def deliver():
+            try:
+                await self.open_parts(session, parts)
+            except web.HTTPException as error:
+                LOG.info('Picker request to open a file was refused: %s', error.text)
+        task = asyncio.ensure_future(deliver())
+        self.choices.add(task)
+        task.add_done_callback(self.choices.discard)
 
     def document(self, request):
         """The file behind a document link. The link itself is the credential:
@@ -897,6 +933,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                                 await session.browser.network.recover()
                             except (OSError,RuntimeError,ValueError):
                                 LOG.exception('Private network recovery failed')
+                        self.picker_request(session)
                         reason = session.end_reason()
                         if reason:
                             LOG.info('Ending desktop %s (%s): %s', identity[:12], session.owner['name'], reason)

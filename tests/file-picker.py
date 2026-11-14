@@ -58,6 +58,11 @@ with tempfile.TemporaryDirectory() as tmp:
     assert (outside/'keep.txt').read_text()=='keep', 'Deleting a folder followed a link out of My files'
     assert {p.kind(n) for n in ('a.JPG','b.pdf','c.MP4','d.md','e.zip')}=={'image','pdf','video','text','other'}
     os.close(files.fd)
+# Open in Brave: what the browser shows, what the document server shows, and what neither can.
+assert p.openable('Song.MP3',False) is None and p.openable('film.mkv',False) is None and p.openable('a.pdf',False) is None
+assert p.openable('Report.DOCX',True) is None and 'OFFICE_SERVER_URL' in p.openable('Report.DOCX',False)
+assert 'Download it' in p.openable('archive.zip',True) and 'Download it' in p.openable('noextension',True)
+assert p.kind('Song.MP3')=='audio'
 # Site filters ignore letter case; sizes read in a sensible unit.
 assert p.matches('PHOTO.JPG',[(0,'*.jpg')]) and p.matches('photo.jpg',[(1,'IMAGE/*')])
 assert not p.matches('notes.txt',[(0,'*.jpg'),(1,'image/*')]) and p.matches('anything.bin',[])

@@ -153,7 +153,11 @@ filenames, and existing files require overwrite confirmation.
 
 The picker has the same conveniences. Space shows a preview pane for the selected
 file: pictures, the first page of a PDF, a still frame of a video, the start of a
-text file, and its size and date. Typing jumps to a name, column headings sort,
+text file, and its size and date. **Play** in that pane plays a video or an audio
+file right there, with its sound in the desktop's audio. **Open in Brave** opens
+the selected file as a browser tab under the same rules as the My files panel,
+including office documents through the document server; the tab is behind the
+picker until you close it. Typing jumps to a name, column headings sort,
 and New folder, Rename (F2) and Delete work on the selection. Previews are drawn
 by a separate process, so a damaged file costs one preview and nothing else.
 The picker has no window-manager title bar or menu; use Cancel or Escape to

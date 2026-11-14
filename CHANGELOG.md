@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.53 (Pocket ID fork)
+
+- Play video and audio inside the file picker's preview pane, with Play, Pause and Resume. Decoding runs in separate ffmpeg processes, so a damaged file stops the playback and nothing else.
+- Add **Open in Brave** to the file picker. It opens the selected file as a browser tab under the same rules as the My files panel: pictures, video, audio, PDF and text directly, office documents through the document server, and a clear message for types Brave cannot show.
+
 ## 1.2.0-beta.52 (Pocket ID fork)
 
 - Add a quick preview to My files. In the panel, Preview opens pictures, video, audio, PDF and text in a full-window view with arrow keys to move between files and Esc or Space to close.

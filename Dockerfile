@@ -128,6 +128,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     librsvg2-common \
     libavif-gdk-pixbuf \
     ffmpegthumbnailer \
+    ffmpeg \
     labwc \
     libwlroots-0.18 \
     libdisplay-info2 libliftoff0 libseat1 \

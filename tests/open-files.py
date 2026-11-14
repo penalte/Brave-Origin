@@ -111,6 +111,31 @@ async def main():
             await broker.proxy(post('/api/files/' + name))
         assert session.browser.open_url.await_count == 5
 
+        # The picker's Open in Brave leaves a note in the session's private
+        # folder; the gateway takes it once and applies the same rules.
+        runtime = home / 'runtime'
+        runtime.mkdir()
+        session.browser.directory = runtime
+        async def note(content, link=None):
+            before = session.browser.open_url.await_count
+            if link:
+                (runtime / 'open-request').symlink_to(link)
+            else:
+                (runtime / 'open-request').write_text(content)
+            broker.picker_request(session)
+            await asyncio.sleep(0.05)
+            assert not (runtime / 'open-request').exists() and not (runtime / 'open-request').is_symlink(), 'Note was not consumed'
+            return session.browser.open_url.await_count - before
+        assert await note(json.dumps({'parts': ['Trip', 'beach day.JPG']})) == 1
+        assert session.browser.open_url.await_args.args[0] == (files / 'Trip' / 'beach day.JPG').as_uri()
+        for content in (json.dumps({'parts': ['archive.zip']}), json.dumps({'parts': ['..', '..', 'etc', 'passwd']}),
+                        json.dumps({'parts': ['linked.docx']}), json.dumps({'parts': 'Trip'}), json.dumps({'parts': []}),
+                        'not json', '', json.dumps({'parts': ['x' * 9000]})):
+            assert await note(content) == 0, content[:40]
+        secret = home / 'secret.json'
+        secret.write_text(json.dumps({'parts': ['paper.pdf']}))
+        assert await note(None, link=secret) == 0, 'A linked note was followed'
+        broker.picker_request(session)  # No note: nothing happens.
         # Without a document server an office file says so instead of opening a download loop.
         unconfigured = session_for(plain)
         assert 'OFFICE_SERVER_URL' in await refused(plain.proxy(post('/api/files/budget.xlsx')), 409)

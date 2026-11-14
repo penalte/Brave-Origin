@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import stat
 import struct
 import subprocess
@@ -16,13 +17,38 @@ import time
 # What the preview pane can draw, by file extension.
 IMAGE_TYPES = frozenset('jpg jpeg jfif png apng gif bmp ico webp avif svg tif tiff'.split())
 VIDEO_TYPES = frozenset('mp4 m4v webm ogv mkv mov avi wmv flv mpg mpeg 3gp ts'.split())
+AUDIO_TYPES = frozenset('mp3 wav ogg oga opus flac m4a aac weba wma'.split())
 TEXT_TYPES = frozenset('txt text log md json xml html htm css js csv yaml yml ini conf py sh srt'.split())
 
 
 def kind(filename):
     suffix = Path(filename).suffix.lower().lstrip('.')
     return ('image' if suffix in IMAGE_TYPES else 'pdf' if suffix == 'pdf' else 'video' if suffix in VIDEO_TYPES
-            else 'text' if suffix in TEXT_TYPES else 'other')
+            else 'audio' if suffix in AUDIO_TYPES else 'text' if suffix in TEXT_TYPES else 'other')
+
+
+# What "Open in Brave" does with a file. The gateway applies the same lists.
+# Formats the browser displays itself; anything else it would only download again.
+BROWSER_TYPES = frozenset('''jpg jpeg jfif png apng gif webp avif svg bmp ico
+mp4 m4v webm ogv mkv mov mp3 wav ogg oga opus flac m4a aac weba
+pdf txt text log md json xml html htm css js yaml yml ini conf'''.split())
+# Formats shown by an ONLYOFFICE Docs server, by its document type.
+OFFICE_TYPES = {suffix: sort for sort, suffixes in {
+    'word': 'doc docx docm dot dotx odt ott rtf',
+    'cell': 'xls xlsx xlsm xlt xltx ods ots csv',
+    'slide': 'ppt pptx pptm pps ppsx pot potx odp otp'}.items() for suffix in suffixes.split()}
+
+
+def openable(filename, office):
+    """None when Open in Brave can show this file, otherwise the reason it cannot."""
+    suffix = Path(filename).suffix.lower().lstrip('.')
+    if suffix in OFFICE_TYPES:
+        return None if office else ('Office documents need a document server, and none is configured '
+                                    '(OFFICE_SERVER_URL). Download the file to open it on your device.')
+    if suffix in BROWSER_TYPES:
+        return None
+    return "Brave can't display this type of file. Download it to open it on your device instead."
+
 
 
 def valid(name):
@@ -367,6 +393,122 @@ def main():
             return False
 
     previews = Previews()
+
+    class Player:
+        """Plays a video in the preview pane.
+
+        ffmpeg decodes in its own processes, one sending small frames down a
+        pipe at the video's own speed and one sending the sound to the desktop.
+        The picker only paints finished frames, so a video that breaks a decoder
+        stops the playback and nothing else.
+        """
+        def __init__(self, picture, changed):
+            self.picture, self.changed = picture, changed
+            self.video = self.audio = self.watch = None
+            self.buffer, self.frame, self.size, self.paused = b'', 0, (0, 0), False
+
+        @property
+        def playing(self):
+            return self.video is not None or self.audio is not None
+
+        def listening(self):
+            if self.audio and self.audio.poll() is None:
+                return True
+            self.watch = None  # Returning False removes this timer.
+            self.stop()
+            return False
+
+        def start(self, parts, width=320, height=420):
+            self.stop()
+            try:
+                fd = files.open(parts)
+            except (OSError, ValueError):
+                return False
+            if kind(parts[-1]) == 'audio':
+                try:
+                    self.audio = subprocess.Popen(
+                        ['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', f'/dev/fd/{fd}', '-vn', '-sn',
+                         '-f', 'pulse', 'My files preview'],
+                        pass_fds=[fd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except OSError:
+                    return False
+                finally:
+                    os.close(fd)
+                self.paused = False
+                self.watch = GLib.timeout_add(400, self.listening)
+                self.changed()
+                return True
+            try:
+                probe = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+                     '-of', 'json', f'/dev/fd/{fd}'], pass_fds=[fd], capture_output=True, timeout=8,
+                    stdin=subprocess.DEVNULL)
+                stream = json.loads(probe.stdout)['streams'][0]
+                scale = min(width / int(stream['width']), height / int(stream['height']), 1)
+                # Even sizes: several decoders and scalers require them.
+                w = max(2, int(int(stream['width']) * scale) // 2 * 2)
+                h = max(2, int(int(stream['height']) * scale) // 2 * 2)
+                source = ['ffmpeg', '-nostdin', '-loglevel', 'error', '-re', '-i', f'/dev/fd/{fd}']
+                self.video = subprocess.Popen(
+                    source + ['-an', '-sn', '-vf', f'scale={w}:{h},fps=20', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+                    pass_fds=[fd], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                self.audio = subprocess.Popen(
+                    source + ['-vn', '-sn', '-f', 'pulse', 'My files preview'],
+                    pass_fds=[fd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except (OSError, ValueError, KeyError, IndexError, ZeroDivisionError, subprocess.SubprocessError):
+                self.stop()
+                return False
+            finally:
+                os.close(fd)
+            self.size, self.frame, self.buffer, self.paused = (w, h), w * h * 3, b'', False
+            os.set_blocking(self.video.stdout.fileno(), False)
+            self.watch = GLib.io_add_watch(self.video.stdout.fileno(), GLib.IO_IN | GLib.IO_HUP, self.readable)
+            self.changed()
+            return True
+
+        def readable(self, fd, condition):
+            try:
+                chunk = os.read(fd, 4 << 20)
+            except BlockingIOError:
+                return True
+            except OSError:
+                chunk = b''
+            if not chunk:
+                self.watch = None  # Returning False removes this watch.
+                self.stop()
+                return False
+            self.buffer += chunk
+            if len(self.buffer) >= self.frame:
+                # Paint the newest whole frame and drop any it has fallen behind.
+                whole = len(self.buffer) // self.frame * self.frame
+                frame, self.buffer = self.buffer[whole - self.frame:whole], self.buffer[whole:]
+                w, h = self.size
+                self.picture.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_bytes(
+                    GLib.Bytes.new(frame), GdkPixbuf.Colorspace.RGB, False, 8, w, h, w * 3))
+            return True
+
+        def pause(self):
+            if not self.playing:
+                return
+            self.paused = not self.paused
+            for process in (self.video, self.audio):
+                if process and process.poll() is None:
+                    process.send_signal(signal.SIGSTOP if self.paused else signal.SIGCONT)
+            self.changed()
+
+        def stop(self):
+            if self.watch:
+                GLib.source_remove(self.watch)
+                self.watch = None
+            for process in (self.video, self.audio):
+                if process:
+                    process.kill()
+                    process.wait()
+                    if process.stdout:
+                        process.stdout.close()
+            was, self.video, self.audio, self.buffer = self.playing, None, None, b''
+            if was:
+                self.changed()
     bus = dbus.SessionBus()
     name = dbus.service.BusName('org.freedesktop.portal.Desktop', bus, do_not_queue=True)
     chooser = 'org.freedesktop.portal.FileChooser'
@@ -401,6 +543,8 @@ def main():
             message.set_destination(self.sender)
             message.append(dbus.UInt32(code), result, signature='ua{sv}')
             bus.send_message(message)
+            if getattr(self, 'player', None):
+                self.player.stop()
             if self.window:
                 self.window.destroy()
             self.remove_from_connection()
@@ -439,7 +583,10 @@ def main():
             self.heading = Gtk.Label(label='My files', xalign=0)
             self.heading.set_ellipsize(3)
             top.pack_start(self.heading, True, True, 0)
-            for label, tip, action in (('Refresh', 'Reload this folder', lambda *_: self.refresh()),
+            actions = []
+            if os.environ.get('BRAVE_PRIVATE_FILES') == 'true':
+                actions.append(('Open in Brave', 'Open the selected file as a tab in Brave', self.open_in_brave))
+            for label, tip, action in (('Refresh', 'Reload this folder', lambda *_: self.refresh()), *actions,
                                        ('Preview', 'Show or hide the preview (Space)', self.toggle_preview),
                                        ('Delete', 'Delete the selected item (Delete)', self.delete),
                                        ('Rename', 'Rename the selected item (F2)', self.rename),
@@ -501,6 +648,12 @@ def main():
             self.details.set_line_wrap(True)
             self.details.set_selectable(False)
             self.pane.pack_start(self.stack, True, True, 0)
+            self.player = Player(self.picture, self.player_changed)
+            self.play = Gtk.Button(label='Play')
+            self.play.set_tooltip_text('Play this file here')
+            self.play.set_no_show_all(True)
+            self.play.connect('clicked', self.play_video)
+            self.pane.pack_start(self.play, False, False, 0)
             self.pane.pack_start(self.details, False, False, 0)
             middle.pack_start(self.pane, False, False, 0)
             box.pack_start(middle, True, True, 0)
@@ -602,12 +755,32 @@ def main():
             self.pane.set_visible(not self.pane.get_visible())
             if self.pane.get_visible():
                 for child in self.pane.get_children():
-                    child.show_all()
+                    if child is not self.play:
+                        child.show_all()
                 self.window.resize(max(self.window.get_size()[0], 1080), self.window.get_size()[1])
             self.show_preview()
 
+        def player_changed(self):
+            if not self.finished:
+                self.play.set_label('Play' if not self.player.playing else 'Resume' if self.player.paused else 'Pause')
+
+        def play_video(self, *_):
+            if self.player.playing:
+                self.player.pause()
+                return
+            chosen = self.chosen()
+            if chosen and not chosen[1] and kind(chosen[0]) in ('video', 'audio'):
+                if kind(chosen[0]) == 'video':
+                    self.stack.set_visible_child_name('picture')
+                if not self.player.start(self.parts + [chosen[0]]):
+                    self.details.set_text(self.details.get_text() + '\nThis file cannot be played here.')
+
         def show_preview(self):
-            if self.finished or not self.pane.get_visible():
+            if self.finished:
+                return
+            self.player.stop()
+            self.play.set_visible(False)
+            if not self.pane.get_visible():
                 return
             self.preview = getattr(self, 'preview', 0) + 1
             chosen = self.chosen()
@@ -623,6 +796,9 @@ def main():
             if directory:
                 return
             shape = kind(name)
+            self.play.set_visible(shape in ('video', 'audio'))
+            if shape == 'audio':
+                self.details.set_text(self.details.get_text() + '\nPress Play to listen.')
             if shape in ('image', 'pdf', 'video'):
                 previews.request(self.parts + [name], 320, 420,
                                  lambda picture, preview=self.preview: self.picture_ready(preview, picture), first=True)
@@ -639,15 +815,36 @@ def main():
                     pass
 
         def picture_ready(self, preview, picture):
-            if self.finished or preview != self.preview:
+            if self.finished or preview != self.preview or self.player.playing:
                 return
             if picture:
                 self.picture.set_from_pixbuf(picture)
                 self.stack.set_visible_child_name('picture')
                 if kind((self.chosen() or ('',))[0]) == 'video':
-                    self.details.set_text(self.details.get_text() + '\nA still frame. Open the file to play it.')
+                    self.details.set_text(self.details.get_text() + '\nPress Play to watch it here.')
             else:
                 self.details.set_text(self.details.get_text() + '\nNo preview available.')
+
+        def open_in_brave(self, *_):
+            chosen = self.chosen()
+            if not chosen or chosen[1]:
+                self.error.set_text('Select one file to open in Brave.')
+                return
+            reason = openable(chosen[0], os.environ.get('BRAVE_OFFICE_VIEWER') == 'true')
+            if reason:
+                self.error.set_text(reason)
+                return
+            # The gateway watches this private folder and opens the file as it
+            # does from the My files panel, office documents included.
+            try:
+                files.uri(self.parts + [chosen[0]])
+                folder = Path(os.environ['XDG_RUNTIME_DIR'])
+                draft = folder / ('.open-request-' + secrets.token_hex(6))
+                draft.write_text(json.dumps({'parts': self.parts + [chosen[0]]}))
+                os.replace(draft, folder / 'open-request')
+                self.error.set_text(f'Opening "{chosen[0]}" in Brave. Close this window to see it.')
+            except (OSError, ValueError, KeyError):
+                self.error.set_text('That file could not be opened in Brave.')
 
         def ask(self, title, value=''):
             dialog = Gtk.Dialog(title=title, transient_for=self.window, modal=True)
