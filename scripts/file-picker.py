@@ -39,7 +39,8 @@ class Files:
             for name in os.listdir(fd):
                 try:
                     info = os.stat(name, dir_fd=fd, follow_symlinks=False)
-                    if stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode):
+                    # Dotfiles are upload fragments and application state, not the user's files.
+                    if not name.startswith('.') and (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
                         result.append((name, stat.S_ISDIR(info.st_mode), info.st_size))
                 except OSError:
                     continue
@@ -74,6 +75,26 @@ class Files:
         if not path.resolve().is_relative_to(self.root):
             raise ValueError('File is outside My files')
         return path.as_uri()
+
+
+def readable_size(size):
+    value = float(size)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if value < 1024:
+            return f'{int(value)} B' if unit == 'B' else f'{value:.1f} {unit}'
+        value /= 1024
+    return f'{value:.1f} TB'
+
+
+def matches(filename, patterns):
+    """Whether a file passes a portal filter: (0, glob) or (1, MIME type) pairs.
+
+    Names compare without case: a site asking for *.jpg means PHOTO.JPG too.
+    """
+    mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+    return not patterns or any(
+        fnmatch.fnmatchcase((filename if kind == 0 else mime).casefold(), str(pattern).casefold())
+        for kind, pattern in patterns)
 
 
 def main():
@@ -214,11 +235,9 @@ def main():
             try:
                 for filename, directory, size in files.entries(self.parts):
                     if not directory and self.filters:
-                        patterns = self.filters[self.filter.get_active()][1]
-                        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-                        if patterns and not any(fnmatch.fnmatchcase(filename if kind == 0 else mime, str(pattern)) for kind, pattern in patterns):
+                        if not matches(filename, self.filters[self.filter.get_active()][1]):
                             continue
-                    self.model.append([filename, 'Folder' if directory else f'{size / 1024:.1f} KB', directory])
+                    self.model.append([filename, 'Folder' if directory else readable_size(size), directory])
                 self.error.set_text('')
             except (OSError, ValueError):
                 self.error.set_text('This folder is no longer available. Use Up or Refresh.')

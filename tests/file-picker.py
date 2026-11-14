@@ -9,6 +9,7 @@ with tempfile.TemporaryDirectory() as tmp:
     root=Path(tmp)/'Downloads'; root.mkdir()
     (root/'safe.txt').write_text('safe')
     (root/'folder').mkdir(); (root/'folder'/'nested.txt').write_text('nested')
+    (root/'.upload-fragment').write_text('partial')
     (root/'escape').symlink_to('/etc')
     (root/'linked.txt').symlink_to('/etc/passwd')
     os.mkfifo(root/'pipe')
@@ -27,4 +28,8 @@ with tempfile.TemporaryDirectory() as tmp:
     except (OSError,ValueError): pass
     else: raise AssertionError('Directory substitution allowed')
     os.close(files.fd)
+# Site filters ignore letter case; sizes read in a sensible unit.
+assert p.matches('PHOTO.JPG',[(0,'*.jpg')]) and p.matches('photo.jpg',[(1,'IMAGE/*')])
+assert not p.matches('notes.txt',[(0,'*.jpg'),(1,'image/*')]) and p.matches('anything.bin',[])
+assert [p.readable_size(n) for n in (0,900,1536,5*1024**2,2*1024**3)]==['0 B','900 B','1.5 KB','5.0 MB','2.0 GB']
 print('PASS: picker confines regular files, save paths and navigation; rejects links, traversal and special files')

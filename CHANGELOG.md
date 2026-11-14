@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.50 (Pocket ID fork)
+
+- Add an **Open** button to every file in My files. It opens the file as a new tab in the remote browser: pictures, video, audio, PDF and text directly from the Downloads folder.
+- Open office documents (Word, Excel, PowerPoint, OpenDocument, CSV) through an ONLYOFFICE Docs server set with `OFFICE_SERVER_URL` and `OFFICE_JWT_SECRET`. Documents are view only; the server reads the file through a private link that expires within an hour and ends with the desktop.
+- Limit `file://` addresses to the identity's own storage by managed policy. Before, a typed `file:///` address could browse everything in the container the account could read.
+- My files picker: site filters such as `*.jpg` now match `PHOTO.JPG`, sizes are shown in a readable unit instead of always kilobytes, and hidden files such as upload fragments are no longer listed. The My files panel shows readable sizes too.
+
 ## 1.2.0-beta.49 (Pocket ID fork)
 
 - Log why a sign-in was refused: the identity provider could not be reached, the account is not in an allowed group, or the token failed verification. Each now also has its own message instead of one generic refusal.

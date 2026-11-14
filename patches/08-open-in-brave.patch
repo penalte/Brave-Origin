@@ -1,0 +1,73 @@
+--- a/src/selkies/stream_server.py
++++ b/src/selkies/stream_server.py
+@@ -101,6 +101,16 @@
+             self.logger.exception("Error in logging")
+ 
+ 
++def _readable_size(size: int) -> str:
++    """A file size in the largest unit that keeps it readable."""
++    value = float(size)
++    for unit in ("B", "KB", "MB", "GB"):
++        if value < 1024:
++            return f"{int(value)} B" if unit == "B" else f"{value:.1f} {unit}"
++        value /= 1024
++    return f"{value:.1f} TB"
++
++
+ def _scan_directory(path: str, include_parent: bool) -> List[Dict[str, Any]]:
+     """One directory's entries, as the file index renders them.
+ 
+@@ -123,7 +133,7 @@
+                 continue
+             items.append({
+                 "name": entry.name + ("/" if is_dir else ""),
+-                "size": f"{stats.st_size / 1024:.1f} KB" if not is_dir else "-",
++                "size": _readable_size(stats.st_size) if not is_dir else "-",
+                 "mtime": mtime,
+                 "is_dir": is_dir,
+             })
+@@ -997,7 +1007,14 @@
+                 heading.textContent = 'Delete';
+                 heading.style.textAlign = 'center';
+                 document.querySelector('table#list thead tr').appendChild(heading);
++                const openHeading = document.createElement('th');
++                openHeading.textContent = 'Open';
++                openHeading.style.textAlign = 'center';
++                heading.before(openHeading);
+                 document.querySelectorAll('table#list tbody tr').forEach(function(row) {
++                    const open = row.insertCell();
++                    open.className = 'open-cell';
++                    open.style.cssText = 'text-align:center;width:56px';
+                     const cell = row.insertCell();
+                     cell.className = 'delete-cell';
+                     cell.style.cssText = 'text-align:center;width:56px';
+@@ -1012,6 +1029,29 @@
+                 if (!href.split('?')[0].endsWith('/')) {
+                     a.setAttribute('download', '');
+                     if (window.__MY_FILES_DELETE__) {
++                        // Opens the file in the remote browser. The gateway
++                        // answers this request itself and picks the viewer.
++                        const opener = document.createElement('button');
++                        opener.type = 'button';
++                        opener.title = 'Open ' + a.textContent + ' in Brave';
++                        opener.setAttribute('aria-label', opener.title);
++                        opener.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
++                        opener.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:transparent;color:#9ecbff;border:0;border-radius:4px;cursor:pointer';
++                        opener.addEventListener('click', async function() {
++                            opener.disabled = true;
++                            try {
++                                const response = await fetch(a.href, {
++                                    method: 'POST', credentials: 'same-origin',
++                                    headers: {'X-My-Files-Action': 'open'}
++                                });
++                                if (!response.ok) throw new Error((await response.text()) || 'Could not open the file (' + response.status + ').');
++                            } catch (error) {
++                                window.alert(error.message);
++                            } finally {
++                                opener.disabled = false;
++                            }
++                        });
++                        a.closest('tr').querySelector('.open-cell').appendChild(opener);
+                         const button = document.createElement('button');
+                         button.type = 'button';
+                         button.title = 'Delete ' + a.textContent;

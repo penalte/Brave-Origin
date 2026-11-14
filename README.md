@@ -39,7 +39,11 @@ never disturbs another's session.
 
 Website uploads and Save dialogs use a private **My files** picker that browses
 only that identity's `Downloads` tree. It rejects symlinks and paths outside that
-tree. These are picker restrictions, not a complete filesystem sandbox for Brave.
+tree. `file://` addresses are limited by policy to the identity's own storage.
+
+Each file in the **My files** panel has an **Open** button that opens it as a tab
+in the remote browser: pictures, video, audio, PDF and text directly, and office
+documents through an optional ONLYOFFICE Docs server (`OFFICE_SERVER_URL`).
 
 [POCKET-ID.md](POCKET-ID.md) covers provider registration, every session setting,
 and the limits of what the isolation does and does not promise.
@@ -217,6 +221,8 @@ each one in full.
 | `MAX_CONCURRENT_SESSIONS` | `2` | Private desktops allowed at once. Each one costs real CPU and memory. |
 | `MAX_UPLOAD_MB` | `1024` | Largest single upload through the session's file transfer. It does not cap total stored files. |
 | `SESSION_MAX_SECONDS` | `28800` | Fixed session lifetime from sign-in, 60 to 86400. Activity does not extend it; the page warns five minutes before the end. |
+| `OFFICE_SERVER_URL` | Empty | Public HTTPS address of an ONLYOFFICE Docs server. When set, office documents opened from My files are shown by it, view only. |
+| `OFFICE_JWT_SECRET` | Empty | That server's JWT secret. Prefer `OFFICE_JWT_SECRET_FILE` with a mounted secret. Leave empty only if the server has JWT disabled. |
 | `SESSION_CONNECT_TIMEOUT` | `90` | Seconds to attach the first stream before the desktop is torn down. |
 | `SESSION_START_TIMEOUT` | `90` | Seconds a private desktop may take to become ready. |
 | `DISCONNECT_GRACE_SECONDS` | `30` | Reconnect window after the last stream drops. |

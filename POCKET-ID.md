@@ -119,6 +119,23 @@ Selkies My files includes a Delete button for individual files, with permanent
 deletion confirmed before sending the request. Only the current identity's
 Downloads files can be removed; folders and symlinks cannot be deleted.
 
+Each file also has an **Open** button, which opens it as a new tab in that
+identity's remote browser. Brave displays pictures, video (MP4, WebM), audio, PDF
+and text itself, straight from the Downloads folder. Local `file://` addresses are
+limited by managed policy to the identity storage under `/config/users`; an
+operator `BROWSER_POLICY` may change `URLBlocklist` and `URLAllowlist`.
+
+Office documents (Word, Excel, PowerPoint and OpenDocument formats, CSV) need an
+ONLYOFFICE Docs server. Set `OFFICE_SERVER_URL` to its public HTTPS address and
+`OFFICE_JWT_SECRET` (or `OFFICE_JWT_SECRET_FILE`) to its JWT secret. Open then
+loads a view-only viewer page from this application, and the document server
+fetches the file through a private link that is valid for at most an hour, only
+while the desktop is running, and never for a symlink. Nothing is written back.
+Two connections must work: the document server must reach this application's
+public address, and the remote browser must reach the document server through
+its network route, so a public hostname is the reliable choice. Without a
+document server, Open on an office file explains that one is required.
+
 Website upload buttons and Save dialogs use a private **My files** picker. It
 opens in the same Downloads folder used by Selkies transfers, supports subfolders,
 multiple files and filename filters, and has no root, Desktop, Other Locations,
