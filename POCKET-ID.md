@@ -121,7 +121,8 @@ Downloads files can be removed; folders and symlinks cannot be deleted.
 
 Each file also has an **Open** button, which opens it as a new tab in that
 identity's remote browser. Brave displays pictures, video (MP4, WebM), audio, PDF
-and text itself, straight from the Downloads folder. Local `file://` addresses are
+and text itself, straight from the Downloads folder. For a type it cannot
+display, such as an archive, Open says so instead of creating a duplicate. Local `file://` addresses are
 limited by managed policy to the identity storage under `/config/users`; an
 operator `BROWSER_POLICY` may change `URLBlocklist` and `URLAllowlist`.
 

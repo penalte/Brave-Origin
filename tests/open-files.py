@@ -76,6 +76,15 @@ async def main():
                      '/api/files/Trip/../budget.xlsx', '/api/files/'):
             await refused(broker.proxy(post(path)), 404)
         assert session.browser.open_url.await_count == 1
+        # A type the browser cannot display is refused: opening it would only
+        # make the browser download a duplicate into My files.
+        for name in ('archive.zip', 'setup.EXE', 'clip.avi', 'photo.heic', 'no-extension'):
+            (files / name).write_bytes(b'data')
+            assert 'Download it' in await refused(broker.proxy(post('/api/files/' + name)), 415)
+        for name in ('song.MP3', 'film.mkv', 'paper.pdf', 'notes.md'):
+            (files / name).write_bytes(b'data')
+            await broker.proxy(post('/api/files/' + name))
+        assert session.browser.open_url.await_count == 5
 
         # Without a document server an office file says so instead of opening a download loop.
         unconfigured = session_for(plain)

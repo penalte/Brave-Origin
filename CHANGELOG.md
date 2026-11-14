@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.2.0-beta.51 (Pocket ID fork)
+
+- Open in My files now refuses a type Brave cannot display (archives, programs, AVI, HEIC and similar) with a message to download it instead. Before, Brave "downloaded" the file and left a duplicate in My files.
+
 ## 1.2.0-beta.50 (Pocket ID fork)
 
 - Add an **Open** button to every file in My files. It opens the file as a new tab in the remote browser: pictures, video, audio, PDF and text directly from the Downloads folder.

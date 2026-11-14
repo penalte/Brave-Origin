@@ -45,6 +45,11 @@ OFFICE_TYPES = {suffix: kind for kind, suffixes in {
     'word': 'doc docx docm dot dotx odt ott rtf',
     'cell': 'xls xlsx xlsm xlt xltx ods ots csv',
     'slide': 'ppt pptx pptm pps ppsx pot potx odp otp'}.items() for suffix in suffixes.split()}
+# Formats the browser displays itself. Anything else it would "download",
+# which only leaves a duplicate of the file in My files.
+BROWSER_TYPES = frozenset('''jpg jpeg jfif png apng gif webp avif svg bmp ico
+mp4 m4v webm ogv mkv mov mp3 wav ogg oga opus flac m4a aac weba
+pdf txt text log md json xml html htm css js yaml yml ini conf'''.split())
 
 
 class TicketExpired(web.HTTPForbidden):
@@ -757,7 +762,11 @@ class Broker(sharing.ViewSharing, single.Manager):
                 os.close(files.fd)
         except (OSError, ValueError):
             raise web.HTTPNotFound(text='That file is not available in My files.') from None
-        kind = OFFICE_TYPES.get(Path(parts[-1]).suffix.lower().lstrip('.'))
+        suffix = Path(parts[-1]).suffix.lower().lstrip('.')
+        kind = OFFICE_TYPES.get(suffix)
+        if not kind and suffix not in BROWSER_TYPES:
+            raise web.HTTPUnsupportedMediaType(text="Brave can't display this type of file. "
+                                                    'Download it to open it on your device instead.')
         if kind:
             if not self.config.office_url:
                 raise web.HTTPConflict(text='Office documents need a document server, and none is configured '
