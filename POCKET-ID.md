@@ -27,7 +27,7 @@ OIDC_CLIENT_ID=your-client-id
 OIDC_CLIENT_SECRET=your-client-secret
 OIDC_SCOPES=openid profile email groups
 OIDC_ALLOWED_GROUPS=
-SESSION_MAX_SECONDS=3600
+SESSION_MAX_SECONDS=28800
 DISCONNECT_GRACE_SECONDS=30
 SESSION_CONNECT_TIMEOUT=90
 SESSION_START_TIMEOUT=90
@@ -78,7 +78,7 @@ The X11 image is not supported by this integration.
 ## Session behavior
 
 - No browser runs while idle. An idle gateway remains healthy.
-- A session lasts `SESSION_MAX_SECONDS` from sign-in (default one hour, at most
+- A session lasts `SESSION_MAX_SECONDS` from sign-in (default eight hours, at most
   24 hours) and then closes, whatever is playing or open. Activity does not
   extend it and there is no silent refresh. The ID token only proves the
   sign-in; its own expiry no longer shortens the session. The page warns five

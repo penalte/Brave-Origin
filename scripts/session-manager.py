@@ -125,7 +125,7 @@ class Config:
             raise ValueError('OIDC_SCOPES must include openid')
         self.groups = set(filter(None, (s.strip() for s in env.get('OIDC_ALLOWED_GROUPS', '').split(','))))
         self.group_claim = env.get('OIDC_GROUPS_CLAIM', 'groups')
-        self.ttl = integer(env, 'SESSION_MAX_SECONDS', 3600, 60, 86400)
+        self.ttl = integer(env, 'SESSION_MAX_SECONDS', 28800, 60, 86400)
         self.grace = integer(env, 'DISCONNECT_GRACE_SECONDS', 30, 0, 300)
         self.start_timeout = integer(env, 'SESSION_CONNECT_TIMEOUT', 90, 10, 300)
         self.update_interval = integer(env, 'UPDATE_INTERVAL', 21600, 60, 604800)

@@ -216,7 +216,7 @@ each one in full.
 | `OIDC_GROUPS_CLAIM` | `groups` | ID-token claim carrying group membership. |
 | `MAX_CONCURRENT_SESSIONS` | `2` | Private desktops allowed at once. Each one costs real CPU and memory. |
 | `MAX_UPLOAD_MB` | `1024` | Largest single upload through the session's file transfer. It does not cap total stored files. |
-| `SESSION_MAX_SECONDS` | `3600` | Fixed session lifetime from sign-in, 60 to 86400. Activity does not extend it; the page warns five minutes before the end. |
+| `SESSION_MAX_SECONDS` | `28800` | Fixed session lifetime from sign-in, 60 to 86400. Activity does not extend it; the page warns five minutes before the end. |
 | `SESSION_CONNECT_TIMEOUT` | `90` | Seconds to attach the first stream before the desktop is torn down. |
 | `SESSION_START_TIMEOUT` | `90` | Seconds a private desktop may take to become ready. |
 | `DISCONNECT_GRACE_SECONDS` | `30` | Reconnect window after the last stream drops. |
