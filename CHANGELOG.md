@@ -1,5 +1,15 @@
 # Release notes
 
+## 1.2.0-beta.49 (Pocket ID fork)
+
+- Log why a sign-in was refused: the identity provider could not be reached, the account is not in an allowed group, or the token failed verification. Each now also has its own message instead of one generic refusal.
+- Opening the preparation page without a current sign-in (back, a restored tab, the address bar) returns to the portal instead of "This sign-in expired".
+- Reloading while the desktop is being prepared joins the launch in progress and keeps the session, instead of "Preparation is already running" followed by a take-over prompt for your own desktop.
+- A verified sign-in may launch, or retry launching, its desktop for ten minutes instead of two. A retry that can no longer succeed returns to the portal.
+- Sign-in attempts in several tabs no longer break each other: each has its own login cookie.
+- Cancelling at the identity provider returns to the portal with "Sign-in was cancelled" instead of "Invalid or expired login".
+- Tolerate up to a minute of clock difference between the identity provider and this container when verifying tokens.
+
 ## 1.2.0-beta.48 (Pocket ID fork)
 
 - Fix "This choice expired" after choosing Take over. A second click while the takeover settled was refused and replaced the first answer, which signed the user out; a repeated click now receives the first click's result. The buttons also lock and say what is happening.

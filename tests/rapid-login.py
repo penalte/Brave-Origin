@@ -3,7 +3,9 @@ import asyncio
 import importlib.util
 import time
 from pathlib import Path
-from aiohttp import web
+from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlsplit
+from aiohttp import ClientError, web
 from aiohttp.test_utils import make_mocked_request
 
 spec = importlib.util.spec_from_file_location('multi','/usr/local/bin/multi-session.py')
@@ -69,10 +71,69 @@ async def main():
     response=await broker.prepare_session(request())
     assert response.status==200 and '/session/resolve' in response.text
     assert '__Host-brave-handoff' in response.cookies
+    # A repeated request is answered with the first result and launches nothing.
+    again=await broker.prepare_session(request())
+    assert again.cookies['__Host-brave-handoff'].value==response.cookies['__Host-brave-handoff'].value
+    assert starts.count('alice')==1, 'A repeated preparation launched another desktop'
+    broker.preparations['ticket']['expires']=time.time()-1
+    gone=await broker.prepare_session(request())
+    assert gone.status==403 and '/?notice=signin_expired' in gone.text, 'A finished sign-in must lead back to the portal'
+    page=make_mocked_request('GET','/session/prepare'); page['app_origin']='https://web.test'
+    opened=await broker.prepare_page(page)
+    assert opened.status==302 and opened.headers['Location']=='/?notice=signin_expired', 'Preparation page dead end'
+    # Two desktops for one identity are impossible even if the page reloads
+    # mid-launch: both requests share one launch and one session cookie.
+    launches=[]
+    async def slow(self,issuer,subject):
+        launches.append(subject); await asyncio.sleep(.3)
+    Desktop.start=slow
+    broker.preparations['carol']=dict(identity='carol',claims=claims('carol'),flow=flow,expires=time.time()+120)
+    def carol():
+        req=make_mocked_request('POST','/session/prepare',headers={'Cookie':'__Host-brave-prepare=carol','Origin':'https://web.test'})
+        req['app_origin']='https://web.test'
+        return req
+    with patch.object(broker,'provision_view_tokens',AsyncMock()):
+        both=await asyncio.gather(broker.prepare_session(carol()),broker.prepare_session(carol()))
+    assert launches==['carol'] and len({r.cookies[m.single.COOKIE].value for r in both})==1, 'A reload during preparation lost the session'
+    await broker.sessions.pop('carol').http.close()
+    # Sign-in attempts in two tabs are independent, a cancelled one says so,
+    # and each kind of refusal is told apart.
+    class Provider:
+        failure=None
+        async def discovery(self,http): return {'authorization_endpoint':'https://id.test/authorize'}
+        async def authenticate(self,http,code,flow):
+            if self.failure: raise self.failure
+            return claims(code)
+    gate=m.Broker(config,desktop_factory=Desktop,oidc=Provider()); gate.app()
+    def visit(path,cookie=''):
+        req=make_mocked_request('GET',path,headers={'Cookie':cookie}); req['app_origin']='https://web.test'
+        return req
+    tabs=[]
+    for _ in range(3):
+        started=await gate.login(visit('/auth/login'))
+        (name,morsel),=started.cookies.items()
+        state=parse_qs(urlsplit(started.headers['Location']).query)['state'][0]
+        tabs.append((state,name+'='+morsel.value))
+    assert len({cookie.split('=')[0] for _,cookie in tabs})==3, 'Sign-in tabs share one cookie'
+    jar='; '.join(cookie for _,cookie in tabs)
+    done=await gate.callback(visit('/auth/callback?code=dave&state='+tabs[0][0],jar))
+    assert done.status==302 and done.headers['Location']=='/session/prepare', 'An older sign-in tab was broken by a newer one'
     try:
-        await broker.prepare_session(request())
-        raise AssertionError('Preparation ticket replay accepted')
-    except web.HTTPForbidden: pass
+        await gate.callback(visit('/auth/callback?error=access_denied&state='+tabs[1][0],jar))
+        raise AssertionError('A cancelled sign-in was accepted')
+    except web.HTTPFound as redirect:
+        assert redirect.headers['Location']=='/?notice=signin_cancelled'
+    for failure,status,text in ((m.single.NotAllowed('group'),403,'not allowed'),(ClientError('down'),503,'unavailable'),
+                                (ValueError('Nonce mismatch'),403,'could not be verified')):
+        gate.oidc.failure=failure
+        started=await gate.login(visit('/auth/login'))
+        (name,morsel),=started.cookies.items()
+        state=parse_qs(urlsplit(started.headers['Location']).query)['state'][0]
+        try:
+            await gate.callback(visit('/auth/callback?code=x&state='+state,name+'='+morsel.value))
+            raise AssertionError('A failed verification was accepted')
+        except web.HTTPException as refused:
+            assert refused.status==status and text in refused.text, (refused.status,refused.text)
     from html.parser import HTMLParser
     class Inputs(HTMLParser):
         value = None
@@ -117,7 +178,7 @@ async def main():
             await attempt()
             raise AssertionError('A missing or timed-out choice was accepted')
         except web.HTTPFound as redirect:
-            assert redirect.headers['Location']=='/?choice_expired=1'
+            assert redirect.headers['Location']=='/?notice=choice_expired'
     assert alice.owner['cookie']==owner and alice.state=='RUNNING'
     # A takeover interrupted midway must leave the desktop usable.
     offered=broker.offer_handoff('alice',claims('alice'),flow)
