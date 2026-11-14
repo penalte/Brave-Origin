@@ -187,11 +187,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends tini tzdata util-linux && rm -rf /var/lib/apt/lists/*
 
 # Optional official WARP client. No registration or tunnel during image build.
+# Unpinned on purpose: Cloudflare removes old versions from its repository, and
+# a pinned one breaks the build as soon as it is retired.
 ARG INSTALL_WARP=true
 RUN if [ "$INSTALL_WARP" = true ]; then \
       curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg -o /etc/apt/keyrings/cloudflare-warp.asc && \
       echo 'deb [signed-by=/etc/apt/keyrings/cloudflare-warp.asc] https://pkg.cloudflareclient.com/ trixie main' > /etc/apt/sources.list.d/cloudflare-warp.list && \
-      apt-get update && apt-get install -y --no-install-recommends cloudflare-warp=2026.7.1377.0 && \
+      apt-get update && apt-get install -y --no-install-recommends cloudflare-warp && \
       rm -rf /var/lib/apt/lists/*; \
     elif [ "$INSTALL_WARP" != false ]; then exit 1; fi
 
