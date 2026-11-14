@@ -3,6 +3,7 @@
 Never inherit proxy environment into the OIDC broker. Rules cover private desktop
 UIDs and the legacy browser UID, while root/nginx retain normal ingress routing.
 """
+import ipaddress
 import json
 import logging
 import os
@@ -29,6 +30,14 @@ def configuration(env=os.environ):
         raise ValueError('WARP mode requires WARP_ACCEPT_TOS=true')
     if mode == 'warp' and not shutil.which('warp-svc'):
         raise ValueError('This image was built without WARP; rebuild with INSTALL_WARP=true')
+    # Refuse a malformed allowlist at startup, not at the first connection.
+    for item in env.get('BROWSER_ALLOWED_PRIVATE_NETWORKS', '').split(','):
+        if item.strip():
+            try:
+                ipaddress.ip_network(item.strip(), strict=False)
+            except ValueError:
+                raise ValueError('BROWSER_ALLOWED_PRIVATE_NETWORKS must be comma-separated '
+                                 f'addresses or CIDR networks: {item.strip()!r}') from None
     return {'mode': mode}
 
 

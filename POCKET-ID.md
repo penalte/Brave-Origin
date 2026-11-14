@@ -78,8 +78,13 @@ The X11 image is not supported by this integration.
 ## Session behavior
 
 - No browser runs while idle. An idle gateway remains healthy.
-- The application lifetime is bounded by `SESSION_MAX_SECONDS` and the ID token's
-  expiry, whichever comes first. No silent refresh extends browser occupancy.
+- A session lasts `SESSION_MAX_SECONDS` from sign-in (default one hour, at most
+  24 hours) and then closes, whatever is playing or open. Activity does not
+  extend it and there is no silent refresh. The ID token only proves the
+  sign-in; its own expiry no longer shortens the session. The page warns five
+  minutes before the end; sign in again to continue with the same profile.
+- The gateway log records why each desktop closed: lifetime reached, stream
+  disconnected past the grace period, browser exited, or ended by the user.
 - Before the first stream attaches, `SESSION_CONNECT_TIMEOUT` permits loading the
   interface. After a disconnect, `DISCONNECT_GRACE_SECONDS` permits reconnection.
   Network failure detection also requires WebSocket heartbeat timeout.
@@ -241,6 +246,15 @@ port, never another user's direct route or the WARP proxy itself. With Compose,
 add `-f compose.warp.yaml`; on Unraid add `--cap-add=NET_ADMIN` to Extra Parameters.
 Proxy ports 61000-61127 are reserved on loopback. Do not publish proxy ports or use host networking. No privileged container is
 needed. Legacy direct-only mode without OIDC still works without NET_ADMIN.
+
+Browsers reach public internet addresses only. The relay refuses loopback,
+private (RFC 1918), link-local, shared (100.64.0.0/10) and IPv6 local addresses,
+including names that resolve to them, so a signed-in user or a guest with control
+cannot open the router, other containers, cloud metadata or this container's own
+internal ports. To let browsers reach chosen internal sites, list them in
+`BROWSER_ALLOWED_PRIVATE_NETWORKS` as comma-separated addresses or CIDR networks,
+for example `192.168.1.0/24,10.0.0.5`. This applies to every user and to legacy
+mode. The relay's own proxy ports stay closed whatever is listed.
 
 WARP requires the included official package and `WARP_ACCEPT_TOS=true`, accepting
 Cloudflare's terms. Map a private persistent appdata directory to

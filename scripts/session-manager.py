@@ -534,6 +534,7 @@ class Manager:
             'name': self.owner['name'] if own else '', 'csrf': self.owner['csrf'] if own else '',
             'admin': bool(own and self.owner.get('admin')),
             'picture': self.owner.get('picture', '') if own else '',
+            'expires_in': max(0, int(self.owner['expires'] - time.time())) if own else None,
             'network': network_status() if own else None})
 
     async def login(self, request):
@@ -580,7 +581,9 @@ class Manager:
             self.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
                           'origin': flow['origin'], 'picture': profile_picture(claims),
                           'name': str(claims.get('name') or claims.get('preferred_username') or 'Private browser')[:120],
-                          'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
+                          # The ID token proves the sign-in; it does not time the
+                          # desktop. SESSION_MAX_SECONDS is the only lifetime.
+                          'expires': time.time() + self.config.ttl}
             try:
                 await self.browser.start(claims['iss'], claims['sub'])
                 self.state = 'RUNNING'
@@ -632,6 +635,7 @@ class Manager:
             # Recheck after waiting so an old request cannot stop a newer session.
             if not self.owns(request):
                 raise web.HTTPForbidden()
+            LOG.info('Ending session: the user chose End session')
             await self.stop_locked()
         response = web.json_response({'ended': self.state == 'IDLE'}, status=200 if self.state == 'IDLE' else 503)
         response.del_cookie(COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
@@ -760,9 +764,9 @@ class Manager:
             async with self.lock:
                 if self.state == 'RUNNING':
                     grace = self.config.grace if self.connected_once else self.config.start_timeout
-                    expired = time.time() >= self.owner['expires']
-                    disconnected = not self.connections and time.monotonic() - self.last_disconnect >= grace
-                    if expired or disconnected or not self.browser.running():
+                    reason = self.end_reason()
+                    if reason:
+                        LOG.info('Ending session: %s', reason)
                         await self.stop_locked()
                 elif self.state == 'ERROR' and time.monotonic() - self.last_recovery >= 30:
                     await self.retry_locked()
@@ -774,6 +778,19 @@ class Manager:
                     update = True
             if update:
                 await self.update()
+
+    def end_reason(self):
+        """Why a running session must close now, or None while it may continue."""
+        if time.time() >= self.owner['expires']:
+            return f'SESSION_MAX_SECONDS ({self.config.ttl}s) reached'
+        if not self.browser.running():
+            return 'the browser exited'
+        grace = self.config.grace if self.connected_once else self.config.start_timeout
+        idle = time.monotonic() - self.last_disconnect
+        if not self.connections and idle >= grace:
+            return (f'stream disconnected for {int(idle)}s (DISCONNECT_GRACE_SECONDS={grace})' if self.connected_once
+                    else f'no stream connected within {int(idle)}s of sign-in (SESSION_CONNECT_TIMEOUT={grace})')
+        return None
 
     async def retry_locked(self):
         """Reconcile a failed cleanup so a transient fault is not a permanent outage."""

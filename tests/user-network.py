@@ -11,7 +11,8 @@ spec.loader.exec_module(u)
 
 
 async def main():
-    os.environ.update(OIDC_ENABLED='true', WARP_ENABLED='false', WARP_ACCEPT_TOS='true')
+    os.environ.update(OIDC_ENABLED='true', WARP_ENABLED='false', WARP_ACCEPT_TOS='true',
+                      BROWSER_ALLOWED_PRIVATE_NETWORKS='127.0.0.1/32')
     u.network.setup()
     users = []
     server = None
@@ -60,6 +61,13 @@ async def main():
             writer.write(b'\x05\x01\x00\x01\x7f\x00\x00\x01'+(18081).to_bytes(2,'big'))
             assert (await reader.readexactly(10))[1] == 0
             return reader,writer
+        for target in (b'\x7f\x00\x00\x02', b'\x00\x00\x00\x00', b'\xc0\xa8\x01\x01', b'\xa9\xfe\xa9\xfe'):
+            reader,writer = await asyncio.open_connection('127.0.0.1',a.port)
+            writer.write(b'\x05\x01\x00')
+            assert await reader.readexactly(2) == b'\x05\x00'
+            writer.write(b'\x05\x01\x00\x01'+target+(18081).to_bytes(2,'big'))
+            assert (await reader.readexactly(10))[1] != 0, 'Internal destination reachable through a user relay'
+            writer.close()
         ar,aw = await connect(a)
         br,bw = await connect(b)
         port = a.port

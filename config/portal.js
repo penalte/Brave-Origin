@@ -7,6 +7,19 @@ let preparing = false, streamReady = false, preparationTimer, preparationCloseTi
 let preparationRequest = false;
 let startupCompleted = false;
 let checkingConnection = false;
+// Sessions end at a fixed time. Say so five minutes ahead instead of closing a
+// video or a half-written form without notice.
+let expiresAt = 0, expiryDismissed = false;
+function renderExpiry() {
+  const left = Math.ceil((expiresAt - Date.now()) / 1000);
+  const show = opened && expiresAt && left > 0 && left <= 300 && !expiryDismissed;
+  document.getElementById('expiry-warning').hidden = !show;
+  if (show) document.getElementById('expiry-text').textContent = left > 60
+    ? `This session ends in ${Math.ceil(left / 60)} minutes. Finish up, then sign in again to continue.`
+    : `This session ends in ${left} seconds. Sign in again to continue.`;
+}
+document.getElementById('expiry-dismiss').onclick = () => { expiryDismissed = true; renderExpiry(); };
+setInterval(renderExpiry, 1000);
 async function checkConnection() {
   if (checkingConnection) return true;
   checkingConnection = true;
@@ -99,6 +112,10 @@ async function update() {
     isAdmin = state.admin === true;
     picture = state.picture || '';
     network = state.network || {mode:'unknown', state:'unavailable'};
+    const ends = typeof state.expires_in === 'number' ? Date.now() + state.expires_in * 1000 : 0;
+    // A later end time means a new sign-in; show its warning again when due.
+    if (ends > expiresAt + 5000) expiryDismissed = false;
+    expiresAt = ends;
     if (!isAdmin) document.getElementById('admin-panel').close();
     const active = state.owner && state.state === 'RUNNING';
     document.getElementById('welcome').hidden = active && !preparing;

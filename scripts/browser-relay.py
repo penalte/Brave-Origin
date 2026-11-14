@@ -2,6 +2,11 @@
 
 No TLS inspection, disk buffering, UDP forwarding, or direct fallback from WARP.
 DNS names are passed verbatim to WARP; only direct mode resolves locally.
+
+The relay runs as root, outside the per-UID firewall, so it is the only thing
+standing between a desktop and the container's own network. It refuses every
+destination that is not a public address unless the operator listed its network
+in BROWSER_ALLOWED_PRIVATE_NETWORKS.
 """
 import asyncio
 import ctypes
@@ -20,9 +25,41 @@ USER_PORTS = range(61000, 61128)
 REPLY = b'\x05\x00\x00\x01' + b'\x00' * 6
 
 
-def private_proxy(address, port):
+def allowed_networks(env=os.environ):
+    """Operator-listed private networks that desktops may reach, as CIDR blocks."""
+    networks = []
+    for item in env.get('BROWSER_ALLOWED_PRIVATE_NETWORKS', '').split(','):
+        if item.strip():
+            try:
+                networks.append(ipaddress.ip_network(item.strip(), strict=False))
+            except ValueError:
+                raise ValueError('BROWSER_ALLOWED_PRIVATE_NETWORKS must be comma-separated '
+                                 f'addresses or CIDR networks: {item.strip()!r}') from None
+    return tuple(networks)
+
+
+def parse(address):
     ip = ipaddress.ip_address(address.split('%')[0])
-    if not (ip.is_loopback or getattr(ip, 'ipv4_mapped', None) and ip.ipv4_mapped.is_loopback):
+    return getattr(ip, 'ipv4_mapped', None) or ip
+
+
+def literal(host):
+    try:
+        return parse(host)
+    except ValueError:
+        return None
+
+
+def internal(address, allowed=()):
+    """Loopback, private, link-local, shared and other non-public addresses."""
+    ip = parse(address)
+    return not ip.is_global and not any(ip in network for network in allowed)
+
+
+def private_proxy(address, port):
+    ip = parse(address)
+    # Linux delivers the unspecified address to loopback.
+    if not (ip.is_loopback or ip.is_unspecified):
         return False
     # Reserve the entire range, including free ports: checking only active
     # listeners would allow a bind/connect race while another desktop starts.
@@ -63,6 +100,14 @@ class Relay:
     def __init__(self, mode):
         self.mode = mode
         self.connections = set()
+        self.allowed = allowed_networks()
+
+    def refuse(self, address, port):
+        # Proxy ports stay closed even inside an allowed network.
+        if private_proxy(address, port):
+            raise ValueError('Private proxy chaining is not allowed')
+        if internal(address, self.allowed):
+            raise ValueError('Internal destinations are not allowed')
 
     async def client(self, reader, writer):
         task = asyncio.current_task()
@@ -89,6 +134,13 @@ class Relay:
                     return
                 host, port, destination = await address(reader, kind)
                 if self.mode == 'warp':
+                    # Names resolve remotely, but the local WARP client must
+                    # never be handed an address or name on this side of it.
+                    name = host.rstrip('.').lower()
+                    if name == 'localhost' or name.endswith('.localhost'):
+                        raise ValueError('Internal destinations are not allowed')
+                    if literal(host) is not None:
+                        self.refuse(host, port)
                     remote, upstream = await asyncio.open_connection('127.0.0.1', WARP_PORT)
                     upstream.write(b'\x05\x01\x00')
                     await upstream.drain()
@@ -101,10 +153,12 @@ class Relay:
                         raise ValueError('WARP connection failed')
                     await address(remote, kind)
                 else:
-                    # Reject recursion into our own listening port after resolution.
+                    # Check every resolved address, then connect to exactly those:
+                    # a name with one public and one internal record is refused,
+                    # and no second lookup can swap the answer afterwards.
                     infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
-                    if any(private_proxy(info[4][0], port) for info in infos):
-                        raise ValueError('Private proxy chaining is not allowed')
+                    for info in infos:
+                        self.refuse(info[4][0], port)
                     # Use the resolved address to avoid a second, inconsistent lookup.
                     for family, _, _, _, endpoint in infos:
                         try:
