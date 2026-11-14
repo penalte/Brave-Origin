@@ -442,7 +442,9 @@ class Broker(sharing.ViewSharing, single.Manager):
                     session.owner = {'cookie': secrets.token_urlsafe(32), 'csrf': secrets.token_urlsafe(32),
                         'picture': single.profile_picture(claims),
                         'origin': flow['origin'], 'name': str(claims.get('name') or 'Private browser')[:120],
-                        'expires': min(time.time() + self.config.ttl, float(claims['exp']))}
+                        # The ID token proves the sign-in; it does not time the
+                        # desktop. SESSION_MAX_SECONDS is the only lifetime.
+                        'expires': time.time() + self.config.ttl}
                     session.owner['admin'] = admin_claim(claims, self.config.group_claim)
                     session.owner['started_at'] = time.time()
                     self.sessions[identity] = session
@@ -560,6 +562,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                             session.owner['cookie'] != pending['owner_cookie']):
                         raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
                     if action == 'disconnect':
+                        LOG.info('Ending desktop %s: closed from a new sign-in', pending['identity'][:12])
                         await self.end(pending['identity'], session)
                         if session.state != 'IDLE':
                             raise web.HTTPServiceUnavailable(text='Desktop cleanup failed')
@@ -570,7 +573,9 @@ class Broker(sharing.ViewSharing, single.Manager):
                         session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
                             'csrf': secrets.token_urlsafe(32),
                             'admin': session.owner['admin'] if pending.get('same_owner') else admin_claim(pending['claims'], self.config.group_claim),
-                            'expires': min(time.time() + self.config.ttl, float(pending['claims']['exp']))}
+                            # A fresh sign-in starts a new lifetime; reopening the
+                            # same session in another tab keeps the one it had.
+                            'expires': session.owner['expires'] if pending.get('same_owner') else time.time() + self.config.ttl}
                         await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
                             for ws in list(session.connections)), return_exceptions=True)
                         session.connections.clear()
@@ -637,9 +642,9 @@ class Broker(sharing.ViewSharing, single.Manager):
                                 await session.browser.network.recover()
                             except (OSError,RuntimeError,ValueError):
                                 LOG.exception('Private network recovery failed')
-                        grace = self.config.grace if session.connected_once else self.config.start_timeout
-                        if (time.time() >= session.owner['expires'] or not session.browser.running()
-                                or not session.connections and time.monotonic() - session.last_disconnect >= grace):
+                        reason = session.end_reason()
+                        if reason:
+                            LOG.info('Ending desktop %s (%s): %s', identity[:12], session.owner['name'], reason)
                             await self.end(identity, session)
                     elif session.state == 'ERROR' and time.monotonic() - session.last_recovery >= 30:
                         await self.end(identity, session)

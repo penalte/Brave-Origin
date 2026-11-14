@@ -78,8 +78,13 @@ The X11 image is not supported by this integration.
 ## Session behavior
 
 - No browser runs while idle. An idle gateway remains healthy.
-- The application lifetime is bounded by `SESSION_MAX_SECONDS` and the ID token's
-  expiry, whichever comes first. No silent refresh extends browser occupancy.
+- A session lasts `SESSION_MAX_SECONDS` from sign-in (default one hour, at most
+  24 hours) and then closes, whatever is playing or open. Activity does not
+  extend it and there is no silent refresh. The ID token only proves the
+  sign-in; its own expiry no longer shortens the session. The page warns five
+  minutes before the end; sign in again to continue with the same profile.
+- The gateway log records why each desktop closed: lifetime reached, stream
+  disconnected past the grace period, browser exited, or ended by the user.
 - Before the first stream attaches, `SESSION_CONNECT_TIMEOUT` permits loading the
   interface. After a disconnect, `DISCONNECT_GRACE_SECONDS` permits reconnection.
   Network failure detection also requires WebSocket heartbeat timeout.
