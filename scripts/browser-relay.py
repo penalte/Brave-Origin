@@ -4,9 +4,12 @@ No TLS inspection, disk buffering, UDP forwarding, or direct fallback from WARP.
 DNS names are passed verbatim to WARP; only direct mode resolves locally.
 
 The relay runs as root, outside the per-UID firewall, so it is the only thing
-standing between a desktop and the container's own network. It refuses every
-destination that is not a public address unless the operator listed its network
-in BROWSER_ALLOWED_PRIVATE_NETWORKS.
+standing between a desktop and the container's own network. Through WARP it
+refuses every destination that is not a public address. A direct route may also
+reach private networks, but only for a desktop the broker marks as trusted: an
+administrator, or a user an administrator allowed to disable WARP. The
+container's own loopback, link-local addresses and the proxy ports stay closed
+on every route.
 """
 import asyncio
 import ctypes
@@ -25,19 +28,6 @@ USER_PORTS = range(61000, 61128)
 REPLY = b'\x05\x00\x00\x01' + b'\x00' * 6
 
 
-def allowed_networks(env=os.environ):
-    """Operator-listed private networks that desktops may reach, as CIDR blocks."""
-    networks = []
-    for item in env.get('BROWSER_ALLOWED_PRIVATE_NETWORKS', '').split(','):
-        if item.strip():
-            try:
-                networks.append(ipaddress.ip_network(item.strip(), strict=False))
-            except ValueError:
-                raise ValueError('BROWSER_ALLOWED_PRIVATE_NETWORKS must be comma-separated '
-                                 f'addresses or CIDR networks: {item.strip()!r}') from None
-    return tuple(networks)
-
-
 def parse(address):
     ip = ipaddress.ip_address(address.split('%')[0])
     return getattr(ip, 'ipv4_mapped', None) or ip
@@ -50,10 +40,15 @@ def literal(host):
         return None
 
 
-def internal(address, allowed=()):
-    """Loopback, private, link-local, shared and other non-public addresses."""
+def local(address):
+    """This container itself, and link-local services such as cloud metadata."""
     ip = parse(address)
-    return not ip.is_global and not any(ip in network for network in allowed)
+    return ip.is_loopback or ip.is_unspecified or ip.is_link_local
+
+
+def internal(address):
+    """Private, shared and every other address that is not on the public internet."""
+    return not parse(address).is_global
 
 
 def private_proxy(address, port):
@@ -97,16 +92,17 @@ async def copy(reader, writer):
 
 
 class Relay:
-    def __init__(self, mode):
+    def __init__(self, mode, private=False):
         self.mode = mode
         self.connections = set()
-        self.allowed = allowed_networks()
+        # Private networks are a property of a trusted direct route only.
+        self.private = private and mode == 'direct'
 
     def refuse(self, address, port):
         # Proxy ports stay closed even inside an allowed network.
         if private_proxy(address, port):
             raise ValueError('Private proxy chaining is not allowed')
-        if internal(address, self.allowed):
+        if local(address) or internal(address) and not self.private:
             raise ValueError('Internal destinations are not allowed')
 
     async def client(self, reader, writer):
@@ -190,10 +186,11 @@ class Relay:
 
 
 class Controller:
-    def __init__(self, listener, mode, state=STATE):
+    def __init__(self, listener, mode, state=STATE, private=False):
         self.listener = listener
         self.state = state
         self.mode = mode
+        self.private = private
         self.worker = None
         self.lock = asyncio.Lock()
 
@@ -211,6 +208,7 @@ class Controller:
     async def start_worker(self):
         self.worker = await asyncio.create_subprocess_exec(sys.executable, __file__,
             '--worker', self.mode, str(self.listener.fileno()), str(os.getpid()),
+            'private' if self.private else 'public',
             pass_fds=(self.listener.fileno(),), stdout=asyncio.subprocess.PIPE)
         try:
             async with asyncio.timeout(5):
@@ -254,14 +252,14 @@ def stop_event():
     return stopped
 
 
-async def worker(mode, descriptor, parent):
+async def worker(mode, descriptor, parent, private):
     # A crashed controller must never leave an orphan using its old route.
     if ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != parent:
         raise RuntimeError('Could not attach relay worker to its controller')
     global PORT
     with socket.socket(fileno=os.dup(descriptor)) as duplicate:
         PORT = duplicate.getsockname()[1]
-    relay = Relay(mode)
+    relay = Relay(mode, private)
     stopped = stop_event()
     listener = socket.socket(fileno=descriptor)
     server = await asyncio.start_server(relay.client, sock=listener)
@@ -280,7 +278,8 @@ async def main():
     listener.bind(('127.0.0.1', PORT))
     listener.listen(128)
     listener.setblocking(False)
-    manager = Controller(listener, json.loads((STATE / 'config.json').read_text())['mode'])
+    # The legacy session has one owner, who signs in with the appliance password.
+    manager = Controller(listener, json.loads((STATE / 'config.json').read_text())['mode'], private=True)
     control = STATE / 'control.sock'
     control.unlink(missing_ok=True)
     # Bind with a restrictive umask so desktop users never get a permission window.
@@ -307,7 +306,7 @@ async def main():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 5 and sys.argv[1] == '--worker':
-        asyncio.run(worker(sys.argv[2], int(sys.argv[3]), int(sys.argv[4])))
+    if len(sys.argv) == 6 and sys.argv[1] == '--worker' and sys.argv[5] in ('private', 'public'):
+        asyncio.run(worker(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == 'private'))
     else:
         asyncio.run(main())

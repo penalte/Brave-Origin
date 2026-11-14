@@ -99,6 +99,7 @@ class Desktop(single.Browser):
         self.network = None
         self.display_name = 'Private browser'
         self.startup = None
+        self.admin = False
 
     def report(self, phase=None, **steps):
         """Update private sign-in progress. Display only: nothing here gates a launch."""
@@ -130,7 +131,7 @@ class Desktop(single.Browser):
         self.report('connection', profile={'state': 'ready'}, network={'state': 'running'})
         key = json.loads(self.metadata.read_text())['key']
         user_network.register(key, self.display_name)
-        self.network = user_network.UserProxy(key, self.uid)
+        self.network = user_network.UserProxy(key, self.uid, self.admin)
         await self.network.start()
         self.report(network={'label': 'WARP' if self.network.manager.mode == 'warp' else 'Direct connection'})
         await self.network.wait_ready()
@@ -446,6 +447,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                         # desktop. SESSION_MAX_SECONDS is the only lifetime.
                         'expires': time.time() + self.config.ttl}
                     session.owner['admin'] = admin_claim(claims, self.config.group_claim)
+                    session.browser.admin = session.owner['admin']
                     session.owner['started_at'] = time.time()
                     self.sessions[identity] = session
                     break
@@ -576,6 +578,8 @@ class Broker(sharing.ViewSharing, single.Manager):
                             # A fresh sign-in starts a new lifetime; reopening the
                             # same session in another tab keeps the one it had.
                             'expires': session.owner['expires'] if pending.get('same_owner') else time.time() + self.config.ttl}
+                        if session.browser.network:
+                            session.browser.network.admin = session.owner['admin']
                         await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
                             for ws in list(session.connections)), return_exceptions=True)
                         session.connections.clear()

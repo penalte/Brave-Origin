@@ -17,25 +17,27 @@ spec.loader.exec_module(r)
 assert n.configuration({}) == {'mode': 'direct'}
 assert n.configuration({'BROWSER_NETWORK_MODE':'proxy'}) == {'mode':'direct'}
 assert n.policies({'mode':'direct'}) == n.policies({'mode':'warp'})
-assert r.internal('127.0.0.1') and r.internal('10.0.0.1') and r.internal('192.168.1.1')
-assert r.internal('172.17.0.1') and r.internal('169.254.169.254') and r.internal('100.64.0.1')
-assert r.internal('0.0.0.0') and r.internal('::') and r.internal('::1') and r.internal('fd00::1')
-assert r.internal('fe80::1%eth0') and r.internal('::ffff:192.168.1.1')
-assert not r.internal('1.1.1.1') and not r.internal('2606:4700:4700::1111')
-allowed = r.allowed_networks({'BROWSER_ALLOWED_PRIVATE_NETWORKS': '192.168.1.0/24, 10.0.0.5'})
-assert not r.internal('192.168.1.9', allowed) and not r.internal('10.0.0.5', allowed)
-assert r.internal('192.168.2.9', allowed) and r.internal('10.0.0.6', allowed)
-assert r.private_proxy('0.0.0.0', 61000) and r.private_proxy('::', 40000) and r.private_proxy('::ffff:127.0.0.1', 40001)
-for bad in ({'BROWSER_ALLOWED_PRIVATE_NETWORKS': 'lan'}, {'BROWSER_ALLOWED_PRIVATE_NETWORKS': '10.0.0.0/33'}):
-    for check in (n.configuration, r.allowed_networks):
-        try:
-            check(bad)
-        except ValueError:
-            continue
-        raise AssertionError('Malformed private network allowlist accepted')
+def refused(relay, address, port=80):
+    try:
+        relay.refuse(address, port)
+    except ValueError:
+        return True
+    return False
+# Private networks open only on a trusted direct route; never through WARP.
+trusted, untrusted, tunnel = r.Relay('direct', True), r.Relay('direct'), r.Relay('warp', True)
+for address in ('10.0.0.1', '192.168.1.1', '172.17.0.1', '100.64.0.1', 'fd00::1', '::ffff:192.168.1.1'):
+    assert not refused(trusted, address) and refused(untrusted, address) and refused(tunnel, address), address
+# The container itself and link-local services are closed on every route.
+for address in ('127.0.0.1', '127.0.0.2', '0.0.0.0', '::', '::1', '169.254.169.254', 'fe80::1%eth0', '::ffff:127.0.0.1'):
+    assert refused(trusted, address) and refused(untrusted, address) and refused(tunnel, address), address
+for address in ('1.1.1.1', '2606:4700:4700::1111'):
+    assert not refused(trusted, address) and not refused(untrusted, address) and not refused(tunnel, address), address
+for address, port in (('0.0.0.0', 61000), ('::', 40000), ('::ffff:127.0.0.1', 40001), ('127.0.0.1', 61127)):
+    assert r.private_proxy(address, port) and refused(trusted, address, port)
+# A private address of this container stands in for a LAN host.
+lan = socket.gethostbyname(socket.gethostname())
+assert r.internal(lan) and not r.local(lan), 'Run this test on a private container network'
 os.environ['WARP_ENABLED'] = 'false'
-# The echo server below is the only internal destination these relays may open.
-os.environ['BROWSER_ALLOWED_PRIVATE_NETWORKS'] = '127.0.0.1/32'
 n.setup()
 
 async def main():
@@ -46,7 +48,7 @@ async def main():
                 await writer.drain()
         finally:
             writer.close()
-    server = await asyncio.start_server(echo, '127.0.0.1', 18081)
+    server = await asyncio.start_server(echo, '0.0.0.0', 18081)
     relay = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-relay.py')
     warp = None
     try:
@@ -58,7 +60,7 @@ async def main():
             process = await asyncio.create_subprocess_exec('python3', '/usr/local/bin/browser-network.py', 'switch',
                 env=dict(os.environ, WARP_ENABLED=str(mode == 'warp').lower(), WARP_ACCEPT_TOS='true'))
             assert await process.wait() == 0
-        async def connect(host='127.0.0.1', port=18081, success=True):
+        async def connect(host=lan, port=18081, success=True):
             reader, writer = await asyncio.open_connection('127.0.0.1',40001)
             writer.write(b'\x05\x01\x00')
             assert await reader.readexactly(2) == b'\x05\x00'
@@ -85,7 +87,7 @@ async def main():
         await command('warp')
         assert await asyncio.wait_for(reader.read(),2) == b''
         writer.close()
-        reader, writer = await connect(success=False)  # No WARP: fail closed.
+        reader, writer = await connect('example.invalid', success=False)  # No WARP: fail closed.
         writer.close()
         # Fake WARP speaks real SOCKS, checks DNS stays remote and relays bytes.
         destinations = []
@@ -114,7 +116,8 @@ async def main():
         writer.close()
         # Repeated switches never leave old streams alive; same-mode is a no-op.
         for mode in ('warp','direct') * 10:
-            reader, writer = await connect()
+            # A stream opened on the current route: LAN while direct, a name through WARP.
+            reader, writer = await connect(lan if mode == 'warp' else 'via-warp.invalid')
             await command(mode)
             assert await asyncio.wait_for(reader.read(),2) == b''
             writer.close()
@@ -124,21 +127,22 @@ async def main():
         writer.close()
         reader, writer = await connect('127.0.0.1',40001,success=False)
         writer.close()
-        # Internal destinations stay closed in both modes: other loopback
-        # addresses, the unspecified address, private ranges, cloud metadata,
-        # and the proxy ports even inside the allowed network.
-        blocked = (('127.0.0.2',18081), ('0.0.0.0',18081), ('0.0.0.0',40001),
-                   ('::1',18081), ('10.0.0.1',80), ('192.168.1.1',80), ('172.17.0.1',80),
-                   ('169.254.169.254',80), ('100.64.0.1',80), ('::ffff:127.0.0.2',18081),
-                   ('127.0.0.1',40000), ('127.0.0.1',61000))
-        for host, port in blocked:
+        # This container and link-local services stay closed even on the
+        # trusted direct route, as do the proxy ports.
+        closed = (('127.0.0.1',18081), ('127.0.0.2',18081), ('localhost',18081), ('0.0.0.0',18081),
+                  ('::1',18081), ('::ffff:127.0.0.1',18081), ('169.254.169.254',80),
+                  ('0.0.0.0',40001), ('127.0.0.1',40000), ('127.0.0.1',61000))
+        for host, port in closed:
             reader, writer = await connect(host,port,success=False)
             writer.close()
+        # Through WARP, private networks close too and never reach the tunnel.
         await command('warp')
-        for host, port in blocked + (('localhost',18081), ('LOCALHOST.',18081), ('app.localhost',18081)):
+        seen = list(destinations)
+        for host, port in closed + ((lan,18081), ('10.0.0.1',80), ('192.168.1.1',80), ('172.17.0.1',80),
+                                    ('100.64.0.1',80), ('LOCALHOST.',18081), ('app.localhost',18081)):
             reader, writer = await connect(host,port,success=False)
             writer.close()
-        assert destinations == ['must-not-resolve.invalid'], 'An internal destination reached WARP'
+        assert destinations == seen, 'An internal destination reached WARP'
         await command('direct')
         # Deliberately stall libc DNS. Switching must also stop its resolver
         # thread, including retries that would otherwise outlive cancellation.
