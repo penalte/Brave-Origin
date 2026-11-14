@@ -154,7 +154,12 @@ filenames, and existing files require overwrite confirmation.
 The picker has the same conveniences. Space shows a preview pane for the selected
 file: pictures, the first page of a PDF, a still frame of a video, the start of a
 text file, and its size and date. **Play** in that pane plays a video or an audio
-file right there, with its sound in the desktop's audio. **Open in Brave** opens
+file right there, with its sound in the desktop's audio, a bar to move through it
+and the elapsed and total time; a click on the picture plays or pauses. A PDF can
+be paged through, animated GIFs move, a recording shows its title, artist and
+cover, a folder shows how many files it holds and their total size, and text is
+coloured by language. **Enlarge**, or a double click on the preview, gives it the
+whole window. A file without a useful extension is recognised by its content. **Open in Brave** opens
 the selected file as a browser tab under the same rules as the My files panel,
 including office documents through the document server; the tab is behind the
 picker until you close it. Typing jumps to a name, column headings sort,

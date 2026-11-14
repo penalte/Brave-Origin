@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.2.0-beta.54 (Pocket ID fork)
+
+- File picker preview: page through a PDF, move through a video or recording with a position bar and elapsed and total time, click the picture to play or pause, and enlarge the preview to the whole window with Enlarge or a double click.
+- Animated GIFs move, short videos repeat, and a recording shows its title, artist, album and cover (embedded, or a cover picture kept in the same folder).
+- Selecting a folder shows how many files it holds and their total size, counted in the background.
+- Text previews are coloured by language with line numbers. A file without a useful extension is recognised by its content.
+
 ## 1.2.0-beta.53 (Pocket ID fork)
 
 - Play video and audio inside the file picker's preview pane, with Play, Pause and Resume. Decoding runs in separate ffmpeg processes, so a damaged file stops the playback and nothing else.
