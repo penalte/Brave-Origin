@@ -35,9 +35,10 @@ async def main():
                 query = parse_qs(urlsplit(response.headers['Location']).query)
                 assert query['redirect_uri'] == ['https://' + host + '/auth/callback']
                 state = query['state'][0]
-                flow_cookie = response.cookies[m.FLOW_COOKIE].value
+                (flow_name, flow_cookie), = ((name, morsel.value) for name, morsel in response.cookies.items()
+                                             if name.startswith(m.FLOW_COOKIE + '-'))
             async with client.get(server.make_url('/auth/callback'), params={'state':state,'code':'alice'},
-                    headers={'Host':'other.example.test','Cookie':m.FLOW_COOKIE+'='+flow_cookie}, allow_redirects=False) as response:
+                    headers={'Host':'other.example.test','Cookie':flow_name+'='+flow_cookie}, allow_redirects=False) as response:
                 assert response.status == 400, 'Login flow crossed hosts'
         for host in ('user@web.example.test', 'web.example.test:99999'):
             async with client.get(server.make_url('/auth/login'),headers={'Host':host},allow_redirects=False) as response:

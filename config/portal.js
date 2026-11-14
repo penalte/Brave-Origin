@@ -7,6 +7,13 @@ let preparing = false, streamReady = false, preparationTimer, preparationCloseTi
 let preparationRequest = false;
 let startupCompleted = false;
 let checkingConnection = false;
+// Why the visitor was returned here, shown above the sign-in button.
+const notice = {
+  choice_expired: 'That choice timed out. Sign in again to continue.',
+  signin_expired: 'That sign-in timed out. Sign in again to continue.',
+  signin_cancelled: 'Sign-in was cancelled.',
+  signin_failed: 'Sign-in did not complete. Please try again.',
+}[new URLSearchParams(location.search).get('notice')] || '';
 // Sessions end at a fixed time. Say so five minutes ahead instead of closing a
 // video or a half-written form without notice.
 let expiresAt = 0, expiryDismissed = false;
@@ -122,7 +129,7 @@ async function update() {
     document.getElementById('session').hidden = !active;
     document.getElementById('login').hidden = state.state !== 'IDLE';
     if (!preparing) document.getElementById('message').textContent = state.state === 'IDLE'
-      ? 'Sign in to open your private browser and desktop.'
+      ? notice || 'Sign in to open your private browser and desktop.'
       : state.owner ? 'Preparing your browser…'
       : state.state === 'ERROR' ? 'The service needs administrator attention.' : 'All desktop slots are occupied or maintenance is in progress. Please try again later.';
     sessionName = state.name || 'Private browser';
@@ -226,7 +233,9 @@ async function initializePortal() {
     const pollingTask = poll();
     try {
       const response = await fetch('/session/prepare', {method:'POST', headers:{Accept:'application/json'}});
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
+      // A sign-in that is no longer current cannot be retried from here.
+      if (!response.ok && result.location) { polling = false; location.replace(result.location); return; }
       if (!response.ok) throw Error(result.error || 'Unable to prepare your desktop.');
       polling = false; await pollingTask;
       if (result.location !== '/') { location.replace(result.location); return; }

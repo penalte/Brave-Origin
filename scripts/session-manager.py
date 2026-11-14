@@ -17,7 +17,7 @@ import signal
 import time
 from urllib.parse import urlencode, urlsplit
 
-from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, WSMsgType, web
 from yarl import URL
 import jwt
 
@@ -59,6 +59,19 @@ def network_status():
         return {'mode': mode, 'state': state}
     except (OSError, ValueError, TypeError, AttributeError):
         return {'mode': 'unknown', 'state': 'unavailable'}
+
+
+class NotAllowed(ValueError):
+    """The identity is genuine but may not use this service."""
+
+
+def describe(error):
+    """One log line saying why a sign-in failed. Carries no token or secret."""
+    return re.sub(r'[^ -~]', '?', f'{type(error).__name__}: {error}')[:300]
+
+
+def forget_flow(response, flow):
+    response.del_cookie(flow.get('cookie_name', FLOW_COOKIE), path='/', secure=True, httponly=True, samesite='Lax')
 
 
 def https_url(value):
@@ -176,6 +189,10 @@ class OIDC:
         claims = jwt.decode(token, jwt.PyJWK.from_dict(candidates[0], algorithm=algorithm).key,
                             algorithms=[algorithm], issuer=self.config.issuer,
                             audience=self.config.client_id,
+                            # The identity provider's clock is not this one's.
+                            # Without tolerance a token issued two seconds
+                            # "in the future" fails the sign-in.
+                            leeway=60,
                             options={'require': ['exp', 'iat', 'iss', 'sub', 'aud', 'nonce']})
         if not isinstance(claims['sub'], str) or not claims['sub']:
             raise ValueError('Missing subject')
@@ -187,7 +204,7 @@ class OIDC:
         if self.config.groups:
             groups = claims.get(self.config.group_claim, [])
             if not isinstance(groups, list) or not self.config.groups.intersection(g for g in groups if isinstance(g, str)):
-                raise ValueError('User is not in an allowed group')
+                raise NotAllowed('User is not in an allowed group')
         return claims
 
 
@@ -552,28 +569,56 @@ class Manager:
             del self.flows[min(self.flows, key=lambda key: self.flows[key]['expires'])]
         metadata = await self.oidc.discovery(self.http)
         state, nonce, verifier, cookie = (secrets.token_urlsafe(32) for _ in range(4))
+        # One cookie per sign-in attempt: a second tab must not overwrite the
+        # first tab's and fail it at the callback.
+        name = FLOW_COOKIE + '-' + secrets.token_hex(8)
         self.flows[state] = {'nonce': nonce, 'verifier': verifier, 'cookie': cookie, 'expires': now + 600,
-                             'origin': request['app_origin']}
+                             'origin': request['app_origin'], 'cookie_name': name}
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
         response = web.HTTPFound(metadata['authorization_endpoint'] + '?' + urlencode({
             'response_type': 'code', 'client_id': self.config.client_id,
             'redirect_uri': request['app_origin'] + '/auth/callback',
             'scope': self.config.scopes, 'state': state, 'nonce': nonce,
             'code_challenge': challenge, 'code_challenge_method': 'S256'}))
-        response.set_cookie(FLOW_COOKIE, cookie, secure=True, httponly=True, samesite='Lax', path='/', max_age=600)
+        response.set_cookie(name, cookie, secure=True, httponly=True, samesite='Lax', path='/', max_age=600)
         return response
 
-    async def callback(self, request):
+    def take_flow(self, request):
+        """The sign-in this callback finishes. Refusals are logged with their reason."""
         flow = self.flows.pop(request.query.get('state', ''), None)
-        if (not flow or flow['expires'] < time.time() or flow['origin'] != request['app_origin'] or
-                not secrets.compare_digest(request.cookies.get(FLOW_COOKIE, ''), flow['cookie']) or
-                not request.query.get('code') or request.query.get('error')):
+        reason = ('unknown or already used sign-in' if not flow else
+                  'the sign-in took longer than ten minutes' if flow['expires'] < time.time() else
+                  'it returned to a different address than it started from' if flow['origin'] != request['app_origin'] else
+                  'its login cookie is missing or belongs to another browser' if not secrets.compare_digest(
+                      request.cookies.get(flow.get('cookie_name', FLOW_COOKIE), ''), flow['cookie']) else None)
+        if reason:
+            LOG.warning('Sign-in callback refused: %s', reason)
             raise web.HTTPBadRequest(text='Invalid or expired login; please sign in again')
+        if request.query.get('error') or not request.query.get('code'):
+            # The identity provider ended it, usually because the user cancelled.
+            error = re.sub(r'[^A-Za-z0-9_.-]', '?', request.query.get('error') or 'no code returned')[:80]
+            LOG.info('The identity provider ended a sign-in: %s', error)
+            response = web.HTTPFound('/?notice=' + ('signin_cancelled' if error == 'access_denied' else 'signin_failed'))
+            forget_flow(response, flow)
+            raise response
+        return flow
+
+    async def verify(self, request, flow):
         try:
-            claims = await self.oidc.authenticate(self.http, request.query['code'], flow)
-        except Exception:
-            LOG.warning('OIDC verification rejected a login')
-            raise web.HTTPForbidden(text='Sign-in could not be verified or access is not allowed') from None
+            return await self.oidc.authenticate(self.http, request.query['code'], flow)
+        except NotAllowed as error:
+            LOG.warning('Sign-in refused: %s', describe(error))
+            raise web.HTTPForbidden(text='Your account is not allowed to use this service.') from None
+        except (ClientError, TimeoutError, OSError) as error:
+            LOG.warning('Sign-in failed, the identity provider could not be used: %s', describe(error))
+            raise web.HTTPServiceUnavailable(text='The sign-in service is unavailable. Please try again shortly.') from None
+        except Exception as error:
+            LOG.warning('Sign-in could not be verified: %s', describe(error))
+            raise web.HTTPForbidden(text='Sign-in could not be verified. Please sign in again.') from None
+
+    async def callback(self, request):
+        flow = self.take_flow(request)
+        claims = await self.verify(request, flow)
         async with self.lock:
             if self.state != 'IDLE':
                 raise web.HTTPConflict(text='Browser currently in use')
@@ -596,7 +641,7 @@ class Manager:
             response = web.HTTPFound('/')
             response.set_cookie(COOKIE, self.owner['cookie'], secure=True, httponly=True, samesite='Lax', path='/',
                                 max_age=max(1, int(self.owner['expires'] - time.time())))
-            response.del_cookie(FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+            forget_flow(response, flow)
             return response
 
     async def stop_locked(self):

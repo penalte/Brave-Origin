@@ -46,11 +46,15 @@ async def main():
         else:
             assert accepted and result['sub'] == 'alice', overrides
     await check({}, True)
+    # The identity provider's clock may run slightly ahead of or behind this one.
+    await check({'iat':int(time.time())+30}, True)
+    await check({'iat':int(time.time())-400,'exp':int(time.time())-30}, True)
+    await check({'exp':int(time.time())-120})
     for changed in ({'iss':'https://attacker.test'},{'aud':'other'},{'nonce':'wrong'},
                     {'exp':1},{'iat':int(time.time())+3600},{'groups':[]}, {'sub':''},
                     {'aud':['client','other']},{'azp':'other'}):
         await check(changed)
     await check({}, signing_key=rsa.generate_private_key(public_exponent=65537,key_size=2048))
-    print('PASS: signed OIDC token, issuer, audience, nonce, expiry, issued-at, groups, subject, azp and wrong-key rejection')
+    print('PASS: signed OIDC token, issuer, audience, nonce, expiry, issued-at, clock tolerance, groups, subject, azp and wrong-key rejection')
 
 asyncio.run(main())

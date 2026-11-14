@@ -44,17 +44,22 @@ async def main():
             raise AssertionError('Readiness leaked to another sign-in')
         except web.HTTPForbidden:
             pass
-    try:
-        await broker.prepare_session(request())
-        raise AssertionError('Duplicate launch accepted')
-    except web.HTTPConflict:
-        pass
+    # A page that reloads while the launch runs joins it instead of starting
+    # another or being refused.
+    entered.clear()
+    reloaded = asyncio.create_task(broker.prepare_session(request()))
+    await asyncio.sleep(.1)
+    assert not entered.is_set() and not reloaded.done(), 'A reload started a second launch'
     release.set()
-    assert (await task).status == 503
+    assert (await task).status == 503 and (await reloaded).status == 503
     assert pending['progress']['tasks'][0]['state'] == 'error'
+    # A failed launch may be retried; a finished one is answered, not repeated.
     broker.start_session = AsyncMock(return_value=web.HTTPFound('/'))
     assert (await broker.prepare_session(request())).status == 200
-    assert 'ticket' not in broker.preparations
+    assert (await broker.prepare_session(request())).status == 200
+    broker.start_session.assert_awaited_once()
+    pending = {key: value for key, value in pending.items() if key not in ('outcome', 'progress')}
+    pending['expires'] = time.time()+120
 
     # The countdown runs only once every step is ready, just before the stream
     # may connect; a sign-in that ends at the take-over choice skips it.
@@ -62,7 +67,7 @@ async def main():
         for step in progress['tasks']:
             step['state'] = 'ready'
         return web.HTTPFound('/')
-    broker.preparations['ticket'] = dict(pending, running=False)
+    broker.preparations['ticket'] = dict(pending)
     broker.start_session = launched
     before = time.monotonic()
     task = asyncio.create_task(broker.prepare_session(request()))
@@ -71,7 +76,7 @@ async def main():
     assert progress['phase'] == 'countdown' and 0 < progress['remaining'] <= 3, progress
     assert all(step['state'] == 'ready' for step in progress['tasks']), progress
     assert (await task).status == 200 and time.monotonic()-before >= 3
-    broker.preparations['ticket'] = dict(pending, running=False)
+    broker.preparations['ticket'] = dict(pending)
     broker.start_session = AsyncMock(return_value=web.HTTPFound('/session/resolve'))
     before = time.monotonic()
     assert (await broker.prepare_session(request())).status == 200

@@ -27,6 +27,16 @@ user_network = importlib.util.module_from_spec(network_spec)
 network_spec.loader.exec_module(user_network)
 
 
+# How long the take-over choice page stays valid.
+HANDOFF_SECONDS = 600
+# How long a verified sign-in may wait to launch, or retry launching, its desktop.
+PREPARE_SECONDS = 600
+
+
+class TicketExpired(web.HTTPForbidden):
+    """The sign-in behind a preparation request is gone or timed out."""
+
+
 class ProfileTooNew(RuntimeError):
     """The installed browser is older than the one that last opened this profile."""
 
@@ -191,6 +201,7 @@ class Broker(sharing.ViewSharing, single.Manager):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
         self.handoffs = {}
+        self.choices = set()
         self.preparations = {}
         self.factory = desktop_factory or (lambda: Desktop(config))
 
@@ -343,44 +354,50 @@ class Broker(sharing.ViewSharing, single.Manager):
         return await super().login(request)
 
     async def callback(self, request):
-        flow = self.flows.pop(request.query.get('state', ''), None)
-        if (not flow or flow['expires'] < time.time() or flow['origin'] != request['app_origin']
-                or not secrets.compare_digest(request.cookies.get(single.FLOW_COOKIE, ''), flow['cookie'])
-                or not request.query.get('code') or request.query.get('error')):
-            raise web.HTTPBadRequest(text='Invalid or expired login')
-        try:
-            claims = await self.oidc.authenticate(self.http, request.query['code'], flow)
-        except Exception:
-            raise web.HTTPForbidden(text='Sign-in could not be verified') from None
+        flow = self.take_flow(request)
+        claims = await self.verify(request, flow)
         identity = hashlib.sha256(json.dumps([claims['iss'], claims['sub']], separators=(',', ':')).encode()).hexdigest()
         previous = self.sessions.get(identity)
         if previous is None or previous.state in ('STARTING', 'STOPPING', 'IDLE'):
             now = time.time()
-            self.preparations = {k: v for k, v in self.preparations.items() if v['expires'] > now}
+            self.preparations = {k: v for k, v in self.preparations.items() if v['expires'] > now or self.preparing(v)}
             while len(self.preparations) >= 128:
                 del self.preparations[next(iter(self.preparations))]
             token = secrets.token_urlsafe(32)
             self.preparations[token] = dict(identity=identity, claims=claims, flow=flow,
-                expires=min(now + 120, float(claims['exp'])))
+                expires=min(now + PREPARE_SECONDS, float(claims['exp'])))
             response = web.HTTPFound('/session/prepare')
             response.set_cookie('__Host-brave-prepare', token, secure=True, httponly=True,
-                                samesite='Strict', path='/', max_age=120)
-            response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+                                samesite='Strict', path='/', max_age=PREPARE_SECONDS)
+            single.forget_flow(response, flow)
             return response
         return await self.start_session(identity, claims, flow)
+
+    @staticmethod
+    def preparing(pending):
+        return 'outcome' in pending and not pending['outcome'].done()
 
     def pending_preparation(self, request):
         token = request.cookies.get('__Host-brave-prepare', '')
         pending = self.preparations.get(token)
-        if not pending or pending['expires'] <= time.time():
+        # A launch in progress outlives its ticket; only a new attempt needs a valid one.
+        if not pending or pending['expires'] <= time.time() and not self.preparing(pending):
             self.preparations.pop(token, None)
-            raise web.HTTPForbidden(text='This sign-in expired. Please sign in again.')
+            raise TicketExpired(text='This sign-in expired. Please sign in again.')
         if pending['flow']['origin'] != request['app_origin']:
             raise web.HTTPForbidden(text='Invalid sign-in origin')
         return token, pending
 
     async def prepare_page(self, request):
-        self.pending_preparation(request)
+        try:
+            self.pending_preparation(request)
+        except TicketExpired:
+            # Reached by going back, a restored tab or the address bar. The
+            # portal continues an open desktop or offers the sign-in button.
+            LOG.info('Preparation page opened without a current sign-in; returning to the portal')
+            response = web.HTTPFound('/?notice=signin_expired')
+            response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
+            return response
         return web.FileResponse('/usr/local/share/brave-origin/portal.html')
 
     async def preparation_status(self, request):
@@ -390,17 +407,36 @@ class Broker(sharing.ViewSharing, single.Manager):
                                  headers={'Cache-Control': 'no-store'})
 
     async def prepare_session(self, request):
-        token, pending = self.pending_preparation(request)
+        try:
+            _, pending = self.pending_preparation(request)
+        except TicketExpired as error:
+            LOG.info('Desktop preparation refused: the sign-in is no longer current')
+            return web.json_response({'error': error.text, 'location': '/?notice=signin_expired'}, status=403)
         if request.headers.get('Origin') != pending['flow']['origin']:
             raise web.HTTPForbidden(text='Invalid sign-in request')
-        if pending.get('running'):
-            raise web.HTTPConflict(text='Preparation is already running')
-        pending['running'] = True
-        pending['progress'] = {'phase': 'profile', 'tasks': [
-            {'id': 'profile', 'label': 'Your profile', 'state': 'running'},
-            {'id': 'network', 'label': 'Connection', 'state': 'pending'},
-            {'id': 'desktop', 'label': 'Desktop', 'state': 'pending'},
-            {'id': 'files', 'label': 'My files', 'state': 'pending'}]}
+        # One launch per sign-in. A page that reloads while it runs joins it
+        # and receives its result: the browser keeps only the newest response,
+        # so refusing the reload would discard the session cookie and leave a
+        # desktop nobody can reach. A failed launch may be tried again.
+        outcome = pending.get('outcome')
+        if outcome is None or outcome.done() and (outcome.cancelled() or 'error' in outcome.result()):
+            pending['progress'] = {'phase': 'profile', 'tasks': [
+                {'id': 'profile', 'label': 'Your profile', 'state': 'running'},
+                {'id': 'network', 'label': 'Connection', 'state': 'pending'},
+                {'id': 'desktop', 'label': 'Desktop', 'state': 'pending'},
+                {'id': 'files', 'label': 'My files', 'state': 'pending'}]}
+            outcome = pending['outcome'] = asyncio.ensure_future(self.launch_prepared(pending))
+            self.choices.add(outcome)
+            outcome.add_done_callback(self.choices.discard)
+        result = await asyncio.shield(outcome)
+        if 'error' in result:
+            return web.json_response({'error': result['error']}, status=result['status'])
+        response = web.json_response({'location': result['location']})
+        response.cookies.update(result['cookies'])
+        response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
+        return response
+
+    async def launch_prepared(self, pending):
         try:
             destination = await self.start_session(pending['identity'], pending['claims'], pending['flow'], pending['progress'])
             if all(task['state'] == 'ready' for task in pending['progress']['tasks']):
@@ -408,19 +444,19 @@ class Broker(sharing.ViewSharing, single.Manager):
                 # the stream when this request returns, so it never starts early.
                 pending['progress'].update(phase='countdown', deadline=time.time() + 3)
                 await asyncio.sleep(3)
-            response = web.json_response({'location': destination.headers['Location']})
-            response.cookies.update(destination.cookies)
-            self.preparations.pop(token, None)
-            response.del_cookie('__Host-brave-prepare', path='/', secure=True, httponly=True, samesite='Strict')
-            return response
-        except web.HTTPException as error:
+            # Long enough to answer a page that reloaded, then the ticket is gone.
+            pending['expires'] = time.time() + 30
+            return {'location': destination.headers['Location'], 'cookies': destination.cookies}
+        except Exception as error:
+            if not isinstance(error, web.HTTPException):
+                LOG.exception('Desktop preparation failed for %s', pending['identity'][:12])
             pending['progress']['phase'] = 'error'
             for task in pending['progress']['tasks']:
                 if task['state'] == 'running':
                     task['state'] = 'error'
-            return web.json_response({'error': error.text}, status=error.status)
-        finally:
-            pending['running'] = False
+            if isinstance(error, web.HTTPException):
+                return {'error': error.text, 'status': error.status}
+            return {'error': 'Your desktop could not start. Please retry.', 'status': 503}
 
     async def start_session(self, identity, claims, flow, progress=None):
         deadline = time.monotonic() + self.config.launch_timeout + 30
@@ -485,7 +521,7 @@ class Broker(sharing.ViewSharing, single.Manager):
             response = web.HTTPFound('/')
             response.set_cookie(single.COOKIE, session.owner['cookie'], secure=True, httponly=True,
                                 samesite='Lax', path='/', max_age=max(1, int(session.owner['expires'] - time.time())))
-            response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+            single.forget_flow(response, flow)
             return response
 
     def offer_handoff(self, identity, claims, flow):
@@ -499,19 +535,28 @@ class Broker(sharing.ViewSharing, single.Manager):
         token = secrets.token_urlsafe(32)
         self.handoffs[token] = dict(identity=identity, claims=claims, origin=flow['origin'],
             session=self.sessions[identity], owner_cookie=self.sessions[identity].owner['cookie'],
-            csrf=secrets.token_urlsafe(32), expires=min(now + 120, float(claims['exp'])))
+            csrf=secrets.token_urlsafe(32), expires=min(now + HANDOFF_SECONDS, float(claims['exp'])))
         response = web.HTTPFound('/session/resolve')
         response.set_cookie('__Host-brave-handoff', token, secure=True, httponly=True,
-                            samesite='Strict', path='/', max_age=120)
-        response.del_cookie(single.FLOW_COOKIE, path='/', secure=True, httponly=True, samesite='Lax')
+                            samesite='Strict', path='/', max_age=HANDOFF_SECONDS)
+        single.forget_flow(response, flow)
         return response
 
     def pending_handoff(self, request):
         token = request.cookies.get('__Host-brave-handoff', '')
         pending = self.handoffs.get(token)
-        if not pending or pending['expires'] <= time.time() or pending['origin'] != request['app_origin']:
+        if pending and pending['origin'] != request['app_origin']:
+            raise web.HTTPForbidden(text='Invalid session origin')
+        if not pending or pending['expires'] <= time.time():
+            # A dead end here strands whoever reloads, goes back or waits too
+            # long. The portal offers a fresh choice to a signed-in owner and
+            # the sign-in button to anyone else.
+            LOG.info('Session choice unavailable: %s', 'ticket expired' if pending
+                     else 'unknown or already finished ticket' if token else 'no ticket')
             self.handoffs.pop(token, None)
-            raise web.HTTPForbidden(text='This choice expired. Please sign in again.')
+            response = web.HTTPFound('/?notice=choice_expired')
+            response.del_cookie('__Host-brave-handoff', path='/', secure=True, httponly=True, samesite='Strict')
+            raise response
         return token, pending
 
     async def resolve_page(self, request):
@@ -525,7 +570,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                 not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), session.owner['csrf'])):
             raise web.HTTPForbidden()
         # Let a refresh release its previous socket before offering takeover.
-        for _ in range(10):
+        for _ in range(30):
             if not session.connections:
                 return web.json_response({'location': None})
             await asyncio.sleep(.1)
@@ -549,57 +594,87 @@ class Broker(sharing.ViewSharing, single.Manager):
         action = data.get('action')
         if action not in ('takeover', 'disconnect', 'cancel'):
             raise web.HTTPBadRequest(text='Unknown session choice')
-        async with self.lock:
-            # One-use and tied to the exact session offered, including its owner generation.
-            if self.handoffs.pop(token, None) is not pending:
-                raise web.HTTPConflict(text='This choice has already been used')
-            session = self.sessions.get(pending['identity'])
-            if action == 'cancel':
-                response = web.HTTPFound('/?session_cancelled=1')
-            elif self.state != 'IDLE' or session is not pending['session']:
-                raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
-            else:
-                async with session.lock:
-                    if (session.state != 'RUNNING' or not session.owner or
-                            session.owner['cookie'] != pending['owner_cookie']):
-                        raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
-                    if action == 'disconnect':
-                        LOG.info('Ending desktop %s: closed from a new sign-in', pending['identity'][:12])
-                        await self.end(pending['identity'], session)
-                        if session.state != 'IDLE':
-                            raise web.HTTPServiceUnavailable(text='Desktop cleanup failed')
-                        response = web.HTTPFound('/')
-                    else:
-                        await self.revoke_session_views(session)
-                        session.state = 'STARTING'
-                        session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
-                            'csrf': secrets.token_urlsafe(32),
-                            'admin': session.owner['admin'] if pending.get('same_owner') else admin_claim(pending['claims'], self.config.group_claim),
-                            # A fresh sign-in starts a new lifetime; reopening the
-                            # same session in another tab keeps the one it had.
-                            'expires': session.owner['expires'] if pending.get('same_owner') else time.time() + self.config.ttl}
-                        proxy = getattr(session.browser, 'network', None)
-                        if proxy:
-                            proxy.admin = session.owner['admin']
-                        await asyncio.gather(*(ws.close(code=4001, message=b'Session taken over')
-                            for ws in list(session.connections)), return_exceptions=True)
-                        session.connections.clear()
-                        tasks = list(session.transfers)
-                        for task in tasks:
-                            task.cancel()
-                        if tasks:
-                            await asyncio.gather(*tasks, return_exceptions=True)
-                        if session.connected_once:
-                            await asyncio.sleep(4)  # Let the previous Selkies peer teardown settle.
-                        session.connected_once = False
-                        session.last_disconnect = time.monotonic()
-                        session.state = 'RUNNING'
-                        response = web.HTTPFound('/')
-                        response.set_cookie(single.COOKIE, session.owner['cookie'], secure=True,
-                            httponly=True, samesite='Lax', path='/',
-                            max_age=max(1, int(session.owner['expires'] - time.time())))
+        # The choice is applied once. A repeated submission (a second click
+        # while the takeover settles) waits for that one result and receives
+        # it too: the browser keeps only its last response, so refusing the
+        # repeat would discard the new session cookie and sign the user out.
+        if 'outcome' not in pending:
+            pending['expires'] = time.time() + 120
+            pending['outcome'] = asyncio.ensure_future(self.settle_choice(pending, action))
+            self.choices.add(pending['outcome'])
+            pending['outcome'].add_done_callback(self.choices.discard)
+        # Shielded: a browser that gives up must not stop a takeover halfway.
+        result = await asyncio.shield(pending['outcome'])
+        if 'status' in result:
+            return web.Response(status=result['status'], text=result['text'])
+        response = web.HTTPFound(result['location'])
+        if result.get('cookie'):
+            response.set_cookie(single.COOKIE, result['cookie'], secure=True, httponly=True, samesite='Lax',
+                                path='/', max_age=max(1, int(result['expires'] - time.time())))
         response.del_cookie('__Host-brave-handoff', path='/', secure=True, httponly=True, samesite='Strict')
         return response
+
+    async def settle_choice(self, pending, action):
+        try:
+            return await self.apply_choice(pending, action)
+        except web.HTTPException as error:
+            LOG.info('Session choice %s refused for %s: %s', action, pending['identity'][:12], error.text)
+            return {'status': error.status, 'text': error.text}
+        finally:
+            # Long enough to answer a repeated click, then the ticket is gone.
+            pending['expires'] = time.time() + 30
+
+    async def apply_choice(self, pending, action):
+        async with self.lock:
+            session = self.sessions.get(pending['identity'])
+            if action == 'cancel':
+                return {'location': '/?session_cancelled=1'}
+            if self.state != 'IDLE' or session is not pending['session']:
+                raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
+            async with session.lock:
+                if (session.state != 'RUNNING' or not session.owner or
+                        session.owner['cookie'] != pending['owner_cookie']):
+                    raise web.HTTPConflict(text='The desktop changed. Please sign in again.')
+                if action == 'disconnect':
+                    LOG.info('Ending desktop %s: closed from a new sign-in', pending['identity'][:12])
+                    await self.end(pending['identity'], session)
+                    if session.state != 'IDLE':
+                        raise web.HTTPServiceUnavailable(text='Desktop cleanup failed')
+                    return {'location': '/'}
+                await self.revoke_session_views(session)
+                session.state = 'STARTING'
+                try:
+                    session.owner = {**session.owner, 'cookie': secrets.token_urlsafe(32),
+                        'csrf': secrets.token_urlsafe(32),
+                        'admin': session.owner['admin'] if pending.get('same_owner') else admin_claim(pending['claims'], self.config.group_claim),
+                        # A fresh sign-in starts a new lifetime; reopening the
+                        # same session in another tab keeps the one it had.
+                        'expires': session.owner['expires'] if pending.get('same_owner') else time.time() + self.config.ttl}
+                    proxy = getattr(session.browser, 'network', None)
+                    if proxy:
+                        proxy.admin = session.owner['admin']
+                    # Not 4001: the stream client reads that as a bad token. A
+                    # "superseded" reason makes it say the session moved and
+                    # stops it reconnecting against the new holder.
+                    await asyncio.gather(*(ws.close(code=4003, message=b'Session superseded by a new sign-in')
+                        for ws in list(session.connections)), return_exceptions=True)
+                    session.connections.clear()
+                    tasks = list(session.transfers)
+                    for task in tasks:
+                        task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    if session.connected_once:
+                        await asyncio.sleep(4)  # Let the previous Selkies peer teardown settle.
+                finally:
+                    # Never leave the desktop in STARTING: nothing would reap it
+                    # and its owner could neither return nor start another.
+                    session.connected_once = False
+                    session.last_disconnect = time.monotonic()
+                    session.state = 'RUNNING'
+                LOG.info('Desktop %s taken over (%s)', pending['identity'][:12],
+                         'same sign-in, another tab' if pending.get('same_owner') else 'new sign-in')
+                return {'location': '/', 'cookie': session.owner['cookie'], 'expires': session.owner['expires']}
 
     async def end(self, identity, session):
         await self.revoke_session_views(session)

@@ -88,7 +88,8 @@ async def main():
             assert response.status == 302 and len(broker.sessions) == 2
             response = await client.post(server.make_url('/session/resolve'),headers=choice_headers,
                 data={'action':'disconnect','csrf':csrf},allow_redirects=False)
-            assert response.status == 403, 'Consumed handoff must not be replayable'
+            assert (response.status == 302 and response.headers['Location'] == '/?session_cancelled=1'
+                    and len(broker.sessions) == 2), 'A repeated choice must return the first result, not act again'
             for user, auth in (('alice',a), ('bob',b)):
                 response = await client.post(server.make_url('/desktop/api/upload'), headers={**auth,'X-Upload-Path':'same.txt'}, data=user.encode())
                 assert response.status == 200, (response.status,await response.text())
