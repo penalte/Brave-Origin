@@ -183,8 +183,20 @@ async def main():
                 return web.Response(text='<html><body>Routing works</body></html>', content_type='text/html')
             probe_app = web.Application()
             probe_app.router.add_get('/{probe}', network_page)
-            probe_server = TestServer(probe_app)
+            # The relay never opens this container's loopback, so serve the page
+            # on its private address, standing in for a LAN host, and give both
+            # desktops the trusted direct route that may reach private networks.
+            net = __import__('socket')
+            lan = net.gethostbyname(net.gethostname())
+            probe_server = TestServer(probe_app, host=lan)
             await probe_server.start_server()
+            for session in desktops.values():
+                proxy = session.browser.network
+                proxy.admin = True
+                async with proxy.manager.lock:
+                    proxy.manager.private = True
+                    await proxy.manager.stop_worker()
+                    await proxy.manager.start_worker()
             async def browse(step):
                 async def drain(ws, name):
                     frames = desktops[name].test_decoder
