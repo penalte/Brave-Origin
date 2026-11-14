@@ -96,12 +96,16 @@ async def recover():
 
 
 class UserProxy:
-    def __init__(self, key, uid):
-        self.key, self.uid = key, uid
+    def __init__(self, key, uid, admin=False):
+        self.key, self.uid, self.admin = key, uid, admin
         self.port = None
         self.manager = None
         self.granted = False
         self.state = Path('/run/brave-network/users') / key
+
+    def trusted(self):
+        """Whoever may leave WARP may also reach private networks while direct."""
+        return bool(self.admin or metadata(self.key)[1].get('allow_direct', False))
 
     async def start(self):
         _, data = metadata(self.key)
@@ -125,7 +129,7 @@ class UserProxy:
         listener.setblocking(False)
         self.port = listener.getsockname()[1]
         (self.state / 'port').write_text(str(self.port))
-        self.manager = relay.Controller(listener, mode, self.state)
+        self.manager = relay.Controller(listener, mode, self.state, private=self.trusted())
         try:
             await self.manager.start_worker()
             await nft('add', 'element', 'inet', 'brave_egress', 'clients',
@@ -162,6 +166,8 @@ class UserProxy:
 
     async def switch(self, enabled):
         network.configuration(dict(os.environ, WARP_ENABLED=str(enabled).lower()))
+        # Read the permission again: it may have changed since this desktop started.
+        self.manager.private = self.trusted()
         await self.manager.switch('warp' if enabled else 'direct')
 
     async def stop(self):

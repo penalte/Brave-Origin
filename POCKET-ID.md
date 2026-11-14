@@ -247,14 +247,17 @@ add `-f compose.warp.yaml`; on Unraid add `--cap-add=NET_ADMIN` to Extra Paramet
 Proxy ports 61000-61127 are reserved on loopback. Do not publish proxy ports or use host networking. No privileged container is
 needed. Legacy direct-only mode without OIDC still works without NET_ADMIN.
 
-Browsers reach public internet addresses only. The relay refuses loopback,
-private (RFC 1918), link-local, shared (100.64.0.0/10) and IPv6 local addresses,
-including names that resolve to them, so a signed-in user or a guest with control
-cannot open the router, other containers, cloud metadata or this container's own
-internal ports. To let browsers reach chosen internal sites, list them in
-`BROWSER_ALLOWED_PRIVATE_NETWORKS` as comma-separated addresses or CIDR networks,
-for example `192.168.1.0/24,10.0.0.5`. This applies to every user and to legacy
-mode. The relay's own proxy ports stay closed whatever is listed.
+Private networks follow the route. Through WARP a browser reaches public
+internet addresses only: the relay refuses private (RFC 1918), shared
+(100.64.0.0/10) and IPv6 local addresses, including names that resolve to them.
+With WARP disabled, a browser can also open private addresses such as the LAN,
+but only for an administrator or a user an administrator allowed to disable
+WARP. Any other user on a direct route, for example where WARP is not in use,
+stays limited to public addresses. Guests share the route of the desktop they
+join. The container's own loopback, link-local addresses such as cloud metadata,
+and the relay's proxy ports are closed on every route. Legacy mode has a single
+owner and follows the same rule: private addresses are reachable only while
+direct.
 
 WARP requires the included official package and `WARP_ACCEPT_TOS=true`, accepting
 Cloudflare's terms. Map a private persistent appdata directory to

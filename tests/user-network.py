@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 
 spec = importlib.util.spec_from_file_location('users', '/usr/local/bin/user-network.py')
 u = importlib.util.module_from_spec(spec)
@@ -11,8 +12,10 @@ spec.loader.exec_module(u)
 
 
 async def main():
-    os.environ.update(OIDC_ENABLED='true', WARP_ENABLED='false', WARP_ACCEPT_TOS='true',
-                      BROWSER_ALLOWED_PRIVATE_NETWORKS='127.0.0.1/32')
+    os.environ.update(OIDC_ENABLED='true', WARP_ENABLED='false', WARP_ACCEPT_TOS='true')
+    # A private address of this container stands in for a LAN host.
+    lan = socket.gethostbyname(socket.gethostname())
+    assert u.relay.internal(lan) and not u.relay.local(lan), 'Run this test on a private container network'
     u.network.setup()
     users = []
     server = None
@@ -24,13 +27,19 @@ async def main():
             assert await process.wait() == 0
             directory = u.USERS/key
             directory.mkdir(parents=True)
-            u.save(directory/'identity.json', {'key':key,'uid':uid})
+            # One administrator, one user allowed to disable WARP: both trusted.
+            u.save(directory/'identity.json', {'key':key,'uid':uid,'allow_direct':index == 1})
             u.register(key,'Test '+str(index))
-            proxy = u.UserProxy(key,uid)
+            proxy = u.UserProxy(key,uid,admin=index == 0)
             await proxy.start()
             users.append(proxy)
         a,b = users
         assert a.port != b.port
+        assert a.trusted() and b.trusted() and a.manager.private and b.manager.private
+        path,record = u.metadata(b.key)
+        u.save(path,dict(record,allow_direct=False))
+        assert not b.trusted(), 'A user without permission must not reach private networks'
+        u.save(path,record)
         async def check(uid, port, allowed):
             code = f"import socket; s=socket.create_connection(('127.0.0.1',{port}),1); s.sendall(bytes([5,1,0])); assert s.recv(2)==bytes([5,0])"
             process = await asyncio.create_subprocess_exec('setpriv','--reuid',str(uid),'--regid',str(uid),'--clear-groups',
@@ -53,15 +62,16 @@ async def main():
                     await writer.drain()
             finally:
                 writer.close()
-        server = await asyncio.start_server(echo,'127.0.0.1',18081)
+        server = await asyncio.start_server(echo,'0.0.0.0',18081)
         async def connect(proxy):
             reader,writer = await asyncio.open_connection('127.0.0.1',proxy.port)
             writer.write(b'\x05\x01\x00')
             assert await reader.readexactly(2) == b'\x05\x00'
-            writer.write(b'\x05\x01\x00\x01\x7f\x00\x00\x01'+(18081).to_bytes(2,'big'))
+            writer.write(b'\x05\x01\x00\x01'+socket.inet_aton(lan)+(18081).to_bytes(2,'big'))
             assert (await reader.readexactly(10))[1] == 0
             return reader,writer
-        for target in (b'\x7f\x00\x00\x02', b'\x00\x00\x00\x00', b'\xc0\xa8\x01\x01', b'\xa9\xfe\xa9\xfe'):
+        # Even a trusted direct route never opens this container or link-local services.
+        for target in (b'\x7f\x00\x00\x01', b'\x7f\x00\x00\x02', b'\x00\x00\x00\x00', b'\xa9\xfe\xa9\xfe'):
             reader,writer = await asyncio.open_connection('127.0.0.1',a.port)
             writer.write(b'\x05\x01\x00')
             assert await reader.readexactly(2) == b'\x05\x00'
