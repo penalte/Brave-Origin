@@ -33,9 +33,15 @@ jobs:
             -e AUTH_PASSWORD=trial-only -e DISPLAY_WIDTH=1280 -e DISPLAY_HEIGHT=720 trial
           for i in $(seq 90); do docker exec trial bash /usr/local/bin/healthcheck.sh >/dev/null 2>&1 && break; sleep 1; done
           docker cp trial/probe.sh trial:/trial-probe.sh
+          docker cp trial/confine.py trial:/trial-confine.py
           docker exec trial bash /trial-probe.sh 2>&1 | tee report.txt
           docker cp trial:/trial-out out || true
           cp report.txt out/ || true
+      - name: Would the mount sandbox work without Docker's AppArmor profile
+        run: |
+          docker run --rm --security-opt seccomp=unconfined --security-opt no-new-privileges=true \
+            --security-opt apparmor=unconfined --entrypoint runuser trial -u braveuser -- \
+            sh -c 'bwrap --unshare-all --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev ls / && echo "mount sandbox: yes" || echo "mount sandbox: NO"' 2>&1 | tee -a out/report.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

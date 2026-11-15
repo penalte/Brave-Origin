@@ -4,7 +4,9 @@ set +e
 out=/trial-out; mkdir -p "$out"; chmod 777 "$out"
 say() { printf '\n===== %s =====\n' "$*"; }
 brave=$(cat /tmp/brave.pid)
-tr '\0' '\n' < "/proc/$brave/environ" | grep -E '^(XDG_RUNTIME_DIR|WAYLAND_DISPLAY|PULSE_SERVER|DBUS_SESSION_BUS_ADDRESS|HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME)=' > "$out/env"
+runuser -u braveuser -- cat "/proc/$brave/environ" | tr '\0' '\n' | grep -E '^(XDG_RUNTIME_DIR|WAYLAND_DISPLAY|PULSE_SERVER|DBUS_SESSION_BUS_ADDRESS|HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME)=' > "$out/env"
+[ -s "$out/env" ] || printf '%s\n' HOME=/config XDG_RUNTIME_DIR=/tmp/runtime-braveuser WAYLAND_DISPLAY=wayland-1 PULSE_SERVER=unix:/tmp/runtime-braveuser/pulse/native DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/runtime-braveuser/dbus/session_bus_socket > "$out/env"
+echo XDG_SESSION_TYPE=wayland >> "$out/env"; ls -la /tmp/runtime-braveuser
 say 'Session environment'; cat "$out/env"
 as() { runuser -u braveuser -- env $(cat "$out/env") "$@"; }
 
@@ -18,7 +20,7 @@ sysctl kernel.unprivileged_userns_clone user.max_user_namespaces 2>&1
 grep -E 'NoNewPrivs|Seccomp:|CapEff' /proc/self/status
 
 say 'Sample files'
-home=$(grep '^HOME=' "$out/env" | cut -d= -f2); dl="$home/Downloads"
+home=$(grep '^HOME=' "$out/env" | cut -d= -f2); dl="$home/downloads"
 as mkdir -p "$dl/Folder"
 as python3 - "$dl" <<'PY'
 import sys, pathlib
@@ -52,19 +54,19 @@ head -30 "$out/nautilus.log"
 say 'Space bar from GNOME Files'
 as nautilus -s "$dl/picture.png" > /dev/null 2>&1 &
 sleep 5; as wtype -k space 2>&1 | head -3; sleep 6; shot 02-files-space
-pgrep -u braveuser -af sushi || echo 'sushi not started by the space bar'
-stop sushi; stop nautilus
+pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'sushi not started by the space bar'
+stop sushi; stop NautilusPreviewer; stop nautilus
 
 say 'Sushi on its own'
 for f in picture.png document.pdf notes.txt script.py video.mp4 sound.mp3; do
     as sh -c "sushi '$dl/$f' > $out/sushi-$f.log 2>&1 &"
     sleep 9; shot "03-sushi-$f"
-    pgrep -u braveuser -f sushi > /dev/null && echo "$f: sushi running" || echo "$f: SUSHI NOT RUNNING"
+    pgrep -u braveuser -f 'sushi|NautilusPreviewer' > /dev/null && echo "$f: sushi running" || echo "$f: SUSHI NOT RUNNING"
     case $f in video.mp4|sound.mp3)
         echo "$f: playback streams on the session audio server:"; as pactl list short sink-inputs 2>&1 | head -5 ;;
     esac
     head -8 "$out/sushi-$f.log"
-    stop sushi
+    stop sushi; stop NautilusPreviewer
 done
 
 say 'Sandbox: can this container create one'
@@ -73,31 +75,35 @@ as bwrap --ro-bind / / --proc /proc true && echo 'new /proc: yes' || echo 'new /
 as bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev true && echo 'all namespaces: yes' || echo 'all namespaces: NO'
 
 rt=$(grep '^XDG_RUNTIME_DIR=' "$out/env" | cut -d= -f2)
-wl=$(grep '^WAYLAND_DISPLAY=' "$out/env" | cut -d= -f2); case $wl in /*) ;; *) wl="$rt/$wl" ;; esac
-pulse=$(grep '^PULSE_SERVER=' "$out/env" | cut -d= -f2 | sed 's/^unix://')
+scratch="$rt/files-app"; as mkdir -p "$scratch/config" "$scratch/cache" "$scratch/data" "$scratch/tmp"
 box() {
-    as bwrap --unshare-all --die-with-parent --new-session \
-        --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-        --ro-bind /etc/fonts /etc/fonts --ro-bind /etc/alternatives /etc/alternatives --ro-bind-try /etc/ld.so.cache /etc/ld.so.cache \
-        --proc /proc --dev /dev --tmpfs /tmp --dir /run/user --dir /home/user \
-        --bind "$dl" /home/user/Downloads --ro-bind "$wl" /run/user/wayland-0 --ro-bind-try "$pulse" /run/user/pulse \
-        --setenv HOME /home/user --setenv XDG_RUNTIME_DIR /run/user --setenv WAYLAND_DISPLAY wayland-0 \
-        --setenv PULSE_SERVER unix:/run/user/pulse --unsetenv DBUS_SESSION_BUS_ADDRESS --chdir /home/user "$@"
+    as env HOME="$dl" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" XDG_DATA_HOME="$scratch/data" \
+        TMPDIR="$scratch/tmp" python3 /trial-confine.py "$dl" "$rt" -- "$@"
 }
-say 'Sandbox: what is visible inside'
-box sh -c 'echo "root:"; ls /; echo "etc:"; ls /etc; echo "home:"; ls -la /home/user /home/user/Downloads; echo "config:"; ls /config 2>&1; echo "processes:"; ls /proc | grep -c "^[0-9]"; id'
-box sh -c 'cp /usr/bin/true /home/user/Downloads/prog && chmod +x /home/user/Downloads/prog && /home/user/Downloads/prog && echo "a file in Downloads CAN be executed" || echo "a file in Downloads cannot be executed"; rm -f /home/user/Downloads/prog'
-box sh -c 'echo x > /usr/trial 2>&1 && echo "system is WRITABLE" || echo "system is read-only"'
+say 'Landlock sandbox: what is reachable inside'
+box sh -c 'id; for p in / /etc /config /config/profile /home /tmp /run /opt /root; do ls "$p" > /dev/null 2>&1 && echo "CAN list $p" || echo "cannot list $p"; done
+cat /etc/passwd > /dev/null 2>&1 && echo "CAN read /etc/passwd" || echo "cannot read /etc/passwd"
+cat /etc/brave/policies/managed/policies.json > /dev/null 2>&1 && echo "CAN read browser policy" || echo "cannot read browser policy"
+echo "own storage:"; ls "$HOME"
+echo hello > "$HOME/written.txt" && echo "can write own storage"; rm -f "$HOME/written.txt"
+cp /usr/bin/true "$HOME/prog" && chmod +x "$HOME/prog"; "$HOME/prog" && echo "a file in storage CAN be executed" || echo "a file in storage cannot be executed"; rm -f "$HOME/prog"
+echo x > /usr/trial 2>/dev/null && echo "system is WRITABLE" || echo "system is read-only"'
 
-say 'Sandbox: GNOME Files and Sushi inside it'
-box dbus-run-session -- sh -c 'nautilus --new-window /home/user/Downloads > /home/user/Downloads/.boxed.log 2>&1 & sleep 14; sushi /home/user/Downloads/video.mp4 >> /home/user/Downloads/.boxed.log 2>&1 & sleep 3000' &
-sleep 16; shot 04-boxed-files
+say 'Landlock sandbox: GNOME Files and Sushi inside it'
+box sh -c "dbus-daemon --session --address=unix:path=$scratch/bus --nofork > $scratch/bus.log 2>&1 &
+sleep 2; export DBUS_SESSION_BUS_ADDRESS=unix:path=$scratch/bus
+nautilus --new-window \"\$HOME\" > $scratch/boxed-files.log 2>&1 &
+sleep 14; nautilus -s \"\$HOME/picture.png\" > /dev/null 2>&1; sleep 4; wtype -k space; sleep 12
+pkill -f NautilusPreviewer; sushi \"\$HOME/video.mp4\" > $scratch/boxed-sushi.log 2>&1 & sleep 3000" > "$out/boxed.log" 2>&1 &
+sleep 14; shot 04-boxed-files
 pgrep -u braveuser -a nautilus || echo 'BOXED NAUTILUS NOT RUNNING'
-sleep 12; shot 05-boxed-sushi
-pgrep -u braveuser -af sushi || echo 'BOXED SUSHI NOT RUNNING'
+sleep 12; shot 05-boxed-files-space
+pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'boxed sushi not started by the space bar'
+sleep 16; shot 06-boxed-sushi-video
+pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'BOXED SUSHI NOT RUNNING'
 echo 'boxed playback streams:'; as pactl list short sink-inputs 2>&1 | head -5
-head -30 "$dl/.boxed.log"
-pkill -u braveuser bwrap; stop sushi; stop nautilus
+cat "$out/boxed.log"; head -25 "$scratch/boxed-files.log"; head -15 "$scratch/boxed-sushi.log"; head -5 "$scratch/bus.log"
+pkill -u braveuser -f 'sleep 3000'; pkill -u braveuser dbus-daemon -n; stop sushi; stop NautilusPreviewer; stop nautilus
 
 say 'What a session user can read outside its own storage'
 useradd -m other 2>/dev/null
@@ -117,4 +123,6 @@ grep -E '^/(run|tmp|root|defaults|app|srv)/' "$out/readable-other.txt" | head -6
 grep -E '^/etc/' "$out/readable-other.txt" | grep -vE '^/etc/(fonts|ssl/certs|alternatives|X11|dbus-1|pulse|gtk|xdg|apt|dpkg|ca-certificates|terminfo|perl|python|ld\.so|pam\.d|security|systemd|init\.d|rc|cron|logrotate|profile|skel|default|selinux|vulkan|glvnd|OpenCL|mime|emacs|bash_completion|sysctl|update-motd|kernel|modprobe|udev|sensors|libnl|gss|sv|runit|s6|cont|services\.d)' | head -80
 echo '--- process command lines visible to another user'
 runuser -u other -- ps -eo user:12,args --cols 400 | head -60
+echo '--- two files other users can read'
+head -c 500 /run/brave-network/config.json; echo; head -c 400 /etc/nginx/conf.d/auth.conf; echo
 say 'Done'
