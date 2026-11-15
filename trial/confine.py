@@ -48,7 +48,7 @@ def allow(path, access):
 
 allow('/usr', READ | EXECUTE)
 for path in ('/etc/fonts', '/etc/ld.so.cache', '/etc/gtk-3.0', '/etc/gtk-4.0', '/etc/alternatives',
-             '/etc/pulse', '/etc/machine-id', '/etc/localtime', '/etc/nsswitch.conf', '/etc/dbus-1',
+             '/etc/passwd', '/etc/group', '/etc/pulse', '/etc/machine-id', '/etc/localtime', '/etc/nsswitch.conf', '/etc/dbus-1',
              '/var/cache/fontconfig', '/var/lib/dbus', '/proc', '/sys/devices/system/cpu'):
     allow(path, READ)
 allow('/dev', READ | WRITE)

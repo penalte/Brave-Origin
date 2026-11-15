@@ -5,7 +5,7 @@ out=/trial-out; mkdir -p "$out"; chmod 777 "$out"
 say() { printf '\n===== %s =====\n' "$*"; }
 brave=$(cat /tmp/brave.pid)
 runuser -u braveuser -- cat "/proc/$brave/environ" | tr '\0' '\n' | grep -E '^(XDG_RUNTIME_DIR|WAYLAND_DISPLAY|PULSE_SERVER|DBUS_SESSION_BUS_ADDRESS|HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME)=' > "$out/env"
-[ -s "$out/env" ] || printf '%s\n' HOME=/config XDG_RUNTIME_DIR=/tmp/runtime-braveuser WAYLAND_DISPLAY=wayland-1 PULSE_SERVER=unix:/tmp/runtime-braveuser/pulse/native DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/runtime-braveuser/dbus/session_bus_socket > "$out/env"
+[ -s "$out/env" ] || printf '%s\n' HOME=/config XDG_RUNTIME_DIR=/tmp/runtime-braveuser WAYLAND_DISPLAY=wayland-0 PULSE_SERVER=unix:/tmp/runtime-braveuser/pulse/native DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/runtime-braveuser/dbus/session_bus_socket > "$out/env"
 echo XDG_SESSION_TYPE=wayland >> "$out/env"; ls -la /tmp/runtime-braveuser
 say 'Session environment'; cat "$out/env"
 as() { runuser -u braveuser -- env $(cat "$out/env") "$@"; }
@@ -44,6 +44,15 @@ ls -la "$dl"
 shot() { as grim "$out/$1.png" 2>&1 | head -3; }
 stop() { pkill -u braveuser -f "$1"; sleep 2; }
 shot 00-before
+if [ ! -s "$out/00-before.png" ]; then
+    echo 'The live desktop offers no screenshot interface; using a headless desktop for pictures.'
+    printf '%s\n' 'output HEADLESS-1 resolution 1280x720' 'default_border none' > "$out/sway.conf"
+    as env WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman LIBSEAT_BACKEND=noop sh -c "sway -c $out/sway.conf > $out/sway.log 2>&1 &"
+    sleep 4; rt0=$(grep '^XDG_RUNTIME_DIR=' "$out/env" | cut -d= -f2)
+    new=$(ls -t "$rt0" | grep -E '^wayland-[0-9]+$' | head -1); echo "headless desktop: $new"; tail -5 "$out/sway.log"
+    sed -i "s/^WAYLAND_DISPLAY=.*/WAYLAND_DISPLAY=$new/" "$out/env"
+    shot 00-before
+fi
 
 say 'GNOME Files in the live desktop'
 as sh -c "nautilus --new-window '$dl' > $out/nautilus.log 2>&1 &"
