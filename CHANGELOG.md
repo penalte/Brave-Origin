@@ -1,5 +1,13 @@
 # Release notes
 
+## 1.2.0-beta.56 (Pocket ID fork)
+
+- New Files page. **My files** in the sidebar now opens a file manager in your own browser, in place of the plain file listing: grid or list with thumbnails, search, sorting, multiple selection, a right-click menu and keyboard shortcuts.
+- Upload by dropping files on the page or with the Upload button. Files go up in pieces with a progress bar each, continue after a dropped connection, and can be retried. A name already in use is never replaced.
+- Move and copy files and folders, by dragging onto a folder or with **Move to…** and **Copy to…**.
+- Preview pictures, video, audio, PDF and text in the page with Space or a double click; office documents are shown through the document server when one is configured.
+- The old listing page, its patch and its header-based actions are removed.
+
 ## 1.2.0-beta.55 (Pocket ID fork)
 
 - Add the My files API that the new Files page will use. It lists folders, serves files with seeking for video and audio, draws thumbnails, receives uploads in resumable pieces, and creates, renames, moves, copies and deletes entries. Nothing changes on screen in this beta.

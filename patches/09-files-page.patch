@@ -1,0 +1,29 @@
+--- a/addons/selkies-dashboard/src/components/Sidebar.jsx
++++ b/addons/selkies-dashboard/src/components/Sidebar.jsx
+@@ -1916,6 +1916,11 @@
+ 
+   const toggleAppsModal = () => setIsAppsModalOpen(!isAppsModalOpen);
+   const toggleFilesModal = () => {
++    // Inside the private portal, My files is the portal's own page.
++    if (window.parent !== window) {
++      window.parent.postMessage({ type: "brave-session-files" }, window.location.origin);
++      return;
++    }
+     // The frame reloads whenever the modal reopens, so the spinner comes back
+     // with it; its own onLoad clears it.
+     if (!isFilesModalOpen) {
+@@ -4513,12 +4518,9 @@
+                         className="resolution-button"
+                         onClick={toggleFilesModal}
+                         style={{ marginTop: "5px", marginBottom: "5px" }}
+-                        title={t(
+-                          "sections.files.downloadButtonTitle",
+-                          "Download Files"
+-                        )}
++                        title="Browse, preview and manage your files"
+                       >
+-                        {t("sections.files.downloadButtonTitle", "Download Files")}
++                        {window.parent !== window ? "My files" : t("sections.files.downloadButtonTitle", "Download Files")}
+                       </button>
+                     )}
+                   </div>

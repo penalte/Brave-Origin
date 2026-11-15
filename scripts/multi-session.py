@@ -14,7 +14,6 @@ import secrets
 import shutil
 import stat
 import time
-from urllib.parse import unquote
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector, web
 
@@ -737,41 +736,7 @@ class Broker(files_api.FileService, sharing.ViewSharing, single.Manager):
         session = self.selected(request)
         if not session:
             raise web.HTTPForbidden(text='No active desktop')
-        path = request.path[len('/desktop'):] if request.path.startswith('/desktop/') else request.path
-        action = request.headers.get('X-My-Files-Action')
-        if request.method == 'POST' and path.startswith('/api/files/') and action:
-            relative = path[len('/api/files/'):]
-            if action == 'open':
-                return await self.open_file(request, session, relative)
-            if action in ('mkdir', 'rename', 'remove'):
-                return self.change_file(request, session, relative, action)
-            raise web.HTTPBadRequest(text='Unknown My files action')
         return await session.proxy(request)
-
-    def change_file(self, request, session, relative, action):
-        """Create a folder, rename an entry or delete one in the owner's My files."""
-        if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
-            raise web.HTTPForbidden(text='Changing files requires the session that owns them')
-        parts = relative.rstrip('/').split('/')
-        try:
-            files = self.my_files(session)
-            try:
-                if action == 'mkdir':
-                    # Created by this root process; hand it to the account that owns the tree.
-                    files.mkdir(parts, owner=session.browser.uid)
-                elif action == 'rename':
-                    files.rename(parts, unquote(request.headers.get('X-My-Files-Name', '')))
-                else:
-                    files.remove(parts)
-            finally:
-                os.close(files.fd)
-        except FileExistsError:
-            raise web.HTTPConflict(text='Something with that name already exists here.') from None
-        except FileNotFoundError:
-            raise web.HTTPNotFound(text='That item is no longer in My files.') from None
-        except (OSError, ValueError):
-            raise web.HTTPBadRequest(text='Use a plain name without / or a leading dot, inside My files.') from None
-        return web.json_response({'changed': True})
 
     @staticmethod
     def my_files(session):
@@ -786,14 +751,8 @@ class Broker(files_api.FileService, sharing.ViewSharing, single.Manager):
             ['/usr/sbin/runuser', '-u', name, '--', 'python3', '/usr/local/bin/file-picker.py', '--render',
              str(browser.home / 'Downloads')], session_environment(browser.home, name, browser.directory))
 
-    async def open_file(self, request, session, relative):
-        """Open one of the owner's files as a tab in their remote browser."""
-        if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
-            raise web.HTTPForbidden(text='Opening a file requires the session that owns it')
-        kind = await self.open_parts(session, relative.split('/'))
-        return web.json_response({'opened': True, 'viewer': 'office' if kind else 'browser'})
-
-    async def open_parts(self, session, parts):
+    def viewable(self, session, parts):
+        """The address of a file in My files and, for an office document, its document type."""
         try:
             files = self.my_files(session)
             try:
@@ -806,17 +765,24 @@ class Broker(files_api.FileService, sharing.ViewSharing, single.Manager):
         if reason:
             raise (web.HTTPConflict if Path(parts[-1]).suffix.lower().lstrip('.') in OFFICE_TYPES
                    else web.HTTPUnsupportedMediaType)(text=reason)
-        kind = OFFICE_TYPES.get(Path(parts[-1]).suffix.lower().lstrip('.'))
+        return address, OFFICE_TYPES.get(Path(parts[-1]).suffix.lower().lstrip('.'))
+
+    def document_link(self, session, parts, kind):
+        """A view-only address for one office document, valid for a limited time."""
+        now = time.time()
+        self.documents = {k: v for k, v in self.documents.items() if v['expires'] > now}
+        while len(self.documents) >= 256:
+            del self.documents[next(iter(self.documents))]
+        token = secrets.token_urlsafe(32)
+        self.documents[token] = dict(session=session, parts=parts, kind=kind, origin=session.owner['origin'],
+                                     expires=min(now + OFFICE_SECONDS, session.owner['expires']))
+        # The query string keeps the token out of the access log.
+        return session.owner['origin'] + '/office/view?t=' + token
+
+    async def open_parts(self, session, parts):
+        address, kind = self.viewable(session, parts)
         if kind:
-            now = time.time()
-            self.documents = {k: v for k, v in self.documents.items() if v['expires'] > now}
-            while len(self.documents) >= 256:
-                del self.documents[next(iter(self.documents))]
-            token = secrets.token_urlsafe(32)
-            self.documents[token] = dict(session=session, parts=parts, kind=kind, origin=session.owner['origin'],
-                                         expires=min(now + OFFICE_SECONDS, session.owner['expires']))
-            # The query string keeps the token out of the access log.
-            address = session.owner['origin'] + '/office/view?t=' + token
+            address = self.document_link(session, parts, kind)
         try:
             await session.browser.open_url(address)
         except Exception:

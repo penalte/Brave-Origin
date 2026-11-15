@@ -30,6 +30,7 @@ async def main():
         (files / 'page.html').write_bytes(b'<script>alert(1)</script>')
         (files / 'paper.pdf').write_bytes(b'%PDF-1.4')
         (files / 'tool.exe').write_bytes(b'MZ')
+        (files / 'plan.docx').write_bytes(b'PK')
         (files / '.hidden').write_bytes(b'state')
         (files / 'link.txt').symlink_to('/etc/passwd')
         (files / 'away').symlink_to('/etc')
@@ -64,11 +65,13 @@ async def main():
             # Listing: folders first, no dotfiles, no links, with what each entry can do.
             listing = await (await get('/files/list')).json()
             names = [entry['name'] for entry in listing['entries']]
-            assert names == ['Trip', 'notes.txt', 'page.html', 'paper.pdf', 'tool.exe'], names
+            assert names == ['Trip', 'notes.txt', 'page.html', 'paper.pdf', 'plan.docx', 'tool.exe'], names
             by_name = {entry['name']: entry for entry in listing['entries']}
             assert by_name['Trip']['folder'] and by_name['Trip']['kind'] == 'folder' and not by_name['Trip']['opens']
-            assert by_name['notes.txt'] == {'name': 'notes.txt', 'folder': False, 'size': 10, 'kind': 'text', 'opens': True,
+            assert by_name['notes.txt'] == {'name': 'notes.txt', 'folder': False, 'size': 10, 'kind': 'text', 'opens': True, 'document': False,
                                             'modified': by_name['notes.txt']['modified']}
+            # An office document is marked as one; without a document server it cannot be opened.
+            assert by_name['plan.docx']['document'] and not by_name['plan.docx']['opens']
             assert not by_name['tool.exe']['opens'] and listing['upload_limit'] == 1024 * 1024 and listing['office'] is False
             assert [e['name'] for e in (await (await get('/files/list', path='Trip')).json())['entries']] == ['dot.png']
             # Only the owner, only inside the tree, never through a link.

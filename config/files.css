@@ -1,0 +1,68 @@
+/* My files: the portal's file manager. */
+#files-app{width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:#11151d;color:#e6ebf3;font:14px/1.45 system-ui,-apple-system,sans-serif;overflow:hidden}
+#files-app[open]{display:flex;flex-direction:column}
+#files-app [hidden]{display:none!important}
+#files-app button,#files-app select,#files-app input{font:inherit;color:inherit}
+#files-app button{margin:0;padding:8px 12px;border:1px solid #465166;border-radius:8px;background:#242c39;font-weight:600;font-size:12.5px;line-height:1.3;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#files-app button:hover:not(:disabled){background:#303a4b;border-color:#78869d}
+#files-app button:disabled{opacity:.4;cursor:not-allowed}
+#files-app button.primary{background:#f46638;border-color:#f46638;color:#fff}#files-app button.primary:hover:not(:disabled){background:#ff784a;border-color:#ff784a}
+#files-app button.danger{color:#ffa6b5;border-color:#814450;background:#ed456414}#files-app button.danger:hover:not(:disabled){background:#ed456428}
+#files-app button.plain{border-color:transparent;background:transparent;color:#aeb9c9}#files-app button.plain:hover:not(:disabled){background:#2a3240;color:#fff}
+#files-app :focus-visible{outline:2px solid #ff956f;outline-offset:2px}
+#files-app svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.fa-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #2b3441;background:#181d26;flex-wrap:wrap}
+.fa-title{font-size:17px;font-weight:650;letter-spacing:-.02em;margin-right:4px;display:flex;align-items:center;gap:8px}#files-app .fa-title svg{width:22px;height:22px;color:#ff956f}
+.fa-crumbs{display:flex;align-items:center;gap:2px;min-width:0;flex:1 1 200px;overflow:hidden;padding:3px}
+#files-app .fa-crumbs button{padding:5px 8px;border-color:transparent;background:transparent;color:#aeb9c9;font-weight:500;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;display:block;max-width:220px}
+#files-app .fa-crumbs button:last-of-type{color:#fff;font-weight:650}.fa-crumbs span{color:#5d6a80}
+#files-app .fa-crumbs button.target,.fa-item.target{outline:2px dashed #ff956f;outline-offset:-2px;background:#f4663822}
+.fa-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#files-app input[type=search],#files-app select,#files-app input[type=text]{border:1px solid #465166;background:#12161d;border-radius:8px;padding:8px 10px;font-size:13px;min-width:0}
+#files-app input[type=search]{width:190px}
+.fa-actions{display:flex;align-items:center;gap:8px;padding:8px 16px;background:#1f2530;border-bottom:1px solid #2b3441;flex-wrap:wrap;min-height:50px}
+.fa-actions .fa-count{font-weight:650;margin-right:6px}.fa-actions .fa-hint{color:#8794aa;font-size:12.5px}.fa-actions .fa-space{flex:1}
+.fa-list{flex:1 1 0;min-height:0;overflow:auto;padding:16px;position:relative}#files-app .fa-list:focus-visible{outline:none}
+.fa-list.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px;align-content:start}
+.fa-item{border:1px solid transparent;border-radius:10px;cursor:default;user-select:none;-webkit-user-select:none}
+.fa-item:hover{background:#1c222d}.fa-item[aria-selected=true]{background:#f4663820;border-color:#f4663890}
+.fa-pic{display:grid;place-items:center;overflow:hidden;border-radius:8px;background:#1a202a;color:#8ea0bd}
+.fa-pic img{width:100%;height:100%;object-fit:cover;display:block}.fa-pic.folder{color:#ffb38f;background:#f4663812}
+.fa-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fa-meta,.fa-date{color:#8794aa;font-size:12px;white-space:nowrap}
+.grid .fa-item{padding:8px;display:flex;flex-direction:column;gap:4px;text-align:center}
+.grid .fa-pic{aspect-ratio:4/3}#files-app .grid .fa-pic svg{width:44px;height:44px;stroke-width:1.3}.grid .fa-date{display:none}
+.grid .fa-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere;font-size:13px}
+.list .fa-item{display:grid;grid-template-columns:40px minmax(0,1fr) 110px 150px;align-items:center;gap:12px;padding:6px 10px}
+.list .fa-pic{width:40px;height:40px}#files-app .list .fa-pic svg{width:22px;height:22px}.list .fa-meta{text-align:right}
+.fa-empty{margin:auto;text-align:center;color:#8794aa;padding:40px 20px;max-width:420px}#files-app .fa-empty svg{width:56px;height:56px;stroke-width:1.2;color:#465166;margin-bottom:10px}.fa-empty strong{display:block;color:#c9d2e0;font-size:16px;margin-bottom:4px}
+.fa-drop{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:#11151de6;border:3px dashed #ff956f;font-size:18px;font-weight:650;pointer-events:none}
+.fa-uploads{position:absolute;right:16px;bottom:16px;z-index:4;width:min(360px,calc(100vw - 32px));max-height:45vh;overflow:auto;background:#1f2530;border:1px solid #465166;border-radius:12px;box-shadow:0 12px 40px #0009}
+.fa-uploads header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #2b3441;font-weight:650;position:sticky;top:0;background:#1f2530}
+.fa-job{padding:9px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;border-bottom:1px solid #2b344180}
+.fa-job .fa-name{font-size:13px}.fa-job small{color:#8794aa;grid-column:1}.fa-job.failed small{color:#ffa6b5}.fa-job.done small{color:#91e2b2}
+.fa-job progress{grid-column:1/-1;width:100%;height:5px;appearance:none;border:0;border-radius:3px;overflow:hidden;background:#12161d}
+.fa-job progress::-webkit-progress-bar{background:#12161d}.fa-job progress::-webkit-progress-value{background:#ff956f}.fa-job progress::-moz-progress-bar{background:#ff956f}
+#files-app .fa-job button{padding:3px 8px;font-size:11.5px;grid-row:1;grid-column:2}
+.fa-toast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:8;max-width:min(560px,calc(100vw - 32px));padding:10px 16px;border-radius:10px;background:#242c39;border:1px solid #465166;box-shadow:0 8px 30px #0008;font-size:13.5px}
+.fa-toast.error{border-color:#814450;color:#ffc2cc}.fa-toast:empty{display:none}
+.fa-menu{position:fixed;z-index:9;min-width:190px;margin:0;padding:6px;list-style:none;background:#1f2530;border:1px solid #465166;border-radius:10px;box-shadow:0 12px 40px #000a}
+#files-app .fa-menu button{width:100%;justify-content:flex-start;border-color:transparent;background:transparent;font-weight:500;font-size:13.5px;padding:8px 10px}
+#files-app .fa-menu button:hover:not(:disabled){background:#303a4b}
+.fa-preview{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;background:#0b0e14}
+.fa-preview header{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#181d26;border-bottom:1px solid #2b3441}
+.fa-preview header .fa-name{flex:1;font-weight:650;font-size:14.5px}.fa-preview header .fa-meta{margin-right:6px}
+.fa-stage{flex:1 1 0;min-height:0;display:grid;place-items:center;overflow:auto;padding:14px}
+.fa-stage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px}.fa-stage video{width:100%;height:100%;object-fit:contain;background:#000;border-radius:6px}
+.fa-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff}
+.fa-stage pre{align-self:start;justify-self:stretch;margin:0;padding:16px;background:#12161d;border:1px solid #2b3441;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;tab-size:4}
+.fa-stage .fa-sound{display:grid;gap:18px;justify-items:center}#files-app .fa-stage .fa-sound svg{width:96px;height:96px;stroke-width:1;color:#8ea0bd}.fa-stage audio{width:min(480px,80vw)}
+.fa-stage .fa-note{text-align:center;color:#aeb9c9;display:grid;gap:14px;justify-items:center;max-width:440px}#files-app .fa-stage .fa-note svg{width:64px;height:64px;stroke-width:1.1;color:#465166}
+dialog.fa-box{width:min(440px,calc(100vw - 32px));padding:20px;border:1px solid #465166;border-radius:12px;background:#181d26;color:#e6ebf3;box-shadow:0 24px 60px #0009}
+dialog.fa-box::backdrop{background:#080b12b8}dialog.fa-box h2{margin:0 0 6px;font-size:17px}dialog.fa-box p{margin:0 0 14px;color:#aeb9c9;font-size:13.5px;overflow-wrap:anywhere}
+dialog.fa-box input[type=text]{width:100%;margin-bottom:14px}dialog.fa-box .fa-buttons{display:flex;justify-content:flex-end;gap:8px}
+dialog.fa-box .fa-folders{max-height:40vh;overflow:auto;border:1px solid #2b3441;border-radius:8px;margin-bottom:14px;min-height:120px}
+#files-app dialog.fa-box .fa-folders button{width:100%;justify-content:flex-start;border:0;border-radius:0;background:transparent;font-weight:500;font-size:13.5px;padding:9px 12px}
+#files-app dialog.fa-box .fa-folders button:hover{background:#242c39}dialog.fa-box .fa-folders p{padding:14px;margin:0;text-align:center}
+dialog.fa-box .fa-crumbs{margin-bottom:10px;flex:none;flex-wrap:wrap}
+@media(max-width:640px){.fa-bar{padding:10px}.fa-crumbs{order:5;flex-basis:100%}#files-app input[type=search]{width:130px}.list .fa-item{grid-template-columns:36px minmax(0,1fr) 80px}.list .fa-date{display:none}.fa-list{padding:10px}.fa-list.grid{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}.fa-actions.idle{display:none}}
+@media(prefers-reduced-motion:no-preference){.fa-item{transition:background .12s}}

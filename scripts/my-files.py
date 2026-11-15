@@ -107,10 +107,15 @@ class Thumbnailer:
 
 
 class FileService:
-    """Broker routes for My files. Expects selected(), my_files(), open_parts(), thumbnailer() and config."""
+    """Broker routes for My files. Expects selected(), my_files(), viewable(), document_link(), open_parts(), thumbnailer() and config."""
     def files_routes(self):
         self.thumbnailers, self.thumbnails, self.thumbnail_bytes = {}, OrderedDict(), 0
-        return [web.get('/files/list', self.files_list), web.get('/files/content', self.files_content),
+        async def script(request):
+            return web.FileResponse('/usr/local/share/brave-origin/files.js')
+
+        async def style(request):
+            return web.FileResponse('/usr/local/share/brave-origin/files.css')
+        return [web.get('/files.js', script), web.get('/files.css', style), web.get('/files/list', self.files_list), web.get('/files/content', self.files_content),
                 web.get('/files/thumb', self.files_thumb), web.post('/files/upload', self.files_upload),
                 web.post('/files/action', self.files_action)]
 
@@ -167,7 +172,8 @@ class FileService:
             'path': parts, 'office': office, 'upload_limit': self.config.upload_limit,
             'entries': [{'name': name, 'folder': folder, 'size': 0 if folder else size, 'modified': int(modified),
                          'kind': 'folder' if folder else picker.kind(name),
-                         'opens': not folder and picker.openable(name, office) is None}
+                         'opens': not folder and picker.openable(name, office) is None,
+                         'document': not folder and Path(name).suffix.lower().lstrip('.') in picker.OFFICE_TYPES}
                         for name, folder, size, modified in entries]})
 
     async def files_content(self, request):
@@ -340,7 +346,7 @@ class FileService:
             os.close(folder)
 
     async def files_action(self, request):
-        """Create a folder, rename, move, copy or delete an entry, or open a file in the remote browser."""
+        """Create a folder, rename, move, copy or delete an entry, open a file in the remote browser, or link a document."""
         session = self.files_owner(request, change=True)
         try:
             body = await request.json()
@@ -356,6 +362,12 @@ class FileService:
         if action == 'open':
             kind = await self.open_parts(session, parts)
             return web.json_response({'opened': True, 'viewer': 'office' if kind else 'browser'})
+        if action == 'link':
+            # An office document shown inside the Files page, through the document server.
+            _, kind = self.viewable(session, parts)
+            if not kind:
+                raise web.HTTPUnsupportedMediaType(text='Only office documents are shown through the document server.')
+            return web.json_response({'url': self.document_link(session, parts, kind)})
         if action not in ('mkdir', 'rename', 'move', 'copy', 'delete'):
             raise web.HTTPBadRequest(text='Unknown My files action')
         owner = session.browser.uid

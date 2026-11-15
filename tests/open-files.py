@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlsplit
-from aiohttp import web
+from aiohttp import streams, web
 from aiohttp.test_utils import make_mocked_request
 
 spec = importlib.util.spec_from_file_location('multi', '/usr/local/bin/multi-session.py')
@@ -53,11 +53,15 @@ async def main():
             owner.sessions['alice'] = session
             return session
 
-        def post(path, origin=ORIGIN, cookie='owner-cookie', action='open'):
-            request = make_mocked_request('POST', path, headers={
-                'Cookie': m.single.COOKIE + '=' + cookie, 'Origin': origin, 'X-My-Files-Action': action})
+        def opening(owner, path, origin=ORIGIN, cookie='owner-cookie', token='csrf', action='open'):
+            body = streams.StreamReader(Mock(_reading_paused=False), 2 ** 16, loop=asyncio.get_running_loop())
+            body.feed_data(json.dumps({'action': action, 'path': path}).encode())
+            body.feed_eof()
+            request = make_mocked_request('POST', '/files/action', payload=body, headers={
+                'Cookie': m.single.COOKIE + '=' + cookie, 'Origin': origin, 'X-CSRF-Token': token,
+                'Content-Type': 'application/json'})
             request['app_origin'] = ORIGIN
-            return request
+            return owner.files_action(request)
 
         def get(path, origin=ORIGIN):
             request = make_mocked_request('GET', path)
@@ -66,49 +70,26 @@ async def main():
 
         session = session_for(broker)
         # Files Brave renders itself open straight from the user's folder.
-        response = await broker.proxy(post('/desktop/api/files/Trip/beach%20day.JPG'))
+        response = await opening(broker, 'Trip/beach day.JPG')
         assert json.loads(response.text) == {'opened': True, 'viewer': 'browser'}
         session.browser.open_url.assert_awaited_once_with((files / 'Trip' / 'beach day.JPG').as_uri())
         # Only the owner, from the application itself, and only real files inside My files.
-        await refused(broker.proxy(post('/api/files/budget.xlsx', cookie='someone-else')), 403)
-        await refused(broker.proxy(post('/api/files/budget.xlsx', origin='https://evil.test')), 403)
-        for path in ('/api/files/linked.docx', '/api/files/missing.pdf', '/api/files/Trip', '/api/files/../../etc/passwd',
-                     '/api/files/Trip/../budget.xlsx', '/api/files/'):
-            await refused(broker.proxy(post(path)), 404)
+        await refused(opening(broker, 'budget.xlsx', cookie='someone-else'), 403)
+        await refused(opening(broker, 'budget.xlsx', origin='https://evil.test'), 403)
+        await refused(opening(broker, 'budget.xlsx', token='guessed'), 403)
+        for path in ('linked.docx', 'missing.pdf', 'Trip', ''):
+            await refused(opening(broker, path), 404)
+        for path in ('../../etc/passwd', 'Trip/../budget.xlsx', '.profile'):
+            await refused(opening(broker, path), 400)
         assert session.browser.open_url.await_count == 1
-        # New folder, rename and delete from the My files panel: owner only, inside the tree.
-        def change(path, action, name=None, **kwargs):
-            request = post(path, action=action, **kwargs)
-            if name is None:
-                return request
-            changed = make_mocked_request('POST', path, headers={**request.headers, 'X-My-Files-Name': name})
-            changed['app_origin'] = ORIGIN
-            return changed
-        session.browser.uid = os.getuid()
-        assert (await broker.proxy(change('/api/files/Trip/Day%20one/', 'mkdir'))).status == 200
-        assert (files / 'Trip' / 'Day one').is_dir()
-        await refused(broker.proxy(change('/api/files/Trip/Day%20one', 'mkdir')), 409)
-        assert (await broker.proxy(change('/api/files/budget.xlsx', 'rename', 'plan%202025.xlsx'))).status == 200
-        assert (files / 'plan 2025.xlsx').read_bytes() == b'sheet'
-        await refused(broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', 'Trip')), 409)
-        for name in ('..%2Fout.xlsx', '.hidden', ''):
-            await refused(broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', name)), 400)
-        await refused(broker.proxy(change('/api/files/missing.txt', 'rename', 'x.txt')), 404)
-        await refused(broker.proxy(change('/api/files/Trip', 'remove', cookie='someone-else')), 403)
-        await refused(broker.proxy(change('/api/files/Trip', 'remove', origin='https://evil.test')), 403)
-        await refused(broker.proxy(change('/api/files/Trip', 'format')), 400)
-        (files / 'Trip' / 'Day one' / 'out').symlink_to('/etc')
-        assert (await broker.proxy(change('/api/files/Trip/Day%20one/', 'remove'))).status == 200
-        assert not (files / 'Trip' / 'Day one').exists() and Path('/etc/passwd').exists()
-        assert (await broker.proxy(change('/api/files/plan%202025.xlsx', 'rename', 'budget.xlsx'))).status == 200
         # A type the browser cannot display is refused: opening it would only
         # make the browser download a duplicate into My files.
         for name in ('archive.zip', 'setup.EXE', 'clip.avi', 'photo.heic', 'no-extension'):
             (files / name).write_bytes(b'data')
-            assert 'Download it' in await refused(broker.proxy(post('/api/files/' + name)), 415)
+            assert 'Download it' in await refused(opening(broker, name), 415)
         for name in ('song.MP3', 'film.mkv', 'paper.pdf', 'notes.md'):
             (files / name).write_bytes(b'data')
-            await broker.proxy(post('/api/files/' + name))
+            await opening(broker, name)
         assert session.browser.open_url.await_count == 5
 
         # The picker's Open in Brave leaves a note in the session's private
@@ -138,11 +119,12 @@ async def main():
         broker.picker_request(session)  # No note: nothing happens.
         # Without a document server an office file says so instead of opening a download loop.
         unconfigured = session_for(plain)
-        assert 'OFFICE_SERVER_URL' in await refused(plain.proxy(post('/api/files/budget.xlsx')), 409)
+        assert 'OFFICE_SERVER_URL' in await refused(opening(plain, 'budget.xlsx'), 409)
+        await refused(opening(plain, 'budget.xlsx', action='link'), 409)
         unconfigured.browser.open_url.assert_not_awaited()
 
         # With one, the browser is sent to a viewer page behind a private link.
-        response = await broker.proxy(post('/api/files/Report%20%3C1%3E.DOCX'))
+        response = await opening(broker, 'Report <1>.DOCX')
         assert json.loads(response.text)['viewer'] == 'office'
         address = urlsplit(session.browser.open_url.await_args.args[0])
         token = parse_qs(address.query)['t'][0]
@@ -157,6 +139,13 @@ async def main():
         assert config['documentType'] == 'word' and document['fileType'] == 'docx' and document['title'] == 'Report <1>.DOCX'
         assert config['editorConfig']['mode'] == 'view' and document['permissions']['edit'] is False
         assert document['url'] == ORIGIN + '/office/file?t=' + token
+        # The Files page shows the same document through its own link, without opening a tab.
+        tabs = session.browser.open_url.await_count
+        shown = json.loads((await opening(broker, 'Report <1>.DOCX', action='link')).text)['url']
+        assert shown.startswith(ORIGIN + '/office/view?t=') and shown != session.browser.open_url.await_args.args[0]
+        assert session.browser.open_url.await_count == tabs
+        await refused(opening(broker, 'paper.pdf', action='link'), 415)
+        await refused(opening(broker, 'Report <1>.DOCX', action='link', token='guessed'), 403)
         # The document server reads exactly that file through the link.
         _, fd, info = broker.document(get('/office/file?t=' + token))
         assert os.read(fd, 100) == b'document-bytes' and info.st_size == 14

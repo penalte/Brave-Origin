@@ -144,7 +144,7 @@ async function update() {
       } else if ((fresh && !preparing) || (preparing && !preparationTimer)) beginPreparation();
       if (!preparing) { document.getElementById('desktop').src = '/desktop/'; opened = true; }
     }
-    if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; finishPreparation(); closePreview(); }
+    if (!active && opened) { document.getElementById('desktop').src = 'about:blank'; opened = false; finishPreparation(); MyFiles.close(); }
     notifyDesktop();
   } catch {
     network = {mode:'unknown', state:'unavailable'}; notifyDesktop();
@@ -168,104 +168,8 @@ window.addEventListener('message', event => {
   if (event.data?.type === 'brave-session-admin' && isAdmin) openAdmin();
   if (event.data?.type === 'brave-session-end') endSession();
   if (event.data?.type === 'brave-session-share') openShare();
+  if (event.data?.type === 'brave-session-files' && opened) MyFiles.open(() => csrf);
   if (event.data?.type === 'brave-session-warp') toggleWarp();
-});
-// Quick preview for My files. The file list runs in a frame inside the desktop
-// page and asks for it here, where a preview can use the whole window. Files
-// are fetched with the owner's own session, straight from their private folder.
-const previewDialog = document.getElementById('file-preview');
-const previewBody = document.getElementById('preview-body');
-let previewItems = [], previewIndex = 0, previewRun = 0, previewObject = '', previewAbort = null;
-function clearPreview() {
-  previewRun++;
-  if (previewAbort) previewAbort.abort();
-  previewAbort = null;
-  for (const media of previewBody.querySelectorAll('video,audio')) { media.pause(); media.removeAttribute('src'); media.load(); }
-  previewBody.replaceChildren();
-  if (previewObject) URL.revokeObjectURL(previewObject);
-  previewObject = '';
-}
-function previewNote(text) {
-  const note = document.createElement('p'); note.textContent = text; previewBody.replaceChildren(note);
-}
-async function renderPreview() {
-  clearPreview();
-  const run = previewRun, item = previewItems[previewIndex];
-  document.getElementById('preview-name').textContent = item.name;
-  document.getElementById('preview-count').textContent = previewItems.length > 1 ? `${previewIndex + 1} of ${previewItems.length}` : '';
-  document.getElementById('preview-prev').disabled = previewIndex === 0;
-  document.getElementById('preview-next').disabled = previewIndex === previewItems.length - 1;
-  if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
-    const element = document.createElement(item.kind === 'image' ? 'img' : item.kind);
-    if (item.kind === 'image') element.alt = item.name; else { element.controls = true; element.autoplay = true; }
-    element.addEventListener('error', () => { if (run === previewRun) previewNote('This file could not be shown here. Use Open or download it.'); });
-    element.src = item.url;
-    previewBody.append(element);
-    return;
-  }
-  if (item.kind === 'pdf' && item.bytes > 64 * 1024 * 1024) return previewNote('This PDF is too large to preview. Use Open instead.');
-  previewNote('Loading…');
-  try {
-    previewAbort = new AbortController();
-    const response = await fetch(item.url, {signal: previewAbort.signal, cache: 'no-store'});
-    if (!response.ok) throw Error('unavailable');
-    if (item.kind === 'pdf') {
-      const data = await response.blob();
-      if (run !== previewRun) return;
-      previewObject = URL.createObjectURL(new Blob([data], {type: 'application/pdf'}));
-      const frame = document.createElement('iframe'); frame.title = item.name; frame.src = previewObject;
-      previewBody.replaceChildren(frame);
-      return;
-    }
-    // Text: the first part is enough to recognise a file.
-    const reader = response.body.getReader(), parts = [];
-    let size = 0;
-    while (size < 262144) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      parts.push(value); size += value.length;
-    }
-    reader.cancel().catch(() => {});
-    if (run !== previewRun) return;
-    const text = document.createElement('pre');
-    text.textContent = await new Blob(parts).slice(0, 262144).text() + (size >= 262144 ? '\n…' : '');
-    previewBody.replaceChildren(text);
-  } catch (error) {
-    if (run === previewRun && error.name !== 'AbortError') previewNote('This file could not be shown here. Use Open or download it.');
-  }
-}
-function stepPreview(by) {
-  const next = previewIndex + by;
-  if (next < 0 || next >= previewItems.length) return;
-  previewIndex = next; renderPreview();
-}
-window.addEventListener('message', event => {
-  if (event.origin !== location.origin || event.data?.type !== 'brave-files-preview' || !opened) return;
-  const items = [];
-  for (const item of Array.isArray(event.data.items) ? event.data.items.slice(0, 2000) : []) {
-    let address;
-    try { address = new URL(String(item.url), location.origin); } catch { continue; }
-    // Only this application's own file route, and only kinds drawn safely here.
-    if (address.origin !== location.origin || !/^\/(desktop\/)?api\/files\/./.test(address.pathname)) continue;
-    if (!['image', 'video', 'audio', 'pdf', 'text'].includes(item.kind)) continue;
-    items.push({url: address.href, name: String(item.name).slice(0, 300), kind: item.kind, bytes: Number(item.bytes) || 0});
-  }
-  if (!items.length) return;
-  previewItems = items;
-  previewIndex = Math.min(Math.max(0, Number(event.data.index) || 0), items.length - 1);
-  if (!previewDialog.open) previewDialog.showModal();
-  renderPreview();
-});
-document.getElementById('preview-prev').onclick = () => stepPreview(-1);
-document.getElementById('preview-next').onclick = () => stepPreview(1);
-function closePreview() { if (previewDialog.open) previewDialog.close(); clearPreview(); }
-document.getElementById('preview-close').onclick = closePreview;
-previewDialog.addEventListener('close', clearPreview);
-previewDialog.addEventListener('keydown', event => {
-  if (event.key === 'ArrowLeft') stepPreview(-1);
-  else if (event.key === 'ArrowRight') stepPreview(1);
-  // Space closes, as in a quick look, unless a player is using it to pause.
-  else if (event.key === ' ' && !event.target.closest('video,audio,button')) { event.preventDefault(); closePreview(); }
 });
 function renderStartup(progress) {
   const row = document.getElementById('prepare-task');

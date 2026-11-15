@@ -153,8 +153,9 @@ async def main():
                 # Open from My files: the same page arrives as a new tab in this
                 # user's running browser, which downloads its file once more.
                 (desktop.home/'Downloads/from-brave.txt').unlink()
-                response = await client.post(server.make_url('/desktop/api/files/page.html'),
-                    headers={**auth,'Origin':headers['Origin'],'X-My-Files-Action':'open'})
+                owned = next(s for s in broker.sessions.values() if s.browser is desktop)
+                change = {**auth,'Origin':headers['Origin'],'X-CSRF-Token':owned.owner['csrf']}
+                response = await client.post(server.make_url('/files/action'), json={'action':'open','path':'page.html'}, headers=change)
                 assert response.status == 200, (response.status, await response.text())
                 for _ in range(150):
                     if list((desktop.home/'Downloads').glob('from-brave*.txt')):
@@ -163,8 +164,6 @@ async def main():
                 assert list((desktop.home/'Downloads').glob('from-brave*.txt')), 'Open in Brave did not reach the running browser'
                 # The My files API on a real desktop: an upload lands as the user's
                 # own file, and its thumbnail is drawn by a worker running as that user.
-                owned = next(s for s in broker.sessions.values() if s.browser is desktop)
-                change = {**auth,'Origin':headers['Origin'],'X-CSRF-Token':owned.owner['csrf']}
                 def chunk(kind, data):
                     return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data))
                 picture = (b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!IIBBBBB',1,1,8,2,0,0,0))+

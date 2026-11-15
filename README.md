@@ -41,11 +41,12 @@ Website uploads and Save dialogs use a private **My files** picker that browses
 only that identity's `Downloads` tree. It rejects symlinks and paths outside that
 tree. `file://` addresses are limited by policy to the identity's own storage.
 
-Each file in the **My files** panel has an **Open** button that opens it as a tab
-in the remote browser: pictures, video, audio, PDF and text directly, and office
-documents through an optional ONLYOFFICE Docs server (`OFFICE_SERVER_URL`).
-The panel and the picker both offer a quick preview, thumbnails, search, sorting,
-new folders, rename and delete.
+**My files** in the sidebar opens a file manager for that folder in your own
+browser: grid or list with thumbnails, search and sorting, drag-and-drop upload
+with progress and resume, new folders, rename, move, copy and delete, and a
+preview for pictures, video, audio, PDF and text. **Open in Brave** opens a file
+as a tab in the remote browser; office documents use an optional ONLYOFFICE Docs
+server (`OFFICE_SERVER_URL`).
 
 [POCKET-ID.md](POCKET-ID.md) covers provider registration, every session setting,
 and the limits of what the isolation does and does not promise.

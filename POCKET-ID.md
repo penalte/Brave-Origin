@@ -115,14 +115,31 @@ back up `/config`. Maintenance shutdown is distinct from normal user logout.
 
 ## Tests and limits
 
-Selkies My files includes a Delete button for individual files, with permanent
-deletion confirmed before sending the request. Only the current identity's
-Downloads files can be removed; folders and symlinks cannot be deleted.
+**My files** in the sidebar opens the Files page: a file manager for that
+identity's Downloads folder, running in your own browser. It shows a grid or a
+list with thumbnails, and can search, sort, create folders, rename, move, copy
+and delete. Select with a click, Ctrl or Shift; double-click opens a folder or
+previews a file; a right click offers the same actions. Drag entries onto a
+folder, or onto a name in the path, to move them. Deleting is permanent and is
+confirmed first; a folder is deleted with its contents. Symlinks are never
+followed and names starting with a dot are not shown.
 
-Each file also has an **Open** button, which opens it as a new tab in that
+Drop files anywhere on the page, or use **Upload**, to add them to the open
+folder. Files are sent in pieces, two at a time, with progress for each. A
+dropped connection continues from where it stopped, and a failed upload can be
+retried without starting over. `MAX_UPLOAD_MB` limits each file. A name already
+in use is kept: the upload arrives as `name (1)`.
+
+Space, or a double click, previews a file in the page: pictures, video and
+audio (played by your device, with seeking), PDF and text. The arrow keys move
+between files and Esc or Space closes. Office documents are shown by the
+document server when one is configured. A file is always delivered as inert
+content, never as a page of this application.
+
+**Open in Brave** opens the selected file as a new tab in that
 identity's remote browser. Brave displays pictures, video (MP4, WebM), audio, PDF
 and text itself, straight from the Downloads folder. For a type it cannot
-display, such as an archive, Open says so instead of creating a duplicate. Local `file://` addresses are
+display, such as an archive, the button is unavailable. Local `file://` addresses are
 limited by managed policy to the identity storage under `/config/users`; an
 operator `BROWSER_POLICY` may change `URLBlocklist` and `URLAllowlist`.
 
@@ -135,17 +152,10 @@ while the desktop is running, and never for a symlink. Nothing is written back.
 Two connections must work: the document server must reach this application's
 public address, and the remote browser must reach the document server through
 its network route, so a public hostname is the reliable choice. Without a
-document server, Open on an office file explains that one is required.
-
-The panel also has a **Preview** button per file: pictures, video, audio, PDF and
-text open in a full-window quick look, with the arrow keys to move between files
-and Esc or Space to close. Previews are fetched by your own browser with your
-session, so video and audio play on your device. The panel can search the current
-folder, sort by name, date or size, create folders, rename, and delete folders
-with their contents. Picture files show a small thumbnail.
+document server, an office file can only be downloaded.
 
 Website upload buttons and Save dialogs use a private **My files** picker. It
-opens in the same Downloads folder used by Selkies transfers, supports subfolders,
+opens in the same Downloads folder as the Files page, supports subfolders,
 multiple files and filename filters, and has no root, Desktop, Other Locations,
 or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
 requests are cancelled; select individual files instead. Save names must be plain
@@ -160,7 +170,7 @@ be paged through, animated GIFs move, a recording shows its title, artist and
 cover, a folder shows how many files it holds and their total size, and text is
 coloured by language. **Enlarge**, or a double click on the preview, gives it the
 whole window. A file without a useful extension is recognised by its content. **Open in Brave** opens
-the selected file as a browser tab under the same rules as the My files panel,
+the selected file as a browser tab under the same rules as the Files page,
 including office documents through the document server; the tab is behind the
 picker until you close it. Typing jumps to a name, column headings sort,
 and New folder, Rename (F2) and Delete work on the selection. Previews are drawn
