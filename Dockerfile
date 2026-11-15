@@ -122,6 +122,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-gi \
     python3-dbus \
     gir1.2-gtk-3.0 \
+    gir1.2-poppler-0.18 \
+    gir1.2-gtksource-4 \
+    python3-gi-cairo \
+    webp-pixbuf-loader \
+    librsvg2-common \
+    libavif-gdk-pixbuf \
+    ffmpegthumbnailer \
+    ffmpeg \
     labwc \
     libwlroots-0.18 \
     libdisplay-info2 libliftoff0 libseat1 \

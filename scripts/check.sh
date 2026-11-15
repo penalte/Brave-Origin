@@ -50,6 +50,7 @@ python3 -m py_compile tests/cursor_browser.py tests/gamepad_session.py tests/med
 python3 -m py_compile tests/network-health.py
 python3 -m py_compile tests/rapid-login.py
 python3 -m py_compile tests/startup-readiness.py
+python3 -m py_compile tests/open-files.py
 python3 -m py_compile tests/guest_gamepad.py
 python3 -m py_compile tests/session-operations.py
 python3 -m py_compile tests/desktop-sizing.py

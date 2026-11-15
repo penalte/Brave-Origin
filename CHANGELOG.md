@@ -1,5 +1,35 @@
 # Release notes
 
+## 1.2.0-beta.54 (Pocket ID fork)
+
+- File picker preview: page through a PDF, move through a video or recording with a position bar and elapsed and total time, click the picture to play or pause, and enlarge the preview to the whole window with Enlarge or a double click.
+- Animated GIFs move, short videos repeat, and a recording shows its title, artist, album and cover (embedded, or a cover picture kept in the same folder).
+- Selecting a folder shows how many files it holds and their total size, counted in the background.
+- Text previews are coloured by language with line numbers. A file without a useful extension is recognised by its content.
+
+## 1.2.0-beta.53 (Pocket ID fork)
+
+- Play video and audio inside the file picker's preview pane, with Play, Pause and Resume. Decoding runs in separate ffmpeg processes, so a damaged file stops the playback and nothing else.
+- Add **Open in Brave** to the file picker. It opens the selected file as a browser tab under the same rules as the My files panel: pictures, video, audio, PDF and text directly, office documents through the document server, and a clear message for types Brave cannot show.
+
+## 1.2.0-beta.52 (Pocket ID fork)
+
+- Add a quick preview to My files. In the panel, Preview opens pictures, video, audio, PDF and text in a full-window view with arrow keys to move between files and Esc or Space to close.
+- Add a preview pane to the website upload and save picker (Space): pictures, the first page of a PDF, a still frame of a video, the start of a text file, and file details. Previews are drawn in a separate process so a damaged file cannot close the picker.
+- Both the panel and the picker gain thumbnails for pictures, sorting by name, date or size, search, New folder, Rename and Delete, including folders with their contents.
+- The image now includes the libraries these previews need: WebP, AVIF and SVG image loaders, a PDF renderer and a video thumbnailer.
+
+## 1.2.0-beta.51 (Pocket ID fork)
+
+- Open in My files now refuses a type Brave cannot display (archives, programs, AVI, HEIC and similar) with a message to download it instead. Before, Brave "downloaded" the file and left a duplicate in My files.
+
+## 1.2.0-beta.50 (Pocket ID fork)
+
+- Add an **Open** button to every file in My files. It opens the file as a new tab in the remote browser: pictures, video, audio, PDF and text directly from the Downloads folder.
+- Open office documents (Word, Excel, PowerPoint, OpenDocument, CSV) through an ONLYOFFICE Docs server set with `OFFICE_SERVER_URL` and `OFFICE_JWT_SECRET`. Documents are view only; the server reads the file through a private link that expires within an hour and ends with the desktop.
+- Limit `file://` addresses to the identity's own storage by managed policy. Before, a typed `file:///` address could browse everything in the container the account could read.
+- My files picker: site filters such as `*.jpg` now match `PHOTO.JPG`, sizes are shown in a readable unit instead of always kilobytes, and hidden files such as upload fragments are no longer listed. The My files panel shows readable sizes too.
+
 ## 1.2.0-beta.49 (Pocket ID fork)
 
 - Log why a sign-in was refused: the identity provider could not be reached, the account is not in an allowed group, or the token failed verification. Each now also has its own message instead of one generic refusal.

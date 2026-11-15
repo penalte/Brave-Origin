@@ -119,12 +119,52 @@ Selkies My files includes a Delete button for individual files, with permanent
 deletion confirmed before sending the request. Only the current identity's
 Downloads files can be removed; folders and symlinks cannot be deleted.
 
+Each file also has an **Open** button, which opens it as a new tab in that
+identity's remote browser. Brave displays pictures, video (MP4, WebM), audio, PDF
+and text itself, straight from the Downloads folder. For a type it cannot
+display, such as an archive, Open says so instead of creating a duplicate. Local `file://` addresses are
+limited by managed policy to the identity storage under `/config/users`; an
+operator `BROWSER_POLICY` may change `URLBlocklist` and `URLAllowlist`.
+
+Office documents (Word, Excel, PowerPoint and OpenDocument formats, CSV) need an
+ONLYOFFICE Docs server. Set `OFFICE_SERVER_URL` to its public HTTPS address and
+`OFFICE_JWT_SECRET` (or `OFFICE_JWT_SECRET_FILE`) to its JWT secret. Open then
+loads a view-only viewer page from this application, and the document server
+fetches the file through a private link that is valid for at most an hour, only
+while the desktop is running, and never for a symlink. Nothing is written back.
+Two connections must work: the document server must reach this application's
+public address, and the remote browser must reach the document server through
+its network route, so a public hostname is the reliable choice. Without a
+document server, Open on an office file explains that one is required.
+
+The panel also has a **Preview** button per file: pictures, video, audio, PDF and
+text open in a full-window quick look, with the arrow keys to move between files
+and Esc or Space to close. Previews are fetched by your own browser with your
+session, so video and audio play on your device. The panel can search the current
+folder, sort by name, date or size, create folders, rename, and delete folders
+with their contents. Picture files show a small thumbnail.
+
 Website upload buttons and Save dialogs use a private **My files** picker. It
 opens in the same Downloads folder used by Selkies transfers, supports subfolders,
 multiple files and filename filters, and has no root, Desktop, Other Locations,
 or arbitrary path entry. Symlinks and outside paths are rejected. Folder-upload
 requests are cancelled; select individual files instead. Save names must be plain
 filenames, and existing files require overwrite confirmation.
+
+The picker has the same conveniences. Space shows a preview pane for the selected
+file: pictures, the first page of a PDF, a still frame of a video, the start of a
+text file, and its size and date. **Play** in that pane plays a video or an audio
+file right there, with its sound in the desktop's audio, a bar to move through it
+and the elapsed and total time; a click on the picture plays or pauses. A PDF can
+be paged through, animated GIFs move, a recording shows its title, artist and
+cover, a folder shows how many files it holds and their total size, and text is
+coloured by language. **Enlarge**, or a double click on the preview, gives it the
+whole window. A file without a useful extension is recognised by its content. **Open in Brave** opens
+the selected file as a browser tab under the same rules as the My files panel,
+including office documents through the document server; the tab is behind the
+picker until you close it. Typing jumps to a name, column headings sort,
+and New folder, Rename (F2) and Delete work on the selection. Previews are drawn
+by a separate process, so a damaged file costs one preview and nothing else.
 The picker has no window-manager title bar or menu; use Cancel or Escape to
 close it. Brave uses its own frame with a close-only button layout (plus tab search).
 “Use system titlebar and borders” is unchecked by default. This

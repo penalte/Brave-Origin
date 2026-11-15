@@ -148,6 +148,17 @@ async def main():
                         break
                     await asyncio.sleep(0.1)
                 assert (desktop.home/'Downloads/from-brave.txt').read_text() == user, 'Browser download policy did not resolve private HOME'
+                # Open from My files: the same page arrives as a new tab in this
+                # user's running browser, which downloads its file once more.
+                (desktop.home/'Downloads/from-brave.txt').unlink()
+                response = await client.post(server.make_url('/desktop/api/files/page.html'),
+                    headers={**auth,'Origin':headers['Origin'],'X-My-Files-Action':'open'})
+                assert response.status == 200, (response.status, await response.text())
+                for _ in range(150):
+                    if list((desktop.home/'Downloads').glob('from-brave*.txt')):
+                        break
+                    await asyncio.sleep(0.1)
+                assert list((desktop.home/'Downloads').glob('from-brave*.txt')), 'Open in Brave did not reach the running browser'
                 if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
                     # Chromium displays an infobar for the test-only media
                     # permission flag. Dismiss it before coordinate-based UI tests.

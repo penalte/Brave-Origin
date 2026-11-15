@@ -6,12 +6,15 @@ import hashlib
 import importlib.util
 import json
 import logging
+import html
 import os
 from pathlib import Path
+import pwd
 import secrets
 import shutil
 import stat
 import time
+from urllib.parse import unquote
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector, web
 
@@ -21,6 +24,9 @@ spec.loader.exec_module(single)
 sharing_spec = importlib.util.spec_from_file_location('view_sharing', '/usr/local/bin/view-sharing.py')
 sharing = importlib.util.module_from_spec(sharing_spec)
 sharing_spec.loader.exec_module(sharing)
+picker_spec = importlib.util.spec_from_file_location('file_picker', '/usr/local/bin/file-picker.py')
+picker = importlib.util.module_from_spec(picker_spec)
+picker_spec.loader.exec_module(picker)
 LOG = logging.getLogger('multi-session')
 network_spec = importlib.util.spec_from_file_location('user_network', '/usr/local/bin/user-network.py')
 user_network = importlib.util.module_from_spec(network_spec)
@@ -31,6 +37,12 @@ network_spec.loader.exec_module(user_network)
 HANDOFF_SECONDS = 600
 # How long a verified sign-in may wait to launch, or retry launching, its desktop.
 PREPARE_SECONDS = 600
+
+
+# How long a document opened from My files stays readable by the document server.
+OFFICE_SECONDS = 3600
+# One definition, shared with the picker, of what the browser and the document server can show.
+OFFICE_TYPES, BROWSER_TYPES = picker.OFFICE_TYPES, picker.BROWSER_TYPES
 
 
 class TicketExpired(web.HTTPForbidden):
@@ -158,6 +170,7 @@ class Desktop(single.Browser):
                 await self.command('usermod', '-aG', str(gid), name)
         env = session_environment(self.home, name, self.directory)
         env['BRAVE_PROXY_PORT'] = str(self.network.port)
+        env['BRAVE_OFFICE_VIEWER'] = 'true' if self.config.office_url else 'false'
         self.master_token = secrets.token_urlsafe(32)
         self.owner_token = secrets.token_urlsafe(32)
         env['SELKIES_MASTER_TOKEN'] = self.master_token
@@ -180,6 +193,19 @@ class Desktop(single.Browser):
             await asyncio.sleep(0.1)
         raise RuntimeError('Private desktop did not become ready')
 
+    async def open_url(self, url):
+        """Open an address as a new tab in this desktop's running browser.
+
+        A second launch on the same profile hands its address to the running
+        browser and exits; it never becomes a second browser.
+        """
+        name = pwd.getpwuid(self.uid).pw_name
+        env = session_environment(self.home, name, self.directory)
+        env['WAYLAND_DISPLAY'] = 'wayland-0'
+        await self.command('/usr/sbin/runuser', '-u', name, '--', '/opt/brave.com/brave-origin/brave',
+                           '--ozone-platform=wayland', f'--user-data-dir={self.home}/profile', url,
+                           timeout=20, env=env)
+
     async def stop(self):
         await super().stop()
         if self.network is not None:
@@ -201,6 +227,7 @@ class Broker(sharing.ViewSharing, single.Manager):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
         self.handoffs = {}
+        self.documents = {}
         self.choices = set()
         self.preparations = {}
         self.factory = desktop_factory or (lambda: Desktop(config))
@@ -241,7 +268,8 @@ class Broker(sharing.ViewSharing, single.Manager):
                 web.post('/session/connection', self.connection_choice),
                 web.get('/session/preparation-status', self.preparation_status),
                 web.get('/session/prepare', self.prepare_page), web.post('/session/prepare', self.prepare_session),
-                web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session), *self.sharing_routes()]
+                web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session),
+                web.get('/office/view', self.office_view), web.get('/office/file', self.office_file), *self.sharing_routes()]
 
     def require_admin(self, request, mutate=False):
         session = self.selected(request)
@@ -704,7 +732,190 @@ class Broker(sharing.ViewSharing, single.Manager):
         session = self.selected(request)
         if not session:
             raise web.HTTPForbidden(text='No active desktop')
+        path = request.path[len('/desktop'):] if request.path.startswith('/desktop/') else request.path
+        action = request.headers.get('X-My-Files-Action')
+        if request.method == 'POST' and path.startswith('/api/files/') and action:
+            relative = path[len('/api/files/'):]
+            if action == 'open':
+                return await self.open_file(request, session, relative)
+            if action in ('mkdir', 'rename', 'remove'):
+                return self.change_file(request, session, relative, action)
+            raise web.HTTPBadRequest(text='Unknown My files action')
         return await session.proxy(request)
+
+    def change_file(self, request, session, relative, action):
+        """Create a folder, rename an entry or delete one in the owner's My files."""
+        if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
+            raise web.HTTPForbidden(text='Changing files requires the session that owns them')
+        parts = relative.rstrip('/').split('/')
+        try:
+            files = self.my_files(session)
+            try:
+                if action == 'mkdir':
+                    # Created by this root process; hand it to the account that owns the tree.
+                    files.mkdir(parts, owner=session.browser.uid)
+                elif action == 'rename':
+                    files.rename(parts, unquote(request.headers.get('X-My-Files-Name', '')))
+                else:
+                    files.remove(parts)
+            finally:
+                os.close(files.fd)
+        except FileExistsError:
+            raise web.HTTPConflict(text='Something with that name already exists here.') from None
+        except FileNotFoundError:
+            raise web.HTTPNotFound(text='That item is no longer in My files.') from None
+        except (OSError, ValueError):
+            raise web.HTTPBadRequest(text='Use a plain name without / or a leading dot, inside My files.') from None
+        return web.json_response({'changed': True})
+
+    @staticmethod
+    def my_files(session):
+        # No-symlink traversal: this process is root and the tree is the user's.
+        return picker.Files(session.browser.home / 'Downloads')
+
+    async def open_file(self, request, session, relative):
+        """Open one of the owner's files as a tab in their remote browser."""
+        if session.state != 'RUNNING' or request.headers.get('Origin') != request['app_origin']:
+            raise web.HTTPForbidden(text='Opening a file requires the session that owns it')
+        kind = await self.open_parts(session, relative.split('/'))
+        return web.json_response({'opened': True, 'viewer': 'office' if kind else 'browser'})
+
+    async def open_parts(self, session, parts):
+        try:
+            files = self.my_files(session)
+            try:
+                address = files.uri(parts)
+            finally:
+                os.close(files.fd)
+        except (OSError, ValueError):
+            raise web.HTTPNotFound(text='That file is not available in My files.') from None
+        reason = picker.openable(parts[-1], bool(self.config.office_url))
+        if reason:
+            raise (web.HTTPConflict if Path(parts[-1]).suffix.lower().lstrip('.') in OFFICE_TYPES
+                   else web.HTTPUnsupportedMediaType)(text=reason)
+        kind = OFFICE_TYPES.get(Path(parts[-1]).suffix.lower().lstrip('.'))
+        if kind:
+            now = time.time()
+            self.documents = {k: v for k, v in self.documents.items() if v['expires'] > now}
+            while len(self.documents) >= 256:
+                del self.documents[next(iter(self.documents))]
+            token = secrets.token_urlsafe(32)
+            self.documents[token] = dict(session=session, parts=parts, kind=kind, origin=session.owner['origin'],
+                                         expires=min(now + OFFICE_SECONDS, session.owner['expires']))
+            # The query string keeps the token out of the access log.
+            address = session.owner['origin'] + '/office/view?t=' + token
+        try:
+            await session.browser.open_url(address)
+        except Exception:
+            LOG.exception('Could not open a file in the remote browser')
+            raise web.HTTPServiceUnavailable(text='The browser did not open the file. Please try again.') from None
+        return kind
+
+    def picker_request(self, session):
+        """Take the file the user's picker asked to open in Brave, if any.
+
+        The picker has no session cookie, so it leaves a note in its private
+        runtime folder. That folder belongs to the user: the note is read
+        without following links and names a path that is checked like any other.
+        """
+        directory = getattr(session.browser, 'directory', None)
+        if not directory:
+            return
+        note = Path(directory) / 'open-request'
+        try:
+            fd = os.open(note, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return
+        except OSError:
+            # A link or something unreadable in the note's place: discard it.
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+            return
+        try:
+            info = os.fstat(fd)
+            data = os.read(fd, 8192) if stat.S_ISREG(info.st_mode) and info.st_size <= 8192 else b''
+        finally:
+            os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+        try:
+            parts = json.loads(data)['parts']
+            if not isinstance(parts, list) or not parts or not all(isinstance(part, str) for part in parts):
+                raise ValueError('Invalid request')
+        except (ValueError, KeyError, TypeError):
+            return
+
+        async def deliver():
+            try:
+                await self.open_parts(session, parts)
+            except web.HTTPException as error:
+                LOG.info('Picker request to open a file was refused: %s', error.text)
+        task = asyncio.ensure_future(deliver())
+        self.choices.add(task)
+        task.add_done_callback(self.choices.discard)
+
+    def document(self, request):
+        """The file behind a document link. The link itself is the credential:
+        the document server and the remote browser hold no session cookie."""
+        entry = self.documents.get(request.query.get('t', ''))
+        if (not entry or entry['expires'] <= time.time() or entry['origin'] != request['app_origin']
+                or entry['session'].state != 'RUNNING' or entry['session'] not in self.sessions.values()):
+            raise web.HTTPNotFound(text='This document link is no longer valid. Open the file again from My files.')
+        try:
+            files = self.my_files(entry['session'])
+            try:
+                fd = files.open(entry['parts'])
+            finally:
+                os.close(files.fd)
+        except (OSError, ValueError):
+            raise web.HTTPNotFound(text='This file is no longer in My files.') from None
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            os.close(fd)
+            raise web.HTTPNotFound(text='This file is no longer in My files.')
+        return entry, fd, info
+
+    async def office_view(self, request):
+        entry, fd, info = self.document(request)
+        os.close(fd)
+        name = entry['parts'][-1]
+        # A new key for every version of the file, so the server never shows a stale copy.
+        key = hashlib.sha256(json.dumps([id(entry['session']), entry['parts'], info.st_mtime_ns, info.st_size]).encode()).hexdigest()[:40]
+        config = {'document': {'fileType': Path(name).suffix.lower().lstrip('.'), 'key': key, 'title': name,
+                               'url': entry['origin'] + '/office/file?t=' + request.query['t'],
+                               'permissions': {'edit': False, 'review': False, 'comment': False,
+                                               'fillForms': False, 'download': True, 'print': True}},
+                  'documentType': entry['kind'], 'type': 'desktop', 'width': '100%', 'height': '100%',
+                  'editorConfig': {'mode': 'view', 'customization': {'uiTheme': 'theme-dark', 'compactHeader': True}}}
+        if self.config.office_secret:
+            config['token'] = single.jwt.encode(config, self.config.office_secret, algorithm='HS256')
+        script = json.dumps(config).replace('<', '\\u003c')
+        page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + html.escape(name) + '</title>'
+                '<style>html,body,#viewer{height:100%;margin:0;background:#11151d;color:#edf1fa;font:16px system-ui}'
+                '#viewer{display:grid;place-items:center}</style></head><body><div id="viewer">Opening document…</div>'
+                '<script src="' + html.escape(self.config.office_url) + '/web-apps/apps/api/documents/api.js"></script>'
+                '<script>if(window.DocsAPI)new DocsAPI.DocEditor("viewer",' + script + ');'
+                'else document.getElementById("viewer").textContent="The document server could not be reached.";</script>'
+                '</body></html>')
+        return web.Response(text=page, content_type='text/html')
+
+    async def office_file(self, request):
+        _, fd, info = self.document(request)
+        try:
+            response = web.StreamResponse(headers={'Content-Type': 'application/octet-stream',
+                                                   'Content-Length': str(info.st_size)})
+            await response.prepare(request)
+            loop = asyncio.get_running_loop()
+            remaining = info.st_size
+            while remaining:
+                chunk = await loop.run_in_executor(None, os.read, fd, min(remaining, 1 << 18))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                await response.write(chunk)
+            return response
+        finally:
+            os.close(fd)
 
     async def monitor(self):
         while True:
@@ -722,6 +933,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                                 await session.browser.network.recover()
                             except (OSError,RuntimeError,ValueError):
                                 LOG.exception('Private network recovery failed')
+                        self.picker_request(session)
                         reason = session.end_reason()
                         if reason:
                             LOG.info('Ending desktop %s (%s): %s', identity[:12], session.owner['name'], reason)
@@ -750,7 +962,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                 shutil.rmtree(directory)
         # Chromium policy expands ${user_home} separately in each process.
         Path('/etc/brave/policies/managed/policies.json').write_text(
-            json.dumps(single.policies('${user_home}/Downloads')))
+            json.dumps(single.policies('${user_home}/Downloads', files=str(self.browser.users))))
         self.http = ClientSession(timeout=ClientTimeout(total=None, connect=10, sock_read=30))
         task = asyncio.create_task(self.monitor())
         try:

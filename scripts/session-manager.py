@@ -81,7 +81,7 @@ def https_url(value):
     return value.rstrip('/')
 
 
-def policies(download_directory, env=os.environ):
+def policies(download_directory, env=os.environ, files=None):
     """Managed Chromium policy: a locked baseline plus operator additions.
 
     Each blocked feature opens a browsing context outside the managed profile,
@@ -94,7 +94,11 @@ def policies(download_directory, env=os.environ):
               'BrowserGuestModeEnabled': False, 'BrowserAddPersonEnabled': False,
               # Casting discovers and reaches devices on the host's network from
               # inside a session, which no remote browser user should inherit.
-              'EnableMediaRouter': False, 'ShowCastIconInToolbar': False}
+              'EnableMediaRouter': False, 'ShowCastIconInToolbar': False,
+              # Local files open only from the user's own storage: a file://
+              # address must not browse the rest of the container.
+              'URLBlocklist': ['file://*'],
+              'URLAllowlist': ['file://' + (files or download_directory).rstrip('/') + '/']}
     extra = env.get('BROWSER_POLICY', '').strip()
     if extra:
         try:
@@ -146,6 +150,14 @@ class Config:
         # Reject a malformed policy at startup rather than at the first login.
         policies('/nonexistent', env)
         self.upload_limit = integer(env, 'MAX_UPLOAD_MB', 1024, 1, 10240) * 1024 * 1024
+        # Optional ONLYOFFICE Docs server that renders office documents opened
+        # from My files. Its JWT secret signs the viewer configuration.
+        office = env.get('OFFICE_SERVER_URL', '')
+        self.office_url = https_url(office) if office else ''
+        office_file = env.get('OFFICE_JWT_SECRET_FILE', '')
+        self.office_secret = Path(office_file).read_text().strip() if office_file else env.get('OFFICE_JWT_SECRET', '')
+        if env is os.environ:
+            os.environ.pop('OFFICE_JWT_SECRET', None)
 
 
 class OIDC:
