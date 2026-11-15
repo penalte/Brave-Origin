@@ -42,7 +42,7 @@ PY
 ls -la "$dl"
 
 shot() { as grim "$out/$1.png" 2>&1 | head -3; }
-stop() { pkill -u braveuser -f "$1"; sleep 2; }
+stop() { pkill -u braveuser -f "$1"; pkill -u braveuser gjs; sleep 2; }
 shot 00-before
 if [ ! -s "$out/00-before.png" ]; then
     echo 'The live desktop offers no screenshot interface; using a headless desktop for pictures.'
@@ -54,22 +54,24 @@ if [ ! -s "$out/00-before.png" ]; then
     shot 00-before
 fi
 
+as dbus-update-activation-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_RUNTIME_DIR PULSE_SERVER
+wins() { echo "windows: $(as wlrctl toplevel list 2>&1 | tr '\n' ';')"; }
 say 'GNOME Files in the live desktop'
 as sh -c "nautilus --new-window '$dl' > $out/nautilus.log 2>&1 &"
-sleep 12; shot 01-files
+sleep 12; shot 01-files; wins
 pgrep -u braveuser -a nautilus || echo 'NAUTILUS NOT RUNNING'
 head -30 "$out/nautilus.log"
 
 say 'Space bar from GNOME Files'
 as nautilus -s "$dl/picture.png" > /dev/null 2>&1 &
-sleep 5; as wtype -k space 2>&1 | head -3; sleep 6; shot 02-files-space
+sleep 5; as wtype -k space 2>&1 | head -3; sleep 6; shot 02-files-space; wins
 pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'sushi not started by the space bar'
 stop sushi; stop NautilusPreviewer; stop nautilus
 
 say 'Sushi on its own'
 for f in picture.png document.pdf notes.txt script.py video.mp4 sound.mp3; do
     as sh -c "sushi '$dl/$f' > $out/sushi-$f.log 2>&1 &"
-    sleep 9; shot "03-sushi-$f"
+    sleep 9; shot "03-sushi-$f"; wins
     pgrep -u braveuser -f 'sushi|NautilusPreviewer' > /dev/null && echo "$f: sushi running" || echo "$f: SUSHI NOT RUNNING"
     case $f in video.mp4|sound.mp3)
         echo "$f: playback streams on the session audio server:"; as pactl list short sink-inputs 2>&1 | head -5 ;;
@@ -99,20 +101,25 @@ cp /usr/bin/true "$HOME/prog" && chmod +x "$HOME/prog"; "$HOME/prog" && echo "a 
 echo x > /usr/trial 2>/dev/null && echo "system is WRITABLE" || echo "system is read-only"'
 
 say 'Landlock sandbox: GNOME Files and Sushi inside it'
-box sh -c "dbus-daemon --session --address=unix:path=$scratch/bus --nofork > $scratch/bus.log 2>&1 &
-sleep 2; export DBUS_SESSION_BUS_ADDRESS=unix:path=$scratch/bus
-nautilus --new-window \"\$HOME\" > $scratch/boxed-files.log 2>&1 &
-sleep 14; nautilus -s \"\$HOME/picture.png\" > /dev/null 2>&1; sleep 4; wtype -k space; sleep 12
-pkill -f NautilusPreviewer; sushi \"\$HOME/video.mp4\" > $scratch/boxed-sushi.log 2>&1 & sleep 3000" > "$out/boxed.log" 2>&1 &
-sleep 14; shot 04-boxed-files
+bus="unix:path=$scratch/bus"
+box sh -c "dbus-daemon --session --address=$bus --nofork > $scratch/bus.log 2>&1 &
+sleep 2; DBUS_SESSION_BUS_ADDRESS=$bus nautilus --new-window \"\$HOME\" > $scratch/boxed-files.log 2>&1 & sleep 3000" > "$out/boxed.log" 2>&1 &
+inbox() { box env DBUS_SESSION_BUS_ADDRESS="$bus" "$@"; }
+sleep 14; shot 04-boxed-files; wins
 pgrep -u braveuser -a nautilus || echo 'BOXED NAUTILUS NOT RUNNING'
-sleep 12; shot 05-boxed-files-space
-pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'boxed sushi not started by the space bar'
-sleep 16; shot 06-boxed-sushi-video
-pgrep -u braveuser -af 'sushi|NautilusPreviewer' || echo 'BOXED SUSHI NOT RUNNING'
-echo 'boxed playback streams:'; as pactl list short sink-inputs 2>&1 | head -5
-cat "$out/boxed.log"; head -25 "$scratch/boxed-files.log"; head -15 "$scratch/boxed-sushi.log"; head -5 "$scratch/bus.log"
-pkill -u braveuser -f 'sleep 3000'; pkill -u braveuser dbus-daemon -n; stop sushi; stop NautilusPreviewer; stop nautilus
+inbox nautilus -s "$dl/document.pdf" > /dev/null 2>&1 &
+sleep 5; as wtype -k space; sleep 9; shot 05-boxed-files-space; wins
+pgrep -u braveuser -a gjs || echo 'boxed sushi not started by the space bar'
+for f in picture.png notes.txt script.py video.mp4 sound.mp3; do
+    inbox sushi "$dl/$f" > /dev/null 2>&1 &
+    sleep 9; shot "06-boxed-sushi-$f"; wins
+    pgrep -u braveuser gjs > /dev/null && echo "$f: boxed sushi running" || echo "$f: BOXED SUSHI NOT RUNNING"
+    case $f in video.mp4|sound.mp3) echo "$f: boxed playback streams:"; as pactl list short sink-inputs 2>&1 | head -5 ;; esac
+    pkill -u braveuser gjs; sleep 2
+done
+echo 'is the boxed viewer confined:'; pid=$(pgrep -u braveuser -n nautilus); grep -E 'NoNewPrivs|Seccomp' "/proc/$pid/status"
+cat "$out/boxed.log"; grep -vE 'WARNING|CRITICAL|^$' "$scratch/boxed-files.log" | head -10; grep -E 'Activating|denied|rror' "$scratch/bus.log" | cut -c1-200 | head -20
+pkill -u braveuser -f 'sleep 3000'; stop sushi; pkill -u braveuser gjs; stop nautilus
 
 say 'What a session user can read outside its own storage'
 useradd -m other 2>/dev/null

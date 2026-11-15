@@ -8,5 +8,5 @@ RUN apt-get update && \
         gstreamer1.0-pulseaudio gstreamer1.0-gtk3 > /trial-apt-plan.txt 2>&1 && \
     apt-get install -y --no-install-recommends nautilus gnome-sushi bubblewrap \
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav \
-        gstreamer1.0-pulseaudio gstreamer1.0-gtk3 grim wtype sway && \
+        gstreamer1.0-pulseaudio gstreamer1.0-gtk3 grim wtype sway wlrctl && \
     rm -rf /var/lib/apt/lists/*
