@@ -11,6 +11,7 @@ import signal
 import stat
 import struct
 import subprocess
+import errno
 import sys
 import time
 
@@ -150,6 +151,102 @@ class Files:
         finally:
             os.close(child)
         os.rmdir(name, dir_fd=fd)
+
+    @staticmethod
+    def free_name(fd, name):
+        """The name itself when nothing in the folder has it, otherwise "name (1)", "name (2)"..."""
+        stem, suffix = Path(name).stem, Path(name).suffix
+        for count in range(1000):
+            candidate = name if not count else f'{stem} ({count}){suffix}'
+            try:
+                os.stat(candidate, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                if valid(candidate):
+                    return candidate
+        raise FileExistsError(name)
+
+    def pair(self, parts, target):
+        """Open the folder an entry is in and the folder it is going to."""
+        if not parts or not valid(parts[-1]):
+            raise ValueError('Choose a file or folder')
+        if target[:len(parts)] == parts:
+            raise ValueError('A folder cannot go inside itself')
+        source = self.open(parts[:-1], directory=True)
+        try:
+            info = os.stat(parts[-1], dir_fd=source, follow_symlinks=False)
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                raise ValueError('Only files and folders can be moved or copied')
+            return source, self.open(target, directory=True)
+        except Exception:
+            os.close(source)
+            raise
+
+    def move(self, parts, target):
+        """Move a file or folder into another folder. Never replaces an existing entry."""
+        source, destination = self.pair(parts, target)
+        try:
+            try:
+                os.stat(parts[-1], dir_fd=destination, follow_symlinks=False)
+            except FileNotFoundError:
+                os.rename(parts[-1], parts[-1], src_dir_fd=source, dst_dir_fd=destination)
+            else:
+                raise FileExistsError(parts[-1])
+        finally:
+            os.close(source)
+            os.close(destination)
+
+    def copy(self, parts, target, owner=None):
+        """Copy a file, or a folder with everything in it, and return the copy's name.
+
+        Links and special files inside a folder are left out, never followed.
+        """
+        source, destination = self.pair(parts, target)
+        try:
+            name = self.free_name(destination, parts[-1])
+            self.duplicate(source, parts[-1], destination, name, owner)
+            return name
+        finally:
+            os.close(source)
+            os.close(destination)
+
+    @classmethod
+    def duplicate(cls, source, name, destination, new, owner, depth=0):
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source)
+        except OSError as error:
+            if depth and error.errno in (errno.ELOOP, errno.ENXIO, errno.ENOENT):
+                return
+            raise
+        try:
+            info = os.fstat(fd)
+            if stat.S_ISDIR(info.st_mode):
+                if depth > 64:
+                    raise ValueError('Folder is nested too deeply')
+                os.mkdir(new, 0o755, dir_fd=destination)
+                child = os.open(new, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination)
+                try:
+                    if owner is not None:
+                        os.fchown(child, owner, owner)
+                    for entry in os.listdir(fd):
+                        cls.duplicate(fd, entry, child, entry, owner, depth + 1)
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(info.st_mode):
+                target = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=destination)
+                try:
+                    if owner is not None:
+                        os.fchown(target, owner, owner)
+                    while True:
+                        chunk = os.read(fd, 1 << 20)
+                        if not chunk:
+                            break
+                        view = memoryview(chunk)
+                        while view:
+                            view = view[os.write(target, view):]
+                finally:
+                    os.close(target)
+        finally:
+            os.close(fd)
 
     def uri(self, parts, save=False):
         if not parts:

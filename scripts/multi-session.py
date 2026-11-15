@@ -27,6 +27,10 @@ sharing_spec.loader.exec_module(sharing)
 picker_spec = importlib.util.spec_from_file_location('file_picker', '/usr/local/bin/file-picker.py')
 picker = importlib.util.module_from_spec(picker_spec)
 picker_spec.loader.exec_module(picker)
+files_spec = importlib.util.spec_from_file_location('my_files', '/usr/local/bin/my-files.py')
+files_api = importlib.util.module_from_spec(files_spec)
+files_spec.loader.exec_module(files_api)
+files_api.picker = picker
 LOG = logging.getLogger('multi-session')
 network_spec = importlib.util.spec_from_file_location('user_network', '/usr/local/bin/user-network.py')
 user_network = importlib.util.module_from_spec(network_spec)
@@ -222,7 +226,7 @@ class Desktop(single.Browser):
             self.directory = None
 
 
-class Broker(sharing.ViewSharing, single.Manager):
+class Broker(files_api.FileService, sharing.ViewSharing, single.Manager):
     def __init__(self, config, desktop_factory=None, oidc=None):
         super().__init__(config, browser=Desktop(config), oidc=oidc)
         self.sessions = {}
@@ -269,7 +273,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                 web.get('/session/preparation-status', self.preparation_status),
                 web.get('/session/prepare', self.prepare_page), web.post('/session/prepare', self.prepare_session),
                 web.get('/session/resolve', self.resolve_page), web.post('/session/resolve', self.resolve_session),
-                web.get('/office/view', self.office_view), web.get('/office/file', self.office_file), *self.sharing_routes()]
+                web.get('/office/view', self.office_view), web.get('/office/file', self.office_file), *self.files_routes(), *self.sharing_routes()]
 
     def require_admin(self, request, mutate=False):
         session = self.selected(request)
@@ -705,6 +709,7 @@ class Broker(sharing.ViewSharing, single.Manager):
                 return {'location': '/', 'cookie': session.owner['cookie'], 'expires': session.owner['expires']}
 
     async def end(self, identity, session):
+        self.files_closed(session)
         await self.revoke_session_views(session)
         await session.stop_locked()
         if session.http:
@@ -772,6 +777,14 @@ class Broker(sharing.ViewSharing, single.Manager):
     def my_files(session):
         # No-symlink traversal: this process is root and the tree is the user's.
         return picker.Files(session.browser.home / 'Downloads')
+
+    def thumbnailer(self, session):
+        """The worker that draws this session's thumbnails, as the session's own user."""
+        browser = session.browser
+        name = pwd.getpwuid(browser.uid).pw_name
+        return files_api.Thumbnailer(
+            ['/usr/sbin/runuser', '-u', name, '--', 'python3', '/usr/local/bin/file-picker.py', '--render',
+             str(browser.home / 'Downloads')], session_environment(browser.home, name, browser.directory))
 
     async def open_file(self, request, session, relative):
         """Open one of the owner's files as a tab in their remote browser."""

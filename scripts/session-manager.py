@@ -938,6 +938,8 @@ class Manager:
                 # handoff page without disclosing referrers to other sites.
                 'Referrer-Policy': 'same-origin' if request.path == '/session/resolve' else 'no-referrer',
                 'Content-Security-Policy': "frame-ancestors 'self'"})
+            # A handler that serves a user's own file names its own caching.
+            response.headers.update(request.get('own_headers', {}))
             return response
         app = web.Application(middlewares=[security], client_max_size=1024*1024)
         app.cleanup_ctx.append(self.lifecycle)

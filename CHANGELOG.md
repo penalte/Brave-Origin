@@ -1,5 +1,10 @@
 # Release notes
 
+## 1.2.0-beta.55 (Pocket ID fork)
+
+- Add the My files API that the new Files page will use. It lists folders, serves files with seeking for video and audio, draws thumbnails, receives uploads in resumable pieces, and creates, renames, moves, copies and deletes entries. Nothing changes on screen in this beta.
+- Every route answers only the session that owns the files; changes also need the page's own token. A user's file is never served as a page of this site, and thumbnails are drawn by a worker running as that user, not by the gateway.
+
 ## 1.2.0-beta.54 (Pocket ID fork)
 
 - File picker preview: page through a PDF, move through a video or recording with a position bar and elapsed and total time, click the picture to play or pause, and enlarge the preview to the whole window with Enlarge or a double click.

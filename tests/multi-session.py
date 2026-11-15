@@ -5,6 +5,8 @@ import json
 import os
 import time
 import struct
+import subprocess
+import zlib
 import av
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
@@ -159,6 +161,27 @@ async def main():
                         break
                     await asyncio.sleep(0.1)
                 assert list((desktop.home/'Downloads').glob('from-brave*.txt')), 'Open in Brave did not reach the running browser'
+                # The My files API on a real desktop: an upload lands as the user's
+                # own file, and its thumbnail is drawn by a worker running as that user.
+                owned = next(s for s in broker.sessions.values() if s.browser is desktop)
+                change = {**auth,'Origin':headers['Origin'],'X-CSRF-Token':owned.owner['csrf']}
+                def chunk(kind, data):
+                    return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data))
+                picture = (b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!IIBBBBB',1,1,8,2,0,0,0))+
+                           chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\x00'))+chunk(b'IEND',b''))
+                response = await client.post(server.make_url('/files/upload'), params={'path':'','name':user+'.png'}, data=picture,
+                    headers={**change,'X-Upload-Id':'realdesktop1','X-Upload-Offset':'0','X-Upload-Total':str(len(picture))})
+                assert response.status == 200 and (await response.json()) == {'done':True,'name':user+'.png'}, await response.text()
+                stored = desktop.home/'Downloads'/(user+'.png')
+                assert stored.read_bytes() == picture and stored.stat().st_uid == desktop.uid, 'Upload must belong to the session user'
+                response = await client.get(server.make_url('/files/list'), headers=auth)
+                assert user+'.png' in [entry['name'] for entry in (await response.json())['entries']]
+                response = await client.get(server.make_url('/files/thumb'), params={'path':user+'.png'}, headers=auth)
+                assert response.status == 200 and (await response.read()).startswith(b'\x89PNG'), 'Thumbnail worker did not draw'
+                drawn_by = subprocess.run(['pgrep','-u',str(desktop.uid),'-f','file-picker.py --render'],capture_output=True,text=True).stdout.split()
+                assert drawn_by, 'Thumbnails must be drawn as the session user, not by the gateway'
+                response = await client.post(server.make_url('/files/action'), json={'action':'delete','path':user+'.png'}, headers=change)
+                assert response.status == 200 and not stored.exists()
                 if os.environ.get('TEST_PRIVATE_PICKER') == 'true':
                     # Chromium displays an infobar for the test-only media
                     # permission flag. Dismiss it before coordinate-based UI tests.

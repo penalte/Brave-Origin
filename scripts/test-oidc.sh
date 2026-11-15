@@ -13,6 +13,7 @@ docker run --rm -i --entrypoint python3 "$image" - < tests/network-health.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/rapid-login.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/startup-readiness.py
 docker run --rm -i --entrypoint python3 "$image" - < tests/open-files.py
+docker run --rm -i --entrypoint python3 "$image" - < tests/my-files.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/browser-network.py
 docker run --rm -i --cap-add NET_ADMIN --entrypoint python3 "$image" - < tests/user-network.py
 name="brave-oidc-test-$$"
