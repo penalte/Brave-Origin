@@ -1,0 +1,44 @@
+name: Files app trial
+
+on:
+  push:
+    branches: [files-trial]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  trial:
+    if: github.repository == 'penalte/Brave-Origin'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      BASE: ghcr.io/penalte/brave-origin:1.2.0-beta.54
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build trial image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull -q "$BASE"
+          docker logout ghcr.io
+          docker build --build-arg "BASE=$BASE" -t trial -f trial/Dockerfile trial
+          docker image inspect "$BASE" trial --format '{{index .RepoTags 0}} {{.Size}}'
+      - name: Probe inside the live appliance
+        run: |
+          docker run -d --name trial --shm-size=1g --security-opt seccomp=unconfined --security-opt no-new-privileges=true \
+            -e PUID=99 -e PGID=100 -e AUTO_UPDATE=false -e ENABLE_GPU=false -e AUTH_ENABLED=true \
+            -e AUTH_PASSWORD=trial-only -e DISPLAY_WIDTH=1280 -e DISPLAY_HEIGHT=720 trial
+          for i in $(seq 90); do docker exec trial bash /usr/local/bin/healthcheck.sh >/dev/null 2>&1 && break; sleep 1; done
+          docker cp trial/probe.sh trial:/trial-probe.sh
+          docker exec trial bash /trial-probe.sh 2>&1 | tee report.txt
+          docker cp trial:/trial-out out || true
+          cp report.txt out/ || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: files-trial
+          path: out
+          retention-days: 7
